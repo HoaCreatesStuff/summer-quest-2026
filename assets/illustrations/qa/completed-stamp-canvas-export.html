@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Completed Stamp PNG Export</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet" />
+  <style>
+    html, body { margin: 0; background: transparent; }
+    canvas { display: block; width: 1024px; height: 1024px; }
+    a { position: fixed; left: 8px; top: 8px; }
+  </style>
+</head>
+<body>
+  <canvas id="stamp" width="1024" height="1024"></canvas>
+  <a id="download" download="completed-stamp.png">Download PNG</a>
+  <script>
+    const canvas = document.querySelector("#stamp");
+    const context = canvas.getContext("2d");
+    const angles = [-55, -36.7, -18.3, 0, 18.3, 36.7, 55, 125, 143.3, 161.7, 180, 198.3, 216.7, 235];
+
+    function starPath(x, y, outerRadius, innerRadius) {
+      context.beginPath();
+      for (let point = 0; point < 10; point += 1) {
+        const radius = point % 2 === 0 ? outerRadius : innerRadius;
+        const angle = -Math.PI / 2 + point * Math.PI / 5;
+        const px = x + Math.cos(angle) * radius;
+        const py = y + Math.sin(angle) * radius;
+        if (point === 0) context.moveTo(px, py);
+        else context.lineTo(px, py);
+      }
+      context.closePath();
+    }
+
+    function goldGradient() {
+      const gradient = context.createLinearGradient(-440, -220, 440, 220);
+      gradient.addColorStop(0, "#a96b00");
+      gradient.addColorStop(.13, "#e4a400");
+      gradient.addColorStop(.25, "#ffe070");
+      gradient.addColorStop(.38, "#bd7900");
+      gradient.addColorStop(.53, "#f6b900");
+      gradient.addColorStop(.65, "#fff0a0");
+      gradient.addColorStop(.78, "#c98500");
+      gradient.addColorStop(1, "#f6b900");
+      return gradient;
+    }
+
+    async function render() {
+      await document.fonts.ready;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.save();
+      context.translate(512, 512);
+      context.rotate(-20 * Math.PI / 180);
+      context.shadowColor = "rgba(39,37,34,.38)";
+      context.shadowOffsetY = 4;
+      context.shadowBlur = 2;
+      context.fillStyle = goldGradient();
+
+      angles.forEach((degrees) => {
+        const radians = degrees * Math.PI / 180;
+        const x = Math.sin(radians) * 369;
+        const y = -Math.cos(radians) * 369;
+        starPath(x, y, 32, 14.5);
+        context.fill();
+      });
+
+      context.font = "700 130px Montserrat, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText("COMPLETED", 0, 4);
+      context.restore();
+
+      canvas.toBlob((blob) => {
+        document.querySelector("#download").href = URL.createObjectURL(blob);
+      }, "image/png");
+    }
+
+    render();
+  </script>
+</body>
+</html>

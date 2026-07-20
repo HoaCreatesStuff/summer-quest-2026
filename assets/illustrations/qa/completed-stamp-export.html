@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 1024px;
+      height: 1024px;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+    body { display: grid; place-items: center; }
+    .stamp {
+      position: relative;
+      width: 820px;
+      aspect-ratio: 1;
+      transform: rotate(-20deg);
+      filter:
+        drop-shadow(0 4px 0 rgba(39,37,34,.38))
+        drop-shadow(0 0 7px rgba(255,255,255,.8));
+    }
+    .stamp-word {
+      position: absolute;
+      z-index: 2;
+      inset: 0 -64px;
+      display: grid;
+      place-items: center;
+      font-family: Montserrat, sans-serif;
+      font-size: 130px;
+      font-weight: 700;
+      letter-spacing: 0;
+      line-height: 1;
+      white-space: nowrap;
+      color: transparent;
+      background:
+        linear-gradient(110deg,
+          #a96b00 0%, #e4a400 13%, #ffe070 25%, #bd7900 38%,
+          #f6b900 53%, #fff0a0 65%, #c98500 78%, #f6b900 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .star {
+      --angle: 0deg;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 68px;
+      height: 68px;
+      margin: -34px;
+      display: grid;
+      place-items: center;
+      transform: rotate(var(--angle)) translateY(-369px) rotate(calc(-1 * var(--angle)));
+      font-size: 64px;
+      line-height: 1;
+      color: transparent;
+      background: linear-gradient(135deg, #ad7000, #ffd451 48%, #c78300 72%, #ffe37a);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+  </style>
+</head>
+<body>
+  <div class="stamp" data-stamp>
+    <strong class="stamp-word">COMPLETED</strong>
+  </div>
+  <script>
+    const starAngles = [-55, -36.7, -18.3, 0, 18.3, 36.7, 55, 125, 143.3, 161.7, 180, 198.3, 216.7, 235];
+    const stamp = document.querySelector("[data-stamp]");
+    starAngles.forEach((angle) => {
+      const star = document.createElement("span");
+      star.className = "star";
+      star.textContent = "★";
+      star.style.setProperty("--angle", `${angle}deg`);
+      stamp.appendChild(star);
+    });
+  </script>
+</body>
+</html>

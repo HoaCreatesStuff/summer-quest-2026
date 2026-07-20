@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#f7f2e9" />
+  <title>NYC Summer Quest</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Montserrat:wght@300;400;500;600&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=visual-state-refactor-v1" />
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./favicon.ico" sizes="any">
+  <link
+  rel="apple-touch-icon"
+  href="./apple-touch-icon.png"
+>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <div class="hero-cover">
+        <img class="hero-illustration" src="assets/hero-park-clean.png?v=extra-top-space-v3" alt="" aria-hidden="true" />
+        <div class="hero-title-stack">
+          <p class="eyebrow">Hoa & Erika’s 2026 Birthday Edition</p>
+          <h1><span class="title-kicker">NYC</span><span>Summer</span><span>Quest</span></h1>
+        </div>
+      </div>
+      <p class="intro"><span class="intro-lead">Welcome to our big birthday adventure!</span> Over the next few weeks, explore NYC, make memories, and complete as many adventures as you’d like before we celebrate together.</p>
+    </header>
+
+    <section class="progress-card" aria-labelledby="progress-title">
+      <div>
+        <p class="label">Current rank</p>
+        <h2 id="rankTitle">Summer Rookie</h2>
+        <p id="rankBlurb" class="rank-blurb">Every adventure starts somewhere.</p>
+      </div>
+      <div class="score-block">
+        <span id="score">0</span>
+      </div>
+      <div class="progress-track" aria-label="Progress to next rank">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+      <div class="progress-meta">
+        <span id="completedCount">0 / 25 completed</span>
+        <span id="nextRankText">30 pts to next rank</span>
+      </div>
+    </section>
+
+    <section id="briefing" class="briefing">
+      <button id="briefingToggle" class="briefing-toggle" type="button" aria-expanded="true" aria-controls="briefingBody">
+        <span>
+          <span class="label">Mission Briefing</span>
+          <span class="briefing-title">How to Play</span>
+        </span>
+        <span class="material-symbols-outlined briefing-chevron" aria-hidden="true">expand_less</span>
+      </button>
+      <div id="briefingBody" class="briefing-body">
+        <div class="briefing-inner">
+          <ul class="briefing-list">
+            <li><span class="material-symbols-outlined" aria-hidden="true">explore</span><span>Complete <strong>as many adventures as you’d like</strong> before the birthday party.</span></li>
+            <li><span class="material-symbols-outlined" aria-hidden="true">photo_camera</span><span>Upload <strong>one selfie or video</strong> for each completed challenge <em>(we wanna see your beautiful face!).</em></span></li>
+            <li><span class="material-symbols-outlined" aria-hidden="true">photo_library</span><span>Add every photo and video to the <strong>shared album</strong> so we can relive everyone’s adventures together.</span></li>
+            <li><span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span><span><strong>Fresh memories only</strong>! Every challenge should be completed specifically for this Summer Quest <em>(no digging through your camera roll).</em></span></li>
+            <li><span class="material-symbols-outlined" aria-hidden="true">looks_one</span><span><strong>One photo or video = one completed challenge</strong>. No double-dipping.</span></li>
+          </ul>
+          <div class="briefing-callout">
+            <span>Scoring</span>
+            <p>Each completed challenge earns <strong>5 points.</strong> Team up for adventures to earn <strong>2 bonus points</strong> for every friend who joins you.</p>
+          </div>
+          <p>Join us at the birthday party for one final quest, lots of laughs, and the crowning of the official <strong>Summer Quest Champion</strong>.</p>
+          <p class="closing">Most importantly: have fun, explore somewhere new, and make this your best NYC summer yet.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="questBoard" class="board-section">
+      <div class="section-heading">
+        <div>
+          <p class="label">Your board</p>
+          <h2>Choose your next adventure</h2>
+        </div>
+      </div>
+      <div id="questGrid" class="quest-grid"></div>
+      <div class="board-actions" aria-label="Board actions">
+        <div class="board-action-buttons">
+          <button id="viewBoardBtn" class="secondary-button" type="button">View My Journal</button>
+          <button id="saveBoardBtn" class="secondary-button" type="button">Save My Memories</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="sheetBackdrop" class="sheet-backdrop" hidden></div>
+  <div id="questModalWrapper" class="quest-modal-wrapper" hidden>
+  <button id="desktopPreviousQuest" class="quest-nav-button desktop-quest-control desktop-quest-prev" type="button" aria-label="Previous quest">
+    <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
+  </button>
+  <section id="questSheet" class="bottom-sheet quest-modal-shell" aria-modal="true" role="dialog" aria-labelledby="sheetTitle" hidden>
+    <div class="sheet-handle"></div>
+    <button id="closeSheet" class="close-button" type="button" aria-label="Close">×</button>
+    <form id="questForm" class="quest-modal-scroll">
+    <div id="questContent" class="quest-content">
+    <div class="quest-detail-header">
+      <div class="quest-detail-copy">
+        <div class="sheet-meta">
+          <span id="sheetQuestNumber" class="sheet-status">Quest 1</span>
+          <span id="sheetCategory" class="category-pill">NYC Experience</span>
+        </div>
+        <h2 id="sheetTitle"></h2>
+        <p id="sheetDescription" class="sheet-description"></p>
+      </div>
+      <div class="sheet-icon-wrap" aria-hidden="true">
+        <img id="sheetQuestIcon" class="sheet-quest-icon" src="" alt="" />
+        <img id="completedStamp" class="completed-stamp" src="assets/illustrations/overlays/completed-stamp-256.png" alt="" hidden />
+      </div>
+    </div>
+
+      <div id="standardQuestFields" class="quest-form-fields">
+      <label class="upload-box">
+        <input id="mediaInput" type="file" accept="image/*,video/*" />
+        <span class="upload-title">Capture the moment</span>
+        <span class="upload-help">Take a photo/video or choose one from your phone.</span>
+      </label>
+
+      <div id="mediaPreview" class="media-preview" hidden></div>
+
+      <div class="form-row">
+        <label class="field">
+          <span>How many friends joined you?</span>
+          <div class="counter">
+            <button id="decrementFriends" type="button">−</button>
+            <output id="friendCount">0</output>
+            <button id="incrementFriends" type="button">+</button>
+          </div>
+        </label>
+
+        <label class="field">
+          <span>Location</span>
+          <input id="locationInput" class="text-input" type="text" placeholder="Where did this happen?" />
+        </label>
+      </div>
+
+      <label class="field caption-field">
+        <span>Caption <small>Optional</small></span>
+        <textarea id="captionInput" class="text-input" rows="3" placeholder="Add a note about this memory..."></textarea>
+      </label>
+
+      <label id="bonusField" class="bonus-field" hidden>
+        <input id="bonusInput" type="checkbox" />
+        <span id="bonusLabel"></span>
+      </label>
+
+      <div class="reward-preview" aria-live="polite">
+        <span id="rewardTitle" class="reward-title">Rewards</span>
+        <div id="rewardRows" class="reward-rows"></div>
+      </div>
+      </div>
+
+      <div id="finalQuestFlow" class="final-quest-flow" hidden>
+        <section id="missionCodeSection" class="final-stage final-code-stage" aria-labelledby="missionCodeHeading">
+          <h3 id="missionCodeHeading">Mission Code</h3>
+          <p>Find one of the birthday girls to receive your Mission Code.</p>
+          <label class="field final-code-field">
+            <span class="sr-only">Mission Code</span>
+            <input id="missionCodeInput" class="text-input" type="text" placeholder="Enter your Mission Code" autocomplete="off" />
+          </label>
+          <p id="missionCodeError" class="field-error" role="alert" hidden></p>
+          <button id="unlockFinalChallenge" class="primary-button final-unlock-button" type="button">UNLOCK FINAL CHALLENGE</button>
+        </section>
+
+        <section id="finalChallengeSection" class="final-challenge" aria-labelledby="finalChallengeHeading" hidden>
+          <div class="final-unlocked-message">
+            <h3 id="finalChallengeHeading">🔓 Final Challenge Unlocked!</h3>
+            <p>Talk to other guests to discover the answers to these two questions about the birthday girls. Each correct answer is worth <strong>5 points</strong>.</p>
+          </div>
+
+          <div class="final-trivia-fields">
+            <label class="field">
+              <span id="finalQuestionOne">Question 1</span>
+              <input id="finalAnswerOne" class="text-input" type="text" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span id="finalQuestionTwo">Question 2</span>
+              <input id="finalAnswerTwo" class="text-input" type="text" autocomplete="off" />
+            </label>
+          </div>
+        </section>
+
+        <section id="finalResults" class="final-results" aria-live="polite" hidden></section>
+      </div>
+
+      <div class="quest-navigation" aria-label="Quest navigation">
+        <button id="previousQuest" class="quest-nav-button" type="button" aria-label="Previous quest">
+          <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
+        </button>
+        <span id="questPosition" class="quest-position">Quest 1 of 25</span>
+        <button id="nextQuest" class="quest-nav-button" type="button" aria-label="Next quest">
+          <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+        </button>
+      </div>
+
+      <button id="saveQuest" class="primary-button" type="submit">Save memory</button>
+      <button id="removeQuest" class="secondary-button" type="button" hidden>Remove submission</button>
+    </div>
+    </form>
+    <p id="questAnnouncement" class="sr-only" aria-live="polite"></p>
+  </section>
+  <button id="desktopNextQuest" class="quest-nav-button desktop-quest-control desktop-quest-next" type="button" aria-label="Next quest">
+    <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+  </button>
+  </div>
+
+  <script src="data/challenges.js?v=adventure-complete-v1"></script>
+  <script src="data/storyTemplates.js?v=story-icons-v1"></script>
+  <script src="data/app.js?v=visual-state-refactor-v1"></script>
+</body>
+</html>

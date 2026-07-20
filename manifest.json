@@ -1,0 +1,25 @@
+{
+  "name": "Hoa & Erika's Birthday Summer Quest",
+  "short_name": "Summer Quest 2026",
+  "description": "Hoa & Erika's epic NYC birthday adventure.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFF9F0",
+  "theme_color": "#F35F59",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "./assets/favicon/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/favicon/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

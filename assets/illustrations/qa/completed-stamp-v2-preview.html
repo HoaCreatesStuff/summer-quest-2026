@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Completed Stamp V2 Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #f7f2e9;
+      --ink: #272522;
+      --coral: #f35f59;
+      --gold: #f6b900;
+      --teal: #2f8f8c;
+      --foil: #e8d2a2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 30px 20px;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Montserrat, sans-serif;
+    }
+    main { width: min(760px, 100%); margin: 0 auto; }
+    .hero {
+      min-height: 410px;
+      display: grid;
+      place-items: center;
+      border-radius: 28px;
+      background:
+        linear-gradient(45deg, rgba(39,37,34,.035) 25%, transparent 25%) 0 0 / 24px 24px,
+        linear-gradient(-45deg, rgba(39,37,34,.035) 25%, transparent 25%) 0 12px / 24px 24px,
+        #fffaf2;
+      border: 1px solid rgba(39,37,34,.08);
+    }
+    .stamp {
+      position: relative;
+      width: 360px;
+      aspect-ratio: 1;
+      transform: rotate(-20deg);
+      filter:
+        drop-shadow(0 2px 0 rgba(39,37,34,.38))
+        drop-shadow(0 0 3px rgba(255,255,255,.8));
+    }
+    .stamp-word {
+      position: absolute;
+      z-index: 2;
+      inset: 0 -28px;
+      display: grid;
+      place-items: center;
+      font-family: Montserrat, sans-serif;
+      font-size: 57px;
+      font-weight: 700;
+      letter-spacing: 0;
+      line-height: 1;
+      color: transparent;
+      background:
+        linear-gradient(110deg,
+          #a96b00 0%, #e4a400 13%, #ffe070 25%, #bd7900 38%,
+          #f6b900 53%, #fff0a0 65%, #c98500 78%, #f6b900 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .star {
+      --angle: 0deg;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 30px;
+      height: 30px;
+      margin: -15px;
+      display: grid;
+      place-items: center;
+      transform: rotate(var(--angle)) translateY(-162px) rotate(calc(-1 * var(--angle)));
+      font-size: 28px;
+      line-height: 1;
+      color: transparent;
+      background: linear-gradient(135deg, #ad7000, #ffd451 48%, #c78300 72%, #ffe37a);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 22px;
+    }
+    .card {
+      position: relative;
+      aspect-ratio: 1;
+      overflow: hidden;
+      border-radius: 20px;
+      border: 1px solid rgba(39,37,34,.1);
+    }
+    .card:nth-child(1) { background: var(--gold); }
+    .card:nth-child(2) { background: var(--coral); }
+    .card:nth-child(3) { background: var(--teal); }
+    .card:nth-child(4) { background: var(--foil); }
+    .card .stamp {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 116%;
+      transform: translate(-50%, -50%) rotate(-20deg);
+    }
+    .card .stamp-word { font-size: 14.25cqi; letter-spacing: 0; }
+    .card .star {
+      width: 12%;
+      height: 12%;
+      margin: -6%;
+      font-size: clamp(8px, 1.9vw, 15px);
+      transform: rotate(var(--angle)) translateY(-45cqi) rotate(calc(-1 * var(--angle)));
+    }
+    .card { container-type: inline-size; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero" aria-label="Completed stamp preview">
+      <div class="stamp" data-stamp>
+        <strong class="stamp-word">COMPLETED</strong>
+      </div>
+    </section>
+    <section class="cards" aria-label="Card color comparison">
+      <div class="card"><div class="stamp" data-stamp><strong class="stamp-word">COMPLETED</strong></div></div>
+      <div class="card"><div class="stamp" data-stamp><strong class="stamp-word">COMPLETED</strong></div></div>
+      <div class="card"><div class="stamp" data-stamp><strong class="stamp-word">COMPLETED</strong></div></div>
+      <div class="card"><div class="stamp" data-stamp><strong class="stamp-word">COMPLETED</strong></div></div>
+    </section>
+  </main>
+  <script>
+    const starAngles = [-55, -36.7, -18.3, 0, 18.3, 36.7, 55, 125, 143.3, 161.7, 180, 198.3, 216.7, 235];
+    document.querySelectorAll("[data-stamp]").forEach((stamp) => {
+      starAngles.forEach((angle) => {
+        const star = document.createElement("span");
+        star.className = "star";
+        star.textContent = "★";
+        star.style.setProperty("--angle", `${angle}deg`);
+        stamp.appendChild(star);
+      });
+    });
+  </script>
+</body>
+</html>
