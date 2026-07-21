@@ -1,273 +1,352 @@
 // Canonical quest content. Loaded as a classic script by index.html.
+
 window.QUESTS = [
   {
     id: 1,
     position: 1,
     category: "experience",
-    color: "A",
     title: "Golden Hour",
+    icon: "wb_twilight",
     description: "Catch the city glowing at sunset.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 2,
     position: 2,
     category: "challenge",
-    color: "C",
     title: "Judgy Pigeon",
+    icon: "flutter_dash",
     description: "Look for the most judgmental pigeon.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 3,
     position: 3,
     category: "experience",
-    color: "A",
     title: "Street Fashion",
+    icon: "checkroom",
     description: "Spot a look you love, or wear one yourself.",
     basePoints: 5,
-    bonus: "BONUS: The outfit is monochromatic (all one color).",
-    bonusPoints: 2
+    bonuses: [
+      {
+        id: "monochromatic-look",
+        label: "The spotted outfit is monochromatic (all one color).",
+        points: 2
+      },
+      {
+        id: "quester-fashionable-look",
+        label: "The fashionable outfit is yours.",
+        points: 2
+      }
+    ]
   },
+
   {
     id: 4,
     position: 4,
     category: "community",
-    color: "B",
     title: "Free Event",
+    icon: "festival",
     description: "Meet new people at a local free event.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 5,
     position: 5,
     category: "experience",
-    color: "A",
-    title: "Water front",
+    title: "Water Wonders",
+    icon: "waves",
     description: "Wander along a river, beach, ferry, pier, or waterfront park.",
     basePoints: 5,
-    bonus: "BONUS: you spend the day at the beach or ride a ferry.",
-    bonusPoints: 2
+    bonuses: [
+      {
+        id: "beach-day",
+        label: "Spend the day at the beach.",
+        points: 2
+      },
+      {
+        id: "ferry-ride",
+        label: "Ride a ferry.",
+        points: 2
+      }
+    ]
   },
+
   {
     id: 6,
     position: 6,
     category: "challenge",
-    color: "C",
     title: "Dance Party",
+    icon: "music_cast",
     description: "Nobody's looking. Go dance!",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 7,
     position: 7,
     category: "experience",
-    color: "A",
     title: "SHOWTIME!",
+    icon: "theater_comedy",
     description: "Cheer on a talented street or subway performer.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 8,
     position: 8,
     category: "community",
-    color: "B",
     title: "Random Kindness",
+    icon: "volunteer_activism",
     description: "Brighten someone's day with an unexpected act of kindness.",
-    basePoints: 5,
-    bonus: null
+    basePoints: 10,
+    bonuses: []
   },
+
   {
     id: 9,
     position: 9,
     category: "experience",
-    color: "A",
     title: "Favorite Art",
+    icon: "imagesmode",
     description: "Admire a work of art you can't stop thinking about.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 10,
     position: 10,
     category: "challenge",
-    color: "C",
     title: "DIY Craft",
+    icon: "palette",
     description: "Make something with your hands. Beautiful, weird, or both.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 11,
     position: 11,
     category: "experience",
-    color: "A",
     title: "Hidden Books",
+    icon: "menu_book",
     description: "Discover a bookstore that feels like a secret.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 12,
     position: 12,
     category: "challenge",
-    color: "C",
     title: "Pup-arazzi",
+    icon: "pets",
     description: "Collect selfies with five dogs. Ask the humans first.",
     basePoints: 5,
-    bonus: "If all five dogs are different breeds, or one is rocking an adorable outfit.",
-    bonusPoints: 2
+    bonuses: [
+      {
+        id: "five-different-breeds",
+        label: "All five dogs are different breeds.",
+        points: 2
+      },
+      {
+        id: "dog-outfit",
+        label: "One dog is rocking an adorable outfit.",
+        points: 2
+      }
+    ]
   },
-  {
+  
+    {
     id: 13,
     position: 13,
     category: "experience",
-    color: "A",
     title: "Iconic Skyline",
-    description: "Take in a dramatic view from your favorite vantage point.",
+    icon: "location_city",
+    description: "Find your favorite NYC skyline view.",
     basePoints: 5,
-    bonus: "If you capture the skyline after dark.",
-    bonusPoints: 2
+    bonuses: [
+      {
+        id: "after-dark",
+        label: "Capture the skyline after dark.",
+        points: 2
+      }
+    ]
   },
+
   {
     id: 14,
     position: 14,
     category: "community",
-    color: "B",
     title: "Kindness Notes",
-    description: "Leave a kind note for a stranger to discover.",
+    description: "Leave an encouraging note for a stranger to find.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 15,
     position: 15,
     category: "experience",
-    color: "A",
     title: "Farmers Market",
-    description: "Browse a farmers market and capture your favorite find.",
+    icon: "shopping_basket",
+    description: "Visit a local farmers market.",
     basePoints: 5,
-    bonus: "If you buy something fresh from the market.",
-    bonusPoints: 2
+    bonuses: [
+      {
+        id: "fresh-purchase",
+        label: "Buy something fresh from the market.",
+        points: 2
+      }
+    ]
   },
+
   {
     id: 16,
     position: 16,
     category: "challenge",
-    color: "C",
     title: "Get Sweaty",
-    description: "Do something that gets your heart pumping.",
+    icon: "fitness_center",
+    description: "Do something active outdoors or try a fitness class.",
     basePoints: 5,
-    bonus: "If you try a fitness class you've never taken before.",
-    bonusPoints: 2
+    bonuses: [
+      {
+        id: "new-fitness-activity",
+        label: "Try a fitness class or activity you've never done before.",
+        points: 2
+      }
+    ]
   },
+
   {
     id: 17,
     position: 17,
     category: "experience",
-    color: "A",
     title: "Street Mural",
-    description: "Stop for a mural worth admiring.",
+    icon: "brush",
+    description: "Find a mural that catches your eye.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 18,
     position: 18,
     category: "community",
-    color: "B",
     title: "Group Stoop",
-    description: "Gather on a classic stoop for a group photo.",
+    icon: "stairs",
+    description: "Gather your friends for a classic NYC stoop photo.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 19,
     position: 19,
     category: "experience",
-    color: "A",
-    title: "Fav Hide-away",
-    description: "Share a quiet corner you love.",
+    title: "Hideaway",
+    icon: "park",
+    description: "Escape the crowds and find your favorite quiet spot.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 20,
     position: 20,
     category: "challenge",
-    color: "C",
     title: "Cinema Moment",
-    description: "Recreate an iconic movie scene.",
+    icon: "movie",
+    description: "Recreate a scene from your favorite movie or TV show.",
     basePoints: 5,
-    bonus: "BONUS: the scene is related to NYC in some way.",
-    bonusPoints: 2
+    bonuses: [
+      {
+        id: "nyc-related-scene",
+        label: "The scene is related to NYC in some way.",
+        points: 2
+      }
+    ]
   },
+
   {
     id: 21,
     position: 21,
-    category: "community",
-    color: "B",
+    category: "experience",
     title: "Park Picnic",
-    description: "Pack something delicious and enjoy a picnic in the park.",
+    icon: "lunch_dining",
+    description: "Enjoy a picnic in one of NYC's parks.",
     basePoints: 5,
-    bonus: "BONUS: you bring homemade food.",
-    bonusPoints: 2
+    bonuses: [
+      {
+        id: "homemade-food",
+        label: "Bring homemade food.",
+        points: 2
+      }
+    ]
   },
+
   {
     id: 22,
     position: 22,
     category: "community",
-    color: "B",
     title: "Birthday Selfie",
-    description: "Grab a selfie with Hoa and Erika.",
+    icon: "photo_camera",
+    description: "Snap a selfie with the birthday girls.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 23,
     position: 23,
     category: "experience",
-    color: "A",
     title: "Animal Statue",
-    description: "Pet an animal statue.",
+    icon: "statue",
+    description: "Find an animal statue somewhere in the city.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
+
   {
     id: 24,
     position: 24,
     category: "challenge",
-    color: "C",
     title: "Human Pyramid",
-    description: "Build a human pyramid. Stability is optional.",
+    icon: "group_work",
+    description: "Build a human pyramid with your teammates.",
     basePoints: 5,
-    bonus: null
+    bonuses: []
   },
-  {
+  
+      {
     id: 25,
     position: 25,
     category: "final",
-    color: "D",
-    title: "Celebrate Together!",
-    description: "Come hang out with us at the party! We'd love to celebrate together before you take on your Final Challenge.",
+    title: "Celebrate Together",
+    icon: "celebration",
+    description: "Come hang out with us at the party! We'd love to celebrate together before you take on the Final Challenge.",
+    basePoints: 0,
+    bonuses: [],
+
+    final: true,
     missionCode: "summer26",
+
     triviaQuestions: [
-      {
-        prompt: "How did the birthday girls meet?",
-        acceptedAnswers: ["Reddit", "online"]
+      {prompt: "How did the birthday girls meet?",
+        acceptedAnswers: ["reddit", "online"]
       },
-      {
-        prompt: "How many days apart are their birthdays?",
+      {prompt: "How many days apart are their birthdays?",
         acceptedAnswers: ["4", "four", "735"]
       }
-    ],
-    basePoints: 0,
-    bonus: null,
-    final: true
+    ]
   }
 ];

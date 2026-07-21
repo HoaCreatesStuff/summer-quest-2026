@@ -1,139 +1,218 @@
+// Journal story templates keyed by the exact quest titles in challenges.js.
+// All journal copy lives here, including bonus memory continuations.
+
 window.STORY_TEMPLATES = {
-  Q01: {
-    weight: 100,
-    withLocation: "You watched the city go to bed from <strong>{location}</strong>.",
-    withoutLocation: "You watched the city glow as the sun went down."
+  "Golden Hour": {
+    storyWithLocation:
+      "You watched the city glow from <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You watched the city glow as the sun went down."
   },
 
-  Q02: {
-    weight: 50,
-    default: "You slowed down and appreciated a peaceful moment in the city."
+  "Judgy Pigeon": {
+    storyWithLocation:
+      "You spotted NYC's judgiest pigeon at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You found a pigeon with some serious attitude."
   },
 
-  Q03: {
-    weight: 70,
-    withLocation: "You found style inspiration in <strong>{location}</strong>.",
-    withoutLocation: "You found style inspiration while exploring NYC."
+  "Street Fashion": {
+    storyWithLocation:
+      "You found style inspiration in <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "NYC reminded you that great style can be found around every corner.",
+    bonusMemories: {
+      "monochromatic-look":
+        "One monochromatic look stood out from the crowd.",
+      "quester-fashionable-look":
+        "The best outfit you found was the one you were wearing."
+    }
   },
 
-  Q04: {
-    weight: 60,
-    withLocation: "You discovered that some of NYC's best experiences are free at <strong>{location}</strong>.",
-    withoutLocation: "You discovered that some of NYC's best experiences are free."
+  "Free Event": {
+    storyWithLocation:
+      "You stumbled upon a local free event at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You discovered that some of NYC's best experiences don't cost a thing."
   },
 
-  Q05: {
-    weight: 90,
-    withLocation: "You spent time by the water at <strong>{location}</strong>.",
-    withoutLocation: "You enjoyed one of NYC's beautiful waterfronts."
+  "Water Wonders": {
+    storyWithLocation:
+      "You spent some time by the water at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You found a refreshing escape by the water.",
+    bonusMemories: {
+      "beach-day":
+        "A beach day made the adventure feel like a mini vacation.",
+      "ferry-ride":
+        "Seeing the city from the water gave you a whole new perspective on NYC."
+    }
   },
 
-  Q06: {
-    weight: 60,
-    default: "You danced like nobody was watching."
+  "Dance Party": {
+    storyWithLocation:
+      "You found music, laughter, and hopefully a few new dance moves at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You danced, laughed, and shared the good vibes with the people around you."
   },
 
-  Q07: {
-    weight: 55,
-    theme: "live-music",
-    default: "You stopped to enjoy music that made the city come alive."
+  "SHOWTIME!": {
+    storyWithLocation:
+      "You cheered on talented performers at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You stopped to appreciate the artists who make NYC's streets and subways come alive."
   },
 
-  Q08: {
-    weight: 95,
-    theme: "kindness",
-    default: "You made someone's day a little brighter."
+  "Random Kindness": {
+    storyWithLocation:
+      "You made someone's day a little brighter.",
+    storyWithoutLocation:
+      "You made someone's day a little brighter."
   },
 
-  Q09: {
-    weight: 70,
-    withLocation: "You discovered art worth stopping for at <strong>{location}</strong>.",
-    withoutLocation: "You discovered art worth stopping for."
+  "Favorite Art": {
+    storyWithLocation:
+      "You discovered a piece worth stopping for at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You found a work of art that stayed with you long after you walked away."
   },
 
-  Q10: {
-    weight: 50,
-    default: "You made something with your own creativity."
+  "DIY Craft": {
+    storyWithLocation:
+      "You turned a simple idea into something uniquely yours.",
+    storyWithoutLocation:
+      "You turned a simple idea into something uniquely yours."
   },
 
-  Q11: {
-    weight: 70,
-    withLocation: "You uncovered a hidden literary gem at <strong>{location}</strong>.",
-    withoutLocation: "You uncovered a hidden literary gem."
+  "Hidden Books": {
+    storyWithLocation:
+      "You uncovered a hidden literary gem at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You stumbled upon a bookshop that felt like a secret."
   },
 
-  Q12: {
-    weight: 40,
-    default: "You met some very good dogs along the way."
+  "Pup-arazzi": {
+    storyWithLocation:
+      "You met some very good dogs while exploring the streets of NYC.",
+    storyWithoutLocation:
+      "You met some very good dogs while exploring the streets of NYC.",
+    bonusMemories: {
+      "five-different-breeds":
+        "They all had different looks, and even more different personalities.",
+      "dog-outfit":
+        "One especially well-dressed pup completely stole the show."
+    }
+  },
+  
+  "Iconic Skyline": {
+    storyWithLocation:
+      "You admired NYC's iconic skyline from <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You paused to appreciate one of New York City's unforgettable skylines.",
+    bonusMemories: {
+      "after-dark":
+        "As the city lights came to life, the view became even more magical."
+    }
   },
 
-  Q13: {
-    weight: 100,
-    withLocation: "You took in an unforgettable NYC skyline from <strong>{location}</strong>.",
-    withoutLocation: "You admired one of New York City's iconic skylines."
+  "Kindness Notes": {
+    storyWithLocation:
+      "You left a note that might brighten someone's day.",
+    storyWithoutLocation:
+      "You left a note that might brighten someone's day."
   },
 
-  Q14: {
-    weight: 60,
-    theme: "kindness",
-    default: "You left a kind note to brighten someone's day."
+  "Farmers Market": {
+    storyWithLocation:
+      "You explored the stalls at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You wandered through one of NYC's bustling farmers markets.",
+    bonusMemories: {
+      "fresh-purchase":
+        "You even brought home something fresh to enjoy later."
+    }
   },
 
-  Q15: {
-    weight: 60,
-    withLocation: "You picked up something fresh at <strong>{location}</strong>.",
-    withoutLocation: "You explored one of NYC's local farmers markets."
+  "Get Sweaty": {
+    storyWithLocation:
+      "You squeezed in a summer workout at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "A summer workout means a lot of sweat, minimal muscle gain, and a tiny sprinkle of pain.",
+    bonusMemories: {
+      "new-fitness-activity":
+        "Stepping outside your comfort zone made the challenge even more rewarding."
+    }
   },
 
-  Q16: {
-    weight: 55,
-    default: "You challenged yourself to get moving."
+  "Street Mural": {
+    storyWithLocation:
+      "You discovered colorful street art at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You found a mural that made you stop and look."
   },
 
-  Q17: {
-    weight: 55,
-    theme: "live-music",
-    default: "You paused to enjoy music that made the city feel alive."
+  "Group Stoop": {
+    storyWithLocation:
+      "You gathered on the steps at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You found the perfect NYC stoop to hang out together."
   },
 
-  Q18: {
-    weight: 90,
-    default: "You somehow convinced your teammates to build a human pyramid."
+  "Hideaway": {
+    storyWithLocation:
+      "You found your own little hideaway at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You found a peaceful corner of the city to slow down."
   },
 
-  Q19: {
-    weight: 65,
-    withLocation: "You found a place you'll want to come back to: <strong>{location}</strong>.",
-    withoutLocation: "You found a place you'll want to come back to."
+  "Cinema Moment": {
+    storyWithLocation:
+      "You recreated a movie-worthy moment at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You brought a movie scene to life. ",
+    bonusMemories: {
+      "nyc-related-scene":
+        "Your acting skills deserved an Oscar. Or a Razzie. It's open for debate."
+    }
   },
 
-  Q20: {
-    weight: 75,
-    default: "You found a scene worthy of the big screen."
+  "Park Picnic": {
+    storyWithLocation:
+      "You enjoyed a picnic at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You slowed down for a relaxing picnic in the city.",
+    bonusMemories: {
+      "homemade-food":
+        "Homemade food made the afternoon even more special."
+    }
   },
 
-  Q21: {
-    weight: 60,
-    default: "You enjoyed a relaxing picnic in the city."
+  "Birthday Selfie": {
+    storyWithLocation:
+      "You captured a birthday memory with the birthday girls.",
+    storyWithoutLocation:
+      "You captured a birthday memory with the birthday girls."
   },
 
-  Q22: {
-    weight: 50,
-    default: "You captured a memory worth keeping."
+  "Animal Statue": {
+    storyWithLocation:
+      "You discovered an animal statue at <strong>{location}</strong>.",
+    storyWithoutLocation:
+      "You found one of NYC's quirky animal statues."
   },
 
-  Q23: {
-    weight: 55,
-    default: "You treated yourself to something delicious."
+  "Human Pyramid": {
+    storyWithLocation:
+      "You somehow convinced your teammates to build a human pyramid.",
+    storyWithoutLocation:
+      "You somehow convinced your teammates to build a human pyramid."
   },
 
-  Q24: {
-    weight: 80,
-    default: "You experienced New York City through new eyes."
-  },
-
-  Q25: {
-    weight: 0
+  "Celebrate Together": {
+    storyWithLocation:
+      "Thank you for celebrating this summer with us. We hope these adventures brought you new memories, new stories, and made you fall in love with NYC all over again.",
+    storyWithoutLocation:
+      "Thank you for celebrating this summer with us. We hope these adventures brought you new memories, new stories, and made you fall in love with NYC all over again."
   },
 
   summary: {
@@ -144,15 +223,13 @@ window.STORY_TEMPLATES = {
       "<strong>{friendCount}</strong> people joined your adventures across NYC.",
 
     bonusesSingular:
-      "You went above and beyond <strong>{bonusCount}</strong> time.",
+      "You went above and beyond for <strong>{bonusCount}</strong> quest.",
 
     bonuses:
-      "You went above and beyond <strong>{bonusCount}</strong> times.",
+      "You went above and beyond for <strong>{bonusCount}</strong> quests.",
 
     completed:
       "You completed <strong>{completedCount}</strong> NYC adventures.",
-
-    favoriteCaption:
-      "\"{caption}\""
   }
 };
+

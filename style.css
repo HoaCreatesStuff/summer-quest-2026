@@ -10,6 +10,7 @@
   --sand: #e8d8c4;
   --line: rgba(39,37,34,.12);
   --final-card-padding: clamp(20px, 5vw, 28px);
+  --button-height: 48px;
 }
 
 * { box-sizing: border-box; }
@@ -131,7 +132,7 @@ button, input { font: inherit; }
 }
 
 .progress-card, .briefing {
-  margin-top: 28px;
+  margin-top: 20px;
   background: rgba(255,250,242,.86);
   border: 1px solid var(--line);
   border-radius: 30px;
@@ -196,7 +197,7 @@ button, input { font: inherit; }
 }
 .briefing-toggle {
   width: 100%;
-  min-height: 78px;
+  min-height: 62px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -204,7 +205,7 @@ button, input { font: inherit; }
   border: 0;
   background: transparent;
   color: var(--ink);
-  padding: 22px 24px;
+  padding: 14px 24px;
   text-align: left;
   cursor: pointer;
 }
@@ -220,6 +221,7 @@ button, input { font: inherit; }
   font-weight: 400;
 }
 .briefing-chevron {
+  font-size: 1.1rem;
   color: var(--muted);
   transition: transform .25s ease;
 }
@@ -310,13 +312,13 @@ button, input { font: inherit; }
 }
 .briefing-callout p + p { margin-top: 8px; }
 
-.board-section { margin-top: 36px; }
+.board-section { margin-top: 24px; }
 .section-heading {
   display: flex;
   align-items: end;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 22px;
+  margin-bottom: 14px;
 }
 .section-heading h2 { margin: 0; 
 font-size: 1.35rem; 
@@ -475,7 +477,8 @@ line-height: normal;
 }
 .board-actions .secondary-button {
   margin: 0;
-  min-height: 46px;
+  height: var(--button-height);
+  min-height: var(--button-height);
   width: 100%;
   border-radius: 999px;
   letter-spacing: .13em;
@@ -799,22 +802,46 @@ textarea.text-input {
 }
 .caption-field { margin-top: 22px; }
 .bonus-field {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  display: grid;
+  gap: 12px;
   margin-top: 22px;
-  line-height: 1.5;
+}
+
+.bonus-option {
+  display: grid;
+  grid-template-columns: 20px auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 12px;
   cursor: pointer;
 }
-.bonus-field input {
+
+.bonus-option-input {
   width: 20px;
   height: 20px;
-  flex: 0 0 auto;
-  margin: 1px 0 0;
+  margin: 2px 0 0;
   accent-color: var(--gold);
   cursor: pointer;
 }
-.bonus-field span {
+
+.bonus-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--ink);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bonus-option-label {
+  min-width: 0;
+  line-height: 1.5;
   font-weight: 500;
 }
 
@@ -872,14 +899,19 @@ textarea.text-input {
 }
 
 .primary-button, .secondary-button {
-  width:100%;
-  min-height:56px;
-  border-radius:999px;
-  border:0;
-  text-transform:uppercase;
-  letter-spacing:.18em;
-  font-weight:600;
-  cursor:pointer;
+  width: 100%;
+  height: var(--button-height);
+  min-height: var(--button-height);
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 0;
+  text-transform: uppercase;
+  letter-spacing: .18em;
+  font-weight: 600;
+  cursor: pointer;
 }
 .primary-button { background:var(--coral); color:white; }
 .secondary-button { margin-top:14px; background:transparent; color:var(--muted); border:1px solid var(--line); }
@@ -1092,7 +1124,8 @@ textarea.text-input {
 .adventure-complete-actions { margin-top: 26px; }
 .adventure-text-button {
   width: 100%;
-  min-height: 48px;
+  height: var(--button-height);
+  min-height: var(--button-height);
   margin-top: 10px;
   border: 0;
   background: transparent;
@@ -1152,9 +1185,10 @@ textarea.text-input {
   }
   .hero-illustration {
     width: 100%;
+    max-width: none;
   }
   .hero-title-stack {
-    padding-top: clamp(10px, 3vw, 16px);
+    padding-top: clamp(6px, 2vw, 10px);
     transform: none;
   }
   .hero-title-stack::before {
@@ -1164,7 +1198,7 @@ textarea.text-input {
   }
   .hero h1 { font-size: clamp(2.45rem, 13.8vw, 4rem); }
   .intro {
-    margin-top: 16px;
+    margin-top: 10px;
   }
   .section-heading {
     align-items: start;
@@ -1323,7 +1357,7 @@ body.keepsake-preview-open { overflow: hidden; }
   margin-top: 8px;
 }
 .story-hero .hero-cover {
-  aspect-ratio: 1696 / 700;
+  aspect-ratio: 1696 / 1040;
 }
 .story-hero .hero-title-stack {
   height: 100%;
@@ -1520,7 +1554,8 @@ body.keepsake-preview-open { overflow: hidden; }
   margin-top: 28px;
 }
 .page-bottom-actions .secondary-button {
-  min-height: 48px;
+  height: var(--button-height);
+  min-height: var(--button-height);
   margin: 0;
   padding-inline: 16px;
   font-size: .68rem;
@@ -1549,8 +1584,8 @@ body.keepsake-preview-open { overflow: hidden; }
 }
 .keepsake-preview-stage {
   position: relative;
-  width: min(100%, 600px);
-  max-height: min(72dvh, calc(100dvh - 230px));
+  width: 100%;
+  max-height: none;
   aspect-ratio: 6 / 7;
   margin: 0 auto;
   overflow: hidden;
@@ -1653,6 +1688,14 @@ body.keepsake-preview-open { overflow: hidden; }
   padding: 1.25cqw;
   background: var(--keepsake-tile-color);
   pointer-events: none;
+}
+.keepsake-board .keepsake-quest-card.final-quest-card {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,250,242,.86), transparent 28%),
+    radial-gradient(circle at 82% 88%, rgba(246,185,0,.22), transparent 30%),
+    linear-gradient(135deg, #fff4d5 0%, #ead19a 52%, #f8e7bd 100%);
+  border-color: rgba(157,112,29,.58);
+  color: #5f481d;
 }
 .keepsake-board .keepsake-quest-card:hover,
 .keepsake-board .keepsake-quest-card:active {
@@ -1799,13 +1842,13 @@ body.keepsake-preview-open { overflow: hidden; }
     font-size: .76rem;
   }
   .story-hero {
-    margin-top: 12px;
+    margin-top: 0px;
   }
   .story-hero .hero-cover {
-    aspect-ratio: 1696 / 820;
+    aspect-ratio: 1696 / 900;
   }
   .story-hero h1 {
-    font-size: clamp(1.6rem, 7vw, 2.5rem);
+    font-size: clamp(1.45rem, 6.2vw, 2.3rem);
   }
   .story-entry-header {
     grid-template-columns: 1fr;
@@ -1830,8 +1873,8 @@ body.keepsake-preview-open { overflow: hidden; }
     padding-left: 0;
   }
   .keepsake-preview-stage {
-    width: min(100%, calc((100dvh - 230px) * .857));
-    min-width: min(100%, 300px);
+  width: 100%;
+  min-width: 0;
   }
   .keepsake-sticky-header > span:nth-child(2) {
     font-size: .86rem;

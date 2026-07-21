@@ -14,7 +14,7 @@ Object.values(state.submissions).forEach((submission) => {
 let activeQuest = null;
 let activeFileData = null;
 let friendCount = 0;
-let bonusChecked = false;
+let selectedBonusIds = [];
 let finalScoreResizeObserver = null;
 
 const ranks = [
@@ -72,8 +72,6 @@ const els = {
   location: document.querySelector("#locationInput"),
   caption: document.querySelector("#captionInput"),
   bonusField: document.querySelector("#bonusField"),
-  bonusInput: document.querySelector("#bonusInput"),
-  bonusLabel: document.querySelector("#bonusLabel"),
   friendCount: document.querySelector("#friendCount"),
   incrementFriends: document.querySelector("#incrementFriends"),
   decrementFriends: document.querySelector("#decrementFriends"),
@@ -86,61 +84,38 @@ const els = {
 };
 
 const questIllustrations = {
-  1: "01-golden-hour",
-  2: "12-judgmental-pigeon",
-  3: "02-street-fashion",
-  4: "03-free-event",
-  5: "04-waterfront-wonders",
-  6: "13-dance-party",
-  7: "19-showtime",
-  8: "24-random-kindness",
-  9: "08-favorite-art",
-  10: "14-diy-craft",
-  11: "11-hidden-bookstore",
-  12: "15-pup-arazzi",
-  13: "07-iconic-skyline",
-  14: "09-kindness-notes",
-  15: "10-farmers-market",
-  16: "16-get-sweaty",
-  17: "18-street-mural",
-  18: "23-group-stoop",
-  19: "17-favorite-hideaway",
-  20: "22-cinema-moment",
-  21: "05-park-picnic",
-  22: "20-birthday-selfie",
-  23: "06-animal-statue",
-  24: "21-human-pyramid",
-  25: "25-celebrate-together"
+  1: "golden-hour",
+  2: "judgmental-pigeon",
+  3: "street-fashion",
+  4: "free-event",
+  5: "waterfront-wonders",
+  6: "dance-party",
+  7: "showtime",
+  8: "random-kindness",
+  9: "favorite-art",
+  10: "diy-craft",
+  11: "hidden-bookstore",
+  12: "pup-arazzi",
+  13: "iconic-skyline",
+  14: "kindness-notes",
+  15: "farmers-market",
+  16: "get-sweaty",
+  17: "street-mural",
+  18: "group-stoop",
+  19: "favorite-hideaway",
+  20: "cinema-moment",
+  21: "park-picnic",
+  22: "birthday-selfie",
+  23: "animal-statue",
+  24: "human-pyramid",
+  25: "celebrate-together"
 };
 
 const storyIcons = {
-  Q01: "wb_twilight",
-  Q02: "self_improvement",
-  Q03: "checkroom",
-  Q04: "local_activity",
-  Q05: "water",
-  Q06: "music_note",
-  Q07: "music_note",
-  Q08: "volunteer_activism",
-  Q09: "palette",
-  Q10: "brush",
-  Q11: "menu_book",
-  Q12: "pets",
-  Q13: "landscape",
-  Q14: "sticky_note_2",
-  Q15: "grocery",
-  Q16: "fitness_center",
-  Q17: "music_note",
-  Q18: "groups",
-  Q19: "favorite",
-  Q20: "movie",
-  Q21: "park",
-  Q22: "photo_camera",
-  Q23: "restaurant",
-  Q24: "explore",
+  location: "location_on",
+  completed: "flag",
   friends: "groups",
-  bonuses: "workspace_premium",
-  caption: "format_quote"
+  bonuses: "auto_awesome"
 };
 
 function questIllustrationPath(quest, compact = false) {
@@ -171,19 +146,58 @@ function questIsCompleted(questId) {
 
 function questPoints(submission) {
   if (!submission) return 0;
-  if (Number.isFinite(submission.earnedPoints)) return submission.earnedPoints;
-  const base = submission.basePoints ?? 5;
-  const friendPoints = Math.min(MAX_FRIENDS, Math.max(0, submission.friends || 0)) * 2;
-  return base + friendPoints + (submission.bonusChecked ? (submission.bonusPoints || 0) : 0);
+  if (Number.isFinite(submission.earnedPoints)) {
+    return submission.earnedPoints;
+  }
+
+  const basePoints = submission.basePoints ?? 5;
+
+  const friendPoints =
+    Math.min(
+      MAX_FRIENDS,
+      Math.max(0, Number(submission.friends) || 0)
+    ) * 2;
+
+  const bonusPoints = Array.isArray(submission.selectedBonuses)
+    ? submission.selectedBonuses.reduce(
+        (total, bonus) => total + (Number(bonus.points) || 0),
+        0
+      )
+    : 0;
+
+  return basePoints + friendPoints + bonusPoints;
 }
 
 function getTotals() {
-  const submissions = Object.values(state.submissions).filter(submission => submission?.completed === true);
-  const bonus = submissions.reduce((sum, s) => sum + (s.friends || 0) * 2, 0);
+  const submissions = Object.values(state.submissions).filter(
+    submission => submission?.completed === true
+  );
+
   return {
-    score: submissions.reduce((sum, s) => sum + questPoints(s), 0),
+    score: submissions.reduce(
+      (total, submission) => total + questPoints(submission),
+      0
+    ),
+
     completed: submissions.length,
-    bonus
+
+    friendPoints: submissions.reduce((total, submission) => {
+      const friends = Math.min(
+        MAX_FRIENDS,
+        Math.max(0, Number(submission.friends) || 0)
+      );
+
+      return total + friends * 2;
+    }, 0),
+
+    bonusCount: submissions.reduce(
+      (total, submission) =>
+        total +
+        (Array.isArray(submission.selectedBonuses)
+          ? submission.selectedBonuses.length
+          : 0),
+      0
+    )
   };
 }
 
@@ -228,29 +242,71 @@ function renderRewardPreview() {
   if (!activeQuest || activeQuest.final) return;
 
   const savedSubmission = completedSubmission(activeQuest.id);
-  const baseMaximum = savedSubmission?.basePoints ?? activeQuest.basePoints ?? 5;
-  const basePoints = (savedSubmission || activeFileData) ? baseMaximum : 0;
-  const friendPoints = Math.min(MAX_FRIENDS, Math.max(0, friendCount)) * 2;
-  const hasQuestBonus = Boolean(activeQuest.bonus);
-  const questBonusMaximum = hasQuestBonus
-    ? (savedSubmission?.bonusPoints ?? activeQuest.bonusPoints ?? 2)
-    : 0;
-  const questBonusEarned = hasQuestBonus && bonusChecked ? questBonusMaximum : 0;
-  const maximumPoints = baseMaximum + (MAX_FRIENDS * 2) + questBonusMaximum;
-  const currentPoints = basePoints + friendPoints + questBonusEarned;
+
+  const baseMaximum =
+    savedSubmission?.basePoints ??
+    activeQuest.basePoints ??
+    5;
+
+  const basePoints =
+    savedSubmission || activeFileData
+      ? baseMaximum
+      : 0;
+
+  const friendPoints =
+    Math.min(
+      MAX_FRIENDS,
+      Math.max(0, friendCount)
+    ) * 2;
+
+  const questBonuses = Array.isArray(activeQuest.bonuses)
+    ? activeQuest.bonuses
+    : [];
+
+  const bonusMaximum = questBonuses.reduce(
+    (total, bonus) => total + (Number(bonus.points) || 0),
+    0
+  );
+
+  const bonusEarned = questBonuses.reduce(
+    (total, bonus) =>
+      selectedBonusIds.includes(bonus.id)
+        ? total + (Number(bonus.points) || 0)
+        : total,
+    0
+  );
+
+  const maximumPoints =
+    baseMaximum +
+    (MAX_FRIENDS * 2) +
+    bonusMaximum;
+
+  const currentPoints =
+    basePoints +
+    friendPoints +
+    bonusEarned;
+
   const details = [
     `<span><b>Base</b> ${rewardValue(basePoints, baseMaximum)}</span>`,
     `<span><b>Friends</b> ${rewardValue(friendPoints, MAX_FRIENDS * 2)}</span>`
   ];
 
-  if (hasQuestBonus) {
-    details.push(`<span><b>Bonus</b> ${rewardValue(questBonusEarned, questBonusMaximum)}</span>`);
+  if (questBonuses.length > 0) {
+    details.push(
+      `<span><b>Bonus</b> ${rewardValue(bonusEarned, bonusMaximum)}</span>`
+    );
   }
 
   els.rewardTitle.textContent = "Rewards";
+
   els.rewardRows.innerHTML = `
-    <div class="reward-total-line">${rewardValue(currentPoints, maximumPoints)}</div>
-    <div class="reward-detail-line">${details.join('<span class="reward-separator">•</span>')}</div>
+    <div class="reward-total-line">
+      ${rewardValue(currentPoints, maximumPoints)}
+    </div>
+
+    <div class="reward-detail-line">
+      ${details.join('<span class="reward-separator">•</span>')}
+    </div>
   `;
 }
 
@@ -261,10 +317,34 @@ function renderFriendControls() {
   renderRewardPreview();
 }
 
-function bonusLabel(quest) {
-  if (!quest.bonus) return "";
-  const prefix = /^\s*if\b/i.test(quest.bonus) ? "" : "if ";
-  return `+${quest.bonusPoints || 0} ${prefix}${quest.bonus}`;
+function renderBonusOptions() {
+  const bonuses = Array.isArray(activeQuest?.bonuses)
+    ? activeQuest.bonuses
+    : [];
+
+  els.bonusField.hidden = bonuses.length === 0;
+
+  if (bonuses.length === 0) {
+    els.bonusField.innerHTML = "";
+    return;
+  }
+
+  els.bonusField.innerHTML = bonuses.map((bonus) => `
+    <label class="bonus-option">
+      <input
+        type="checkbox"
+        class="bonus-option-input"
+        value="${bonus.id}"
+        ${selectedBonusIds.includes(bonus.id) ? "checked" : ""}
+      />
+
+      <span class="bonus-pill">BONUS</span>
+
+      <span class="bonus-option-label">
+        ${bonus.label}
+      </span>
+    </label>
+  `).join("");
 }
 
 function normalizeFinalAnswer(value) {
@@ -317,113 +397,224 @@ function storyTextContent(markup) {
 }
 
 function questStoryKey(quest) {
-  return `Q${String(quest.id).padStart(2, "0")}`;
+  return quest.title;
 }
 
 function completedStandardQuestEntries() {
   return orderedQuests()
-    .filter(quest => !quest.final)
-    .map((quest, order) => ({ quest, order, submission: completedSubmission(quest.id) }))
-    .filter(entry => Boolean(entry.submission));
+    .filter((quest) => !quest.final)
+    .map((quest) => ({
+      quest,
+      submission: completedSubmission(quest.id)
+    }))
+    .filter((entry) => Boolean(entry.submission))
+    .sort((a, b) => {
+      const aTime = new Date(a.submission.completedAt || 0).getTime();
+      const bTime = new Date(b.submission.completedAt || 0).getTime();
+
+      return aTime - bTime;
+    });
 }
 
 function questStoryCandidate(entry) {
   const storyKey = questStoryKey(entry.quest);
   const template = storyTemplates[storyKey];
-  if (!template || !Number.isFinite(template.weight) || template.weight <= 0) return null;
+
+  if (!template) return null;
 
   const location = String(entry.submission.location || "").trim();
-  const storyTemplate = location && template.withLocation
-    ? template.withLocation
-    : template.withoutLocation || template.default;
-  const html = renderStoryMarkup(storyTemplate, { location });
-  if (!html) return null;
+
+  const baseTemplate = location
+    ? template.storyWithLocation
+    : template.storyWithoutLocation;
+
+  const baseHtml = renderStoryMarkup(baseTemplate, { location });
+  if (!baseHtml) return null;
+
+  const selectedBonuses = Array.isArray(entry.submission.selectedBonuses)
+    ? entry.submission.selectedBonuses
+    : [];
+
+  const bonusHtml = selectedBonuses
+    .map((bonus) =>
+      renderStoryMarkup(template.bonusMemories?.[bonus.id])
+    )
+    .filter(Boolean);
 
   return {
-    html,
-    normalizedText: storyTextContent(html),
-    theme: template.theme || null,
-    weight: template.weight,
-    order: entry.order,
-    kind: "quest",
-    storyKey
+    html: [baseHtml, ...bonusHtml].join(" "),
+    kind: location ? "location" : null,
+    completedAt: entry.submission.completedAt || ""
   };
 }
 
 function storyIconName(story) {
-  return storyIcons[story.kind === "quest" ? story.storyKey : story.kind] || "auto_awesome";
-}
-
-function storyCandidatesAreSimilar(candidate, selectedCandidates) {
-  return selectedCandidates.some(selected => (
-    candidate.normalizedText === selected.normalizedText
-    || (candidate.theme && selected.theme === candidate.theme)
-  ));
+  return storyIcons[story.kind] || "";
 }
 
 function buildSummerStory() {
   const completedEntries = completedStandardQuestEntries();
-  const questCandidates = completedEntries
+
+  const questStories = completedEntries
     .map(questStoryCandidate)
-    .filter(Boolean)
-    .sort((a, b) => b.weight - a.weight || a.order - b.order);
+    .filter(Boolean);
 
-  const distinctQuestCandidates = [];
-  questCandidates.forEach(candidate => {
-    if (!storyCandidatesAreSimilar(candidate, distinctQuestCandidates)) {
-      distinctQuestCandidates.push(candidate);
-    }
-  });
+  const totalFriendJoins = completedEntries.reduce(
+    (total, { submission }) => {
+      const count = Number(submission.friends);
 
-  const totalFriendJoins = completedEntries.reduce((total, { submission }) => {
-    const count = Number(submission.friends);
-    return total + (Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0);
-  }, 0);
-  const bonusCount = completedEntries.filter(({ submission }) => submission.bonusChecked === true).length;
-  const captionEntry = completedEntries
-    .filter(({ submission }) => String(submission.caption || "").trim())
-    .sort((a, b) => {
-      const aWeight = Number(storyTemplates[questStoryKey(a.quest)]?.weight) || 0;
-      const bWeight = Number(storyTemplates[questStoryKey(b.quest)]?.weight) || 0;
-      return bWeight - aWeight || a.order - b.order;
-    })[0];
+      return total + (
+        Number.isFinite(count)
+          ? Math.max(0, Math.trunc(count))
+          : 0
+      );
+    },
+    0
+  );
 
-  const aggregateCandidates = [];
+  const bonusCount = completedEntries.filter(
+  ({ submission }) =>
+    Array.isArray(submission.selectedBonuses) &&
+    submission.selectedBonuses.length > 0
+).length;
+
+  const aggregateStories = [];
+
   if (totalFriendJoins > 0) {
     const friendTemplate = totalFriendJoins === 1
       ? storyTemplates.summary?.friendsSingular
       : storyTemplates.summary?.friends;
-    const html = renderStoryMarkup(friendTemplate, { friendCount: totalFriendJoins });
-    if (html) aggregateCandidates.push({ html, kind: "friends" });
+
+    const html = renderStoryMarkup(friendTemplate, {
+      friendCount: totalFriendJoins
+    });
+
+    if (html) {
+      aggregateStories.push({
+        html,
+        kind: "friends"
+      });
+    }
   }
+
   if (bonusCount > 0) {
     const bonusTemplate = bonusCount === 1
       ? storyTemplates.summary?.bonusesSingular
       : storyTemplates.summary?.bonuses;
-    const html = renderStoryMarkup(bonusTemplate, { bonusCount });
-    if (html) aggregateCandidates.push({ html, kind: "bonuses" });
-  }
 
-  let captionCandidate = null;
-  if (captionEntry) {
-    const html = renderStoryMarkup(storyTemplates.summary?.favoriteCaption, {
-      caption: captionEntry.submission.caption
+    const html = renderStoryMarkup(bonusTemplate, {
+      bonusCount
     });
-    if (html) captionCandidate = { html, kind: "caption" };
+
+    if (html) {
+      aggregateStories.push({
+        html,
+        kind: "bonuses"
+      });
+    }
   }
 
-  const selected = distinctQuestCandidates.slice(0, 3);
-  aggregateCandidates.forEach(candidate => {
-    if (selected.length < 5) selected.push(candidate);
-  });
-  if (captionCandidate && selected.length < 5) selected.push(captionCandidate);
+  return [
+    ...questStories,
+    ...aggregateStories
+  ];
+}
 
-  for (const candidate of distinctQuestCandidates.slice(3)) {
-    if (selected.length >= 5) break;
-    selected.push(candidate);
+function buildFinalSummary() {
+  const completedEntries = completedStandardQuestEntries();
+
+  const completedCount =
+    completedEntries.length + (finalQuestCompleted() ? 1 : 0);
+
+  const friendCount = completedEntries.reduce(
+    (total, { submission }) =>
+      total + Math.max(0, Math.trunc(Number(submission.friends) || 0)),
+    0
+  );
+
+  const bonusCount = completedEntries.reduce(
+    (total, { submission }) =>
+      total +
+      (
+        Array.isArray(submission.selectedBonuses)
+          ? submission.selectedBonuses.length
+          : 0
+      ),
+    0
+  );
+
+  const summary = [
+    {
+      kind: "completed",
+      html: `One adventure at a time, you completed <strong>${completedCount} NYC quests</strong>.`
+    }
+  ];
+
+  if (friendCount === 1) {
+    summary.push({
+      kind: "friends",
+      html: `Along the way, friends joined you on <strong>1 adventure</strong>.`
+    });
+  } else if (friendCount > 1) {
+    summary.push({
+      kind: "friends",
+      html: `Along the way, friends joined you on <strong>${friendCount} adventures</strong>.`
+    });
   }
 
-  return selected.slice(0, 5);
+  if (bonusCount === 1) {
+    summary.push({
+      kind: "bonuses",
+      html: `You even unlocked <strong>1 bonus memory</strong> along the way.`
+    });
+  } else if (bonusCount > 1) {
+    summary.push({
+      kind: "bonuses",
+      html: `You even unlocked <strong>${bonusCount} bonus memories</strong> along the way.`
+    });
+  }
+
+  const baseStories = completedEntries
+    .map(({ quest, submission }) => {
+      const template = storyTemplates[questStoryKey(quest)];
+      if (!template) return null;
+
+      const location = String(submission.location || "").trim();
+
+      const baseTemplate = location
+        ? template.storyWithLocation
+        : template.storyWithoutLocation;
+
+      const html = renderStoryMarkup(baseTemplate, { location });
+      if (!html) return null;
+
+      return {
+        kind: location ? "location" : null,
+        html
+      };
+    })
+    .filter(Boolean);
+
+  for (let index = baseStories.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+
+    [baseStories[index], baseStories[randomIndex]] = [
+      baseStories[randomIndex],
+      baseStories[index]
+    ];
+  }
+
+  const featuredCount =
+    baseStories.length <= 1
+      ? baseStories.length
+      : Math.random() < 0.5
+        ? 1
+        : 2;
+
+  return [
+    ...summary,
+    ...baseStories.slice(0, featuredCount)
+  ];
 }
 
 function syncFinalScoreToRank() {
@@ -458,22 +649,22 @@ function startFinalScoreSync() {
 function renderFinalResults() {
   const { score } = getTotals();
   const rank = currentRank(score);
-  const stories = buildSummerStory();
+  const stories = buildFinalSummary();
 
   els.finalResults.innerHTML = `
     <div class="adventure-complete-page">
       <header class="adventure-complete-header">
         <img class="adventure-complete-stamp" src="assets/illustrations/overlays/completed-stamp-256.png" alt="Completed" />
-        <h3>🎉 Adventure Complete!</h3>
+        <h3>Adventure Complete!</h3>
       </header>
 
       <section class="adventure-results-row" aria-label="Final results">
         <div class="adventure-result adventure-final-score">
-          <p class="label">Final Score</p>
+          <p class="label">Score</p>
           <p class="adventure-score-value">${score}</p>
         </div>
         <div class="adventure-result adventure-final-rank">
-          <p class="label">Final Rank</p>
+          <p class="label">Rank</p>
           <div class="adventure-rank-copy">
             <h4 class="adventure-rank-value">${rank.title}</h4>
             <p class="adventure-rank-description">${rank.blurb}</p>
@@ -481,13 +672,15 @@ function renderFinalResults() {
         </div>
       </section>
 
-      <section class="adventure-story" aria-labelledby="summerStoryTitle">
-        <h4 id="summerStoryTitle">Your Summer Story</h4>
+      <section class="adventure-story">
         <div class="adventure-story-lines">
           ${stories.map(story => `
             <div class="adventure-story-line">
-              <span class="material-symbols-rounded adventure-story-icon" aria-hidden="true">${storyIconName(story)}</span>
-              <p>${story.html}</p>
+              <span class="material-symbols-rounded adventure-story-icon" aria-hidden="true">
+  ${storyIconName(story) || "auto_awesome"}
+</span>
+
+<p>${story.html}</p>
             </div>
           `).join("")}
         </div>
@@ -496,8 +689,10 @@ function renderFinalResults() {
       <p class="adventure-closing"><strong>Thanks for celebrating with us and making this birthday unforgettable.</strong></p>
 
       <div class="adventure-complete-actions">
-        <button class="primary-button" type="button" data-final-action="view-board">VIEW MY BOARD</button>
-        <button class="adventure-text-button" type="button" data-final-action="review-memories">VIEW MY SUMMER STORY</button>
+        <button class="primary-button" type="button" data-final-action="review-memories"> VIEW YOUR SUMMER STORY
+        </button>
+        <button class="adventure-text-button" type="button" data-final-action="view-board"> BACK TO BOARD
+        </button>
       </div>
     </div>
   `;
@@ -614,7 +809,7 @@ function captureDraft() {
     friends: friendCount,
     location: els.location.value,
     caption: els.caption.value,
-    bonusChecked
+    selectedBonusIds: [...selectedBonusIds]
   };
   try { save(); } catch (error) { /* Saving the completed submission still reports storage errors. */ }
 }
@@ -625,7 +820,11 @@ function renderQuest(quest, announce = false) {
   const draft = state.drafts[quest.id] || existing;
   activeFileData = draft?.dataUrl || null;
   friendCount = Math.min(MAX_FRIENDS, Math.max(0, draft?.friends || 0));
-  bonusChecked = Boolean(draft?.bonusChecked);
+  selectedBonusIds = Array.isArray(draft?.selectedBonusIds)
+  ? [...draft.selectedBonusIds]
+  : Array.isArray(draft?.selectedBonuses)
+    ? draft.selectedBonuses.map((bonus) => bonus.id)
+    : [];
   const meta = categoryMeta[quest.category] || categoryMeta.experience;
   const quests = orderedQuests();
   const questIndex = quests.findIndex(item => item.id === quest.id);
@@ -654,9 +853,7 @@ function renderQuest(quest, announce = false) {
     renderFriendControls();
     els.location.value = draft?.location || "";
     els.caption.value = draft?.caption || "";
-    els.bonusField.hidden = !quest.bonus;
-    els.bonusInput.checked = bonusChecked;
-    els.bonusLabel.textContent = bonusLabel(quest);
+    renderBonusOptions();
     renderMediaPreview(draft?.dataUrl, draft?.mediaType);
   }
   els.form.scrollTop = 0;
@@ -774,8 +971,20 @@ els.decrementFriends.addEventListener("click", () => {
   captureDraft();
 });
 
-els.bonusInput.addEventListener("change", () => {
-  bonusChecked = els.bonusInput.checked;
+els.bonusField.addEventListener("change", (event) => {
+  const input = event.target.closest(".bonus-option-input");
+  if (!input) return;
+
+  if (input.checked) {
+    if (!selectedBonusIds.includes(input.value)) {
+      selectedBonusIds.push(input.value);
+    }
+  } else {
+    selectedBonusIds = selectedBonusIds.filter(
+      bonusId => bonusId !== input.value
+    );
+  }
+
   renderRewardPreview();
   captureDraft();
 });
@@ -880,8 +1089,12 @@ els.form.addEventListener("submit", (event) => {
     location: els.location.value.trim(),
     caption: els.caption.value.trim(),
     basePoints: activeQuest.basePoints ?? 5,
-    bonusChecked,
-    bonusPoints: activeQuest.bonusPoints || 0,
+    selectedBonuses: (activeQuest.bonuses || [])
+  .filter((bonus) => selectedBonusIds.includes(bonus.id))
+  .map((bonus) => ({
+    id: bonus.id,
+    points: bonus.points
+  })),
     completedAt: new Date().toISOString()
   };
   delete state.drafts[activeQuest.id];
