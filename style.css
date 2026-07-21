@@ -28,6 +28,11 @@ body.sheet-open { overflow: hidden; }
 
 button, input { font: inherit; }
 
+a {color: var(--teal); text-decoration: underline;}
+a:visited {color: var(--teal);}
+a:hover {color: var(--coral);}
+a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
+
 .app-shell {
   width: min(100%, 760px);
   margin: 0 auto;
@@ -720,10 +725,10 @@ line-height: normal;
 }
 .upload-box {
   display: block;
-  margin-top: 16px;
-  padding: 22px;
-  border: 1.5px dashed rgba(39,37,34,.28);
-  border-radius: 22px;
+  margin-top: 14px;
+  padding: 14px 18px;
+  border: 1.5px dashed rgba(241, 108, 98, 0.45);
+  border-radius: 18px;
   text-align: center;
   cursor: pointer;
   background: rgba(255,255,255,.35);
@@ -732,7 +737,7 @@ line-height: normal;
 .upload-box:hover { border-color: rgba(47,143,140,.62); background: rgba(47,143,140,.08); }
 .upload-box input { display: none; }
 .upload-title { display:block; font-weight: 600; }
-.upload-help { display:block; margin-top:8px; color:var(--muted); font-size:.82rem; }
+.upload-help { display:block; margin-top:5px; color:var(--muted); font-size:.82rem; }
 
 .media-preview {
   margin-top: 16px;
@@ -894,7 +899,7 @@ textarea.text-input {
   font-weight: 500;
 }
 .reward-earned {
-  color: var(--coral);
+  color: var(--ink);
   font-weight: 700;
 }
 .reward-maximum {
@@ -1226,13 +1231,14 @@ textarea.text-input {
 
 .quest-card-content {
   grid-template-rows: minmax(0, .43fr) minmax(0, .57fr);
-  gap: 0;
+  gap: 2px;
+  transform: translateY(3px);
 }
 
 .quest-illustration {
   width: clamp(20px, 7.4vw, 34px);
   height: clamp(20px, 7.4vw, 34px);
-  transform: translateY(2px);
+  transform: none;
 }
 
 .quest-title {
