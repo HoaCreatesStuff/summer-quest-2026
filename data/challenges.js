@@ -255,15 +255,15 @@ window.QUESTS = [
     color: "D",
     title: "Celebrate Together!",
     description: "Come hang out with us at the party! We'd love to celebrate together before you take on your Final Challenge.",
-    missionCode: "SUMMER26",
+    missionCode: "summer26",
     triviaQuestions: [
       {
-        prompt: "What city do the birthday girls call home?",
-        acceptedAnswers: ["New York", "New York City", "NYC"]
+        prompt: "How did the birthday girls meet?",
+        acceptedAnswers: ["Reddit", "online"]
       },
       {
-        prompt: "What season do the birthday girls love for adventures?",
-        acceptedAnswers: ["Summer", "Summertime"]
+        prompt: "How many days apart are their birthdays?",
+        acceptedAnswers: ["4", "four", "735"]
       }
     ],
     basePoints: 0,

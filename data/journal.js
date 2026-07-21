@@ -342,7 +342,7 @@
     context.fillText("August 2026", width - margin, 64);
     context.fillStyle = "#1ba9b9";
     context.font = '700 42px Montserrat, sans-serif';
-    context.fillText(keepsakeNameInput.value.trim(), width - margin, 118);
+    context.fillText(keepsakeNameInput.value.trim(), width - margin, 110);
     context.fillStyle = "#272522";
     context.font = '400 28px "Libre Baskerville", serif';
     context.fillText(rank.title, width - margin, 166);
