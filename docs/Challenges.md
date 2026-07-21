@@ -9,11 +9,11 @@
                                            glowing at                     
                                            sunset.                        
 
-               2 Challenge    Judgmental   Look for the                 5 ---
+               2 Challenge    Judgy   Look for the                 5 ---
                               Pigeon       most judgmental                
                                            pigeon.                        
 
-               3 Experience   Street       Spot a look you              5 Bonus if the
+               3 Experience   Street       Spot a look you              5 BONUS: the
                               Fashion      love, or wear                  outfit is
                                            one yourself.                  monochromatic
                                                                           (all one
@@ -23,8 +23,8 @@
                                            at a local free                
                                            event.                         
 
-               5 Experience   Waterfront   Wander along a               5 Bonus if you spend
-                              Wonders      river, harbor,                 the day at the
+               5 Experience   Water        Wander along a               5 BONUS: You spend
+                              front        river, harbor,                 the day at the
                                            beach, ferry,                  beach or ride a
                                            pier, or                       ferry.
                                            waterfront                     
@@ -57,19 +57,19 @@
                                            weird, or both.                
 
               11 Experience   Hidden       Discover a                   5 ---
-                              Bookstore    bookstore that                 
+                              Books        bookstore that                 
                                            feels like a                   
                                            secret.                        
 
-              12 Challenge    Pup-arazzi   Collect selfies              5 Bonus if all 5
+              12 Challenge    Pup-arazzi   Collect selfies              5 BONUS: All 5
                                            with five dogs.                dogs are
                                            Ask the humans                 different
-                                           first.                         breeds, or one
+                                           first.                         breeds, OR one
                                                                           is rocking an
                                                                           adorable
                                                                           outfit.
 
-              13 Experience   Iconic       Take in a                    5 Bonus if you
+              13 Experience   Iconic       Take in a                    5 BBONUS: you
                               Skyline      dramatic view                  capture the
                                            from your                      skyline after
                                            favorite                       dark.
@@ -80,13 +80,13 @@
                                            stranger to                    
                                            discover.                      
 
-              15 Experience   Farmers      Browse a                     5 Bonus if you buy
+              15 Experience   Farmers      Browse a                     5 BONUS: you buy
                               Market       farmers market                 something fresh
                                            and capture                    from the
                                            your favorite                  market.
                                            find.                          
 
-              16 Challenge    Get Sweaty   Do something                 5 Bonus if you try a
+              16 Challenge    Get Sweaty   Do something                 5 BONUS: you try a
                                            that gets your                 fitness class
                                            heart pumping.                 you've never
                                                                           taken before.
@@ -100,16 +100,16 @@
                                            for a group                    
                                            photo.                         
 
-              19 Experience   Favorite     Share a quiet                5 ---
-                              Hideaway     corner you                     
+              19 Experience   Fav Hide    Share a quiet                5 ---
+                              -away     corner you                     
                                            love.                          
 
-              20 Challenge    Cinema       Recreate an                  5 Bonus if the scene
+              20 Challenge    Cinema       Recreate an                  5 BONUS: the scene
                               Moment       iconic movie                   is related to
                                            scene.                         NYC in some
                                                                           way.
 
-              21 Community    Park Picnic  Pack something               5 Bonus if you bring
+              21 Community    Park Picnic  Pack something               5 BONUS: you bring
                                            delicious and                  homemade food.
                                            enjoy a picnic                 
                                            in the park.                   

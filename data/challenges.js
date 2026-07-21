@@ -15,7 +15,7 @@ window.QUESTS = [
     position: 2,
     category: "challenge",
     color: "C",
-    title: "Judgmental Pigeon",
+    title: "Judgy Pigeon",
     description: "Look for the most judgmental pigeon.",
     basePoints: 5,
     bonus: null
@@ -28,7 +28,7 @@ window.QUESTS = [
     title: "Street Fashion",
     description: "Spot a look you love, or wear one yourself.",
     basePoints: 5,
-    bonus: "If the outfit is monochromatic (all one color).",
+    bonus: "BONUS: The outfit is monochromatic (all one color).",
     bonusPoints: 2
   },
   {
@@ -46,10 +46,10 @@ window.QUESTS = [
     position: 5,
     category: "experience",
     color: "A",
-    title: "Waterfront Wonders",
-    description: "Wander along a river, harbor, beach, ferry, pier, or waterfront park.",
+    title: "Water front",
+    description: "Wander along a river, beach, ferry, pier, or waterfront park.",
     basePoints: 5,
-    bonus: "If you spend the day at the beach or ride a ferry.",
+    bonus: "BONUS: you spend the day at the beach or ride a ferry.",
     bonusPoints: 2
   },
   {
@@ -107,7 +107,7 @@ window.QUESTS = [
     position: 11,
     category: "experience",
     color: "A",
-    title: "Hidden Bookstore",
+    title: "Hidden Books",
     description: "Discover a bookstore that feels like a secret.",
     basePoints: 5,
     bonus: null
@@ -191,7 +191,7 @@ window.QUESTS = [
     position: 19,
     category: "experience",
     color: "A",
-    title: "Favorite Hideaway",
+    title: "Fav Hide-away",
     description: "Share a quiet corner you love.",
     basePoints: 5,
     bonus: null
@@ -204,7 +204,7 @@ window.QUESTS = [
     title: "Cinema Moment",
     description: "Recreate an iconic movie scene.",
     basePoints: 5,
-    bonus: "If the scene is related to NYC in some way.",
+    bonus: "BONUS: the scene is related to NYC in some way.",
     bonusPoints: 2
   },
   {
@@ -215,7 +215,7 @@ window.QUESTS = [
     title: "Park Picnic",
     description: "Pack something delicious and enjoy a picnic in the park.",
     basePoints: 5,
-    bonus: "If you bring homemade food.",
+    bonus: "BONUS: you bring homemade food.",
     bonusPoints: 2
   },
   {
