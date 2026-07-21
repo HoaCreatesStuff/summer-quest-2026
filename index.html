@@ -3,26 +3,28 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#f7f2e9" />
+  <meta name="theme-color" content="#F35F59" />
   <title>NYC Summer Quest</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Montserrat:wght@300;400;500;600&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=visual-state-refactor-v1" />
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&amp;family=Montserrat:wght@300;400;500;600&amp;family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&amp;family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=phase1-refinements" />
   <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="./favicon.ico" sizes="any">
+  <link rel="icon" href="./assets/favicon/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon/favicon-16x16.png">
   <link
   rel="apple-touch-icon"
-  href="./apple-touch-icon.png"
+  href="./assets/favicon/apple-touch-icon.png"
 >
 </head>
 <body>
-  <main class="app-shell">
+  <main id="boardPage" class="app-shell app-page" data-page="board">
     <header class="hero">
       <div class="hero-cover">
         <img class="hero-illustration" src="assets/hero-park-clean.png?v=extra-top-space-v3" alt="" aria-hidden="true" />
         <div class="hero-title-stack">
-          <p class="eyebrow">Hoa & Erika’s 2026 Birthday Edition</p>
+          <p class="eyebrow">Hoa &amp; Erika’s 2026 Birthday Edition</p>
           <h1><span class="title-kicker">NYC</span><span>Summer</span><span>Quest</span></h1>
         </div>
       </div>
@@ -59,16 +61,17 @@
         <div class="briefing-inner">
           <ul class="briefing-list">
             <li><span class="material-symbols-outlined" aria-hidden="true">explore</span><span>Complete <strong>as many adventures as you’d like</strong> before the birthday party.</span></li>
-            <li><span class="material-symbols-outlined" aria-hidden="true">photo_camera</span><span>Upload <strong>one selfie or video</strong> for each completed challenge <em>(we wanna see your beautiful face!).</em></span></li>
+            <li><span class="material-symbols-outlined" aria-hidden="true">photo_camera</span><span>Upload <strong>one photo, selfie or video</strong> for each challenge. Square photos work the best.</span></li>
             <li><span class="material-symbols-outlined" aria-hidden="true">photo_library</span><span>Add every photo and video to the <strong>shared album</strong> so we can relive everyone’s adventures together.</span></li>
             <li><span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span><span><strong>Fresh memories only</strong>! Every challenge should be completed specifically for this Summer Quest <em>(no digging through your camera roll).</em></span></li>
-            <li><span class="material-symbols-outlined" aria-hidden="true">looks_one</span><span><strong>One photo or video = one completed challenge</strong>. No double-dipping.</span></li>
+            <li><span class="material-symbols-outlined" aria-hidden="true">groups</span><span>Team up for adventures to earn <strong>2 bonus points</strong> for every fellow quester who joins you <strong>(5 max)</strong>.</span></li>
           </ul>
           <div class="briefing-callout">
-            <span>Scoring</span>
-            <p>Each completed challenge earns <strong>5 points.</strong> Team up for adventures to earn <strong>2 bonus points</strong> for every friend who joins you.</p>
+            <span>Birthday Picnic</span>
+            <p>Join us for one final quest, lots of laughs, and the crowning of the official <strong>Summer Quest Champion</strong>.</p>
+            <p><strong>Sunday, August 16, 2026 • 2:00–5:00 PM</strong></p>
+            <p>Bryant Park Lawn, New York 10018</p>
           </div>
-          <p>Join us at the birthday party for one final quest, lots of laughs, and the crowning of the official <strong>Summer Quest Champion</strong>.</p>
           <p class="closing">Most importantly: have fun, explore somewhere new, and make this your best NYC summer yet.</p>
         </div>
       </div>
@@ -84,9 +87,83 @@
       <div id="questGrid" class="quest-grid"></div>
       <div class="board-actions" aria-label="Board actions">
         <div class="board-action-buttons">
-          <button id="viewBoardBtn" class="secondary-button" type="button">View My Journal</button>
-          <button id="saveBoardBtn" class="secondary-button" type="button">Save My Memories</button>
+          <button id="viewBoardBtn" class="secondary-button" type="button">View My Summer Story</button>
+          <button id="saveBoardBtn" class="secondary-button" type="button">Create Memory Keepsake</button>
         </div>
+      </div>
+    </section>
+  </main>
+
+  <main id="storyPage" class="app-shell app-page story-page" data-page="story" hidden>
+    <nav class="page-sticky-header story-sticky-header" aria-label="Summer story navigation">
+      <button class="sticky-back-button" type="button" data-route="board">&lt; Back to Board</button>
+      <span>My Summer Story</span>
+    </nav>
+
+    <header class="hero story-hero">
+      <div class="hero-cover">
+        <img class="hero-illustration" src="assets/hero-park-clean.png?v=extra-top-space-v3" alt="" aria-hidden="true" />
+        <div class="hero-title-stack">
+          <p class="eyebrow">Hoa &amp; Erika's Birthday Edition</p>
+          <h1><span>My Summer Story</span></h1>
+        </div>
+      </div>
+    </header>
+
+    <section id="storyTimeline" class="story-timeline" aria-label="Completed quest timeline"></section>
+
+    <section id="summerGlance" class="summer-glance" aria-labelledby="summerGlanceTitle">
+      <p id="summerGlanceTitle" class="label">Summer at a Glance</p>
+      <div id="summerGlanceGrid" class="summer-glance-grid"></div>
+    </section>
+
+    <div class="story-bottom-actions page-bottom-actions" aria-label="Story actions">
+      <button id="shareStoryBtn" class="secondary-button" type="button">Export PDF</button>
+      <button class="secondary-button" type="button" data-route="keepsake">Create Memory Keepsake</button>
+    </div>
+  </main>
+
+  <!-- Standalone keepsake page: hidden until opened from the board or story. -->
+  <main id="keepsakePage" class="app-shell app-page keepsake-page" data-page="keepsake" hidden>
+    <nav class="page-sticky-header keepsake-sticky-header" aria-label="Keepsake navigation">
+      <button id="keepsakeBackBtn" class="sticky-back-button" type="button">&lt; Back to Board</button>
+      <span>Create Memory Keepsake</span>
+    </nav>
+
+    <section class="keepsake-builder" aria-labelledby="keepsakeNameLabel">
+      <label class="field keepsake-name-field">
+        <span id="keepsakeNameLabel">Your name *</span>
+        <input id="keepsakeNameInput" class="text-input" type="text" autocomplete="name" required aria-required="true" />
+      </label>
+
+      <div id="keepsakePreviewStage" class="keepsake-preview-stage" tabindex="0" aria-label="Keepsake preview">
+        <div id="keepsakePreviewTransform" class="keepsake-preview-transform">
+          <article id="keepsakeArtwork" class="keepsake-artwork" aria-label="NYC Summer Quest keepsake">
+            <header class="keepsake-artwork-header">
+              <div class="keepsake-artwork-left">
+                <p>Hoa &amp; Erika's Birthday Edition</p>
+                <h2>NYC Summer Quest</h2>
+              </div>
+              <div class="keepsake-artwork-right">
+                <p>August 2026</p>
+                <strong id="keepsakeArtworkName">Your Name</strong>
+                <span id="keepsakeArtworkCompleted">0/25 Quests</span>
+                <em id="keepsakeArtworkRank">Summer Rookie</em>
+              </div>
+            </header>
+            <div id="keepsakeBoard" class="quest-grid keepsake-board" aria-label="Keepsake quest board"></div>
+          </article>
+          <img id="keepsakeGeneratedPreview" class="keepsake-generated-preview" alt="Generated Summer Quest keepsake" hidden />
+        </div>
+        <div id="keepsakeShimmer" class="keepsake-shimmer" hidden aria-hidden="true"></div>
+        <button id="expandKeepsakeBtn" class="keepsake-expand-button" type="button" aria-label="Expand preview">⤢</button>
+        <button id="closeKeepsakeFullscreenBtn" class="keepsake-done-button" type="button" hidden>Done</button>
+      </div>
+      <p id="keepsakeStatus" class="keepsake-status" aria-live="polite"></p>
+
+      <div class="keepsake-bottom-actions page-bottom-actions" aria-label="Keepsake actions">
+        <button id="saveKeepsakeBtn" class="secondary-button" type="button" disabled>Save to Camera Roll</button>
+        <button id="shareKeepsakeBtn" class="secondary-button" type="button" disabled>Share</button>
       </div>
     </section>
   </main>
@@ -211,8 +288,9 @@
   </button>
   </div>
 
-  <script src="data/challenges.js?v=adventure-complete-v1"></script>
+  <script src="data/challenges.js?v=phase1-refinements"></script>
   <script src="data/storyTemplates.js?v=story-icons-v1"></script>
-  <script src="data/app.js?v=visual-state-refactor-v1"></script>
+  <script src="data/app.js?v=phase1-refinements"></script>
+  <script src="data/journal.js?v=phase1-refinements"></script>
 </body>
 </html>

@@ -197,9 +197,8 @@ function finalQuestCompleted() {
 }
 
 function renderBoardActions() {
-  const unlocked = finalQuestCompleted();
-  els.viewBoard.disabled = !unlocked;
-  els.saveBoard.disabled = !unlocked;
+  els.viewBoard.disabled = false;
+  els.saveBoard.disabled = false;
 }
 
 function renderProgress() {
@@ -221,43 +220,38 @@ function renderProgress() {
   }
 }
 
-function rewardRow(label, value, className = "") {
-  return `
-    <div class="reward-row${className ? ` ${className}` : ""}">
-      <span>${label}</span>
-      <strong>${value}</strong>
-    </div>`;
-}
-
 function rewardValue(earned, maximum) {
-  return `<span class="reward-earned">${earned}</span><small class="reward-maximum"> / ${maximum}</small>`;
+  return `<span class="reward-earned">${earned}</span><span class="reward-maximum">/${maximum}</span>`;
 }
 
 function renderRewardPreview() {
   if (!activeQuest || activeQuest.final) return;
 
   const savedSubmission = completedSubmission(activeQuest.id);
-  const basePoints = savedSubmission?.basePoints ?? activeQuest.basePoints ?? 5;
+  const baseMaximum = savedSubmission?.basePoints ?? activeQuest.basePoints ?? 5;
+  const basePoints = (savedSubmission || activeFileData) ? baseMaximum : 0;
   const friendPoints = Math.min(MAX_FRIENDS, Math.max(0, friendCount)) * 2;
   const hasQuestBonus = Boolean(activeQuest.bonus);
   const questBonusMaximum = hasQuestBonus
     ? (savedSubmission?.bonusPoints ?? activeQuest.bonusPoints ?? 2)
     : 0;
   const questBonusEarned = hasQuestBonus && bonusChecked ? questBonusMaximum : 0;
-  const maximumPoints = basePoints + (MAX_FRIENDS * 2) + questBonusMaximum;
+  const maximumPoints = baseMaximum + (MAX_FRIENDS * 2) + questBonusMaximum;
   const currentPoints = basePoints + friendPoints + questBonusEarned;
-  const rows = [
-    rewardRow("Base Quest", rewardValue(basePoints, basePoints)),
-    rewardRow("Friend Bonus", rewardValue(friendPoints, MAX_FRIENDS * 2))
+  const details = [
+    `<span><b>Base</b> ${rewardValue(basePoints, baseMaximum)}</span>`,
+    `<span><b>Friends</b> ${rewardValue(friendPoints, MAX_FRIENDS * 2)}</span>`
   ];
 
   if (hasQuestBonus) {
-    rows.push(rewardRow("Quest Bonus", rewardValue(questBonusEarned, questBonusMaximum)));
+    details.push(`<span><b>Bonus</b> ${rewardValue(questBonusEarned, questBonusMaximum)}</span>`);
   }
-  rows.push(rewardRow("Total", rewardValue(currentPoints, maximumPoints), "reward-total"));
 
   els.rewardTitle.textContent = "Rewards";
-  els.rewardRows.innerHTML = rows.join("");
+  els.rewardRows.innerHTML = `
+    <div class="reward-total-line">${rewardValue(currentPoints, maximumPoints)}</div>
+    <div class="reward-detail-line">${details.join('<span class="reward-separator">•</span>')}</div>
+  `;
 }
 
 function renderFriendControls() {
@@ -503,7 +497,7 @@ function renderFinalResults() {
 
       <div class="adventure-complete-actions">
         <button class="primary-button" type="button" data-final-action="view-board">VIEW MY BOARD</button>
-        <button class="adventure-text-button" type="button" data-final-action="review-memories">REVIEW MY MEMORIES</button>
+        <button class="adventure-text-button" type="button" data-final-action="review-memories">VIEW MY SUMMER STORY</button>
       </div>
     </div>
   `;
@@ -765,6 +759,7 @@ els.mediaInput.addEventListener("change", async (event) => {
   }
   renderMediaPreview(activeFileData, file.type);
   els.mediaPreview.dataset.mediaType = file.type;
+  renderRewardPreview();
   captureDraft();
 });
 
@@ -837,10 +832,8 @@ els.finalResults.addEventListener("click", (event) => {
   }
 
   if (action === "review-memories") {
-    const quests = orderedQuests();
-    const firstCompletedQuest = quests.find(quest => !quest.final && questIsCompleted(quest.id));
-    renderQuest(firstCompletedQuest || quests[0], true);
-    els.announcement.textContent = "Your quest memories are ready to review";
+    closeSheet(false);
+    document.querySelector("#viewBoardBtn")?.click();
   }
 });
 
