@@ -745,7 +745,8 @@ function orderedQuests() {
 function renderQuestTitle(title) {
   const cardTitleLines = {
     "SHOWTIME!": ["SHOW", "TIME!"],
-    "Pup-arazzi": ["Pup-", "arazzi"]
+    "Pup-arazzi": ["Pup-", "arazzi"],
+    "Hideaway": ["Hide", "away"]
   };
 
   return (cardTitleLines[title] || title.split(" "))
@@ -786,8 +787,20 @@ function setBriefingCollapsed(isCollapsed) {
 }
 
 function initBriefing() {
-  const stored = localStorage.getItem(BRIEFING_STATE_KEY);
-  setBriefingCollapsed(stored === "true");
+  if (getTotals().completed > 0) {
+    els.board.insertAdjacentElement("afterend", els.briefing);
+    setBriefingCollapsed(true);
+  } else {
+    // Always start expanded until they complete their first quest.
+    setBriefingCollapsed(false);
+  }
+}
+
+function updateBriefingPlacement() {
+  if (getTotals().completed > 0) {
+    els.board.insertAdjacentElement("afterend", els.briefing);
+    setBriefingCollapsed(true);
+  }
 }
 
 function captureDraft() {
@@ -1072,6 +1085,7 @@ els.form.addEventListener("submit", (event) => {
     renderGrid();
     renderProgress();
     renderBoardActions();
+    updateBriefingPlacement();
     renderQuest(activeQuest);
     els.announcement.textContent = `Adventure complete. ${earnedPoints} points earned.`;
     return;
