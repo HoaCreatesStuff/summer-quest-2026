@@ -77,10 +77,12 @@ const els = {
   decrementFriends: document.querySelector("#decrementFriends"),
   rewardTitle: document.querySelector("#rewardTitle"),
   rewardRows: document.querySelector("#rewardRows"),
+  rewardPreview: document.querySelector(".reward-preview"),
   saveQuest: document.querySelector("#saveQuest"),
   remove: document.querySelector("#removeQuest"),
   viewBoard: document.querySelector("#viewBoardBtn"),
   saveBoard: document.querySelector("#saveBoardBtn"),
+  resetBoard: document.querySelector("#resetBoard"),
 };
 
 const questIllustrations = {
@@ -338,14 +340,13 @@ function renderBonusOptions() {
         type="checkbox"
         class="bonus-option-input"
         value="${bonus.id}"
-        ${selectedBonusIds.includes(bonus.id) ? "checked" : ""}
       />
 
-      <span class="bonus-pill">BONUS</span>
-
-      <span class="bonus-option-label">
-        ${bonus.label}
+      <span class="bonus-option-content">
+          <span class="bonus-pill">BONUS</span>
+          <span class="bonus-option-label">${bonus.label}</span>
       </span>
+</label>
     </label>
   `).join("");
 }
@@ -1000,11 +1001,19 @@ els.bonusField.addEventListener("change", (event) => {
       bonusId => bonusId !== input.value
     );
   }
+els.resetBoard.addEventListener("click", () => {
+  if (!confirm("Clear all Summer Quest progress?")) return;
 
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(BRIEFING_STATE_KEY);
+  location.reload();
+});
   renderRewardPreview();
   captureDraft();
 });
-
+els.rewardPreview.addEventListener("click", () => {
+  els.rewardPreview.classList.toggle("expanded");
+});
 els.location.addEventListener("input", captureDraft);
 els.caption.addEventListener("input", captureDraft);
 els.finalAnswerOne.addEventListener("input", captureDraft);

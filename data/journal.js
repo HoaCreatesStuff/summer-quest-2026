@@ -93,6 +93,7 @@
             ${group.entries.map(entry => {
               const location = String(entry.submission.location || "").trim();
               const caption = String(entry.submission.caption || "").trim();
+              const generatedStory = questStoryCandidate(entry)?.html || "";
               return `
                 <article class="story-entry">
                   <header class="story-entry-header">
@@ -103,6 +104,9 @@
                     </p>
                   </header>
                   ${mediaMarkup(entry, "story-entry-photo")}
+                  ${generatedStory
+  ? `<p class="story-generated-copy">${generatedStory}</p>`
+  : ""}
                   ${caption
                     ? `<p class="story-caption">“${escapeStoryText(caption)}”</p>`
   : ""}
@@ -535,7 +539,7 @@
     context.textBaseline = "top";
     context.fillStyle = "#272522";
     context.font = '400 54px "Libre Baskerville", serif';
-    context.fillText("My Summer Story", margin, 64);
+    context.fillText("Your Summer Story", margin, 64);
     context.font = '600 16px Montserrat, sans-serif';
     context.fillStyle = "#1ba9b9";
     context.fillText("NYC SUMMER QUEST", margin, 132);

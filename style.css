@@ -336,6 +336,37 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
 font-size: 1.35rem; 
 line-height: normal;
 }
+.board-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.board-header .label {
+  margin: 0;
+}
+
+.reset-link {
+  margin-left: auto;          /* pushes it all the way right */
+  padding: 0;
+  border: 0;
+  background: none;
+
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+
+  cursor: pointer;
+}
+
+.reset-link:hover {
+  color: var(--coral);
+}
 .text-button {
   border: 0;
   background: transparent;
@@ -753,7 +784,7 @@ line-height: normal;
 }
 
 .field { display:block; margin-top: 18px; }
-.field > span { display:block; font-weight:500; margin-bottom:12px; }
+.field > span { display:block; font-weight:500; margin-bottom:8px; }
 .field small {
   color: var(--muted);
   font-size: .72rem;
@@ -821,10 +852,27 @@ textarea.text-input {
 
 .bonus-option {
   display: grid;
-  grid-template-columns: 20px auto minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: start;
   column-gap: 12px;
   cursor: pointer;
+}
+
+.bonus-option-content {
+  min-width: 0;
+  display: block;
+  line-height: 1.5;
+}
+
+.bonus-pill {
+  display: inline-block;
+  margin: 0 6px 0 0;
+  vertical-align: .15em;
+}
+
+.bonus-option-label {
+  display: inline;
+  line-height: inherit;
 }
 
 .bonus-option-input {
@@ -881,6 +929,19 @@ textarea.text-input {
   line-height: 1.2;
   text-align: right;
   white-space: nowrap;
+  cursor: pointer;
+}
+.reward-total-line::after {
+  content: "expand_more";
+  font-family: "Material Symbols Outlined";
+  font-size: 18px;
+  margin-left: 4px;
+  color: var(--muted);
+  vertical-align: -2px;
+}
+
+.reward-preview.expanded .reward-total-line::after {
+  content: "expand_less";
 }
 .reward-detail-line {
   grid-column: 1 / -1;
@@ -897,6 +958,14 @@ textarea.text-input {
 .reward-detail-line b {
   color: var(--ink);
   font-weight: 500;
+}
+
+.reward-preview:not(.expanded) .reward-detail-line {
+  display: none;
+}
+
+.reward-preview.expanded .reward-detail-line {
+  display: flex;
 }
 
 .reward-total-earned {
@@ -1096,7 +1165,7 @@ textarea.text-input {
   color: var(--ink);
   overflow-wrap: anywhere;
 }
-.adventure-story {
+.adventure-yy {
   margin-top: 30px;
 }
 .adventure-story h4 {
@@ -1488,13 +1557,23 @@ body.keepsake-preview-open { overflow: hidden; }
   background: var(--sand);
   object-fit: cover;
 }
+.story-generated-copy {
+  width: min(100%, 560px);
+  margin: 18px 0 0;
+  color: var(--ink);
+  font-family: "Montserrat", sans-serif;
+  font-size: .95rem;
+  font-weight: 400;
+  line-height: 1.65;
+}
 .story-caption {
   width: min(100%, 560px);
-  margin: 17px 0 0;
+  margin: 10px 0 0;
   color: #4f4a44;
   font-family: "Montserrat", sans-serif;
   font-size: .95rem;
   font-style: italic;
+  font-weight: 400;
   line-height: 1.65;
 }
 .story-next-date {
