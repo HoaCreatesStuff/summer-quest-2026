@@ -61,10 +61,10 @@
                                   feels like a           
                                   secret.                
 
-    12 Challenge     Pup-arazzi   Collect selfies   5    • All 5 dogs are
-                                  with five dogs.        different
-                                  Ask the humans         breeds.`<br>`{=html}•
-                                  first.                 One dog is rocking an
+    12 Challenge     Pup-arazzi   Round up at       5    • All dogs are
+                                  least three            different
+                                  dogs for one           breeds.`<br>`{=html}•
+                                  selfie.                One dog is rocking an
                                                          adorable outfit.
 
     13 Experience    Iconic       Take in a         5    • Capture the skyline

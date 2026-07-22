@@ -26,7 +26,7 @@ body {
 }
 body.sheet-open { overflow: hidden; }
 
-button, input { font: inherit; }
+button, input, textarea, select {font: inherit;}
 
 a {color: var(--teal); text-decoration: underline;}
 a:visited {color: var(--teal);}
@@ -1492,8 +1492,8 @@ body.keepsake-preview-open { overflow: hidden; }
   width: min(100%, 560px);
   margin: 17px 0 0;
   color: #4f4a44;
-  font-family: "Libre Baskerville", serif;
-  font-size: .98rem;
+  font-family: "Montserrat", sans-serif;
+  font-size: .95rem;
   font-style: italic;
   line-height: 1.65;
 }

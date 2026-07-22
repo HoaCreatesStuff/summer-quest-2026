@@ -150,12 +150,12 @@ window.QUESTS = [
     category: "challenge",
     title: "Pup-arazzi",
     icon: "pets",
-    description: "Collect selfies with five dogs. Ask the humans first.",
+    description: "Round up at least three dogs for one selfie.",
     basePoints: 5,
     bonuses: [
       {
         id: "five-different-breeds",
-        label: "All five dogs are different breeds.",
+        label: "All dogs are different breeds.",
         points: 2
       },
       {

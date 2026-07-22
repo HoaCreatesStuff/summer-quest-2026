@@ -118,10 +118,10 @@ const storyIcons = {
   bonuses: "auto_awesome"
 };
 
-function questIllustrationPath(quest, compact = false) {
+function questIllustrationPath(quest) {
   const illustration = questIllustrations[quest.id];
   if (!illustration) return "";
-  return `assets/illustrations/icons/${illustration}${compact ? "-48" : ""}.png`;
+  return `assets/illustrations/icons/${illustration}.png`;
 }
 
 const categoryMeta = {
@@ -773,7 +773,7 @@ function renderGrid() {
       <span class="quest-card__visual ${completed ? "is-completed" : "is-open"}">
         <span class="quest-completed-badge material-symbols-outlined" aria-hidden="true">check_small</span>
         <span class="quest-card-content">
-          <img class="quest-illustration" src="${questIllustrationPath(quest, true)}" alt="" aria-hidden="true" />
+          <img class="quest-illustration" src="${questIllustrationPath(quest)}" alt="" aria-hidden="true" />
           <span class="quest-title">${renderQuestTitle(quest.title)}</span>
         </span>
       </span>

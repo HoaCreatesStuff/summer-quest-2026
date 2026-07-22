@@ -67,7 +67,7 @@
     const groups = [];
     entries.forEach((entry) => {
       const key = localDateKey(entry.submission.completedAt);
-      let group = groups.at(-1);
+      let group = groups[groups.length - 1];
       if (!group || group.key !== key) {
         group = { key, date: entry.submission.completedAt, entries: [] };
         groups.push(group);
@@ -103,7 +103,9 @@
                     </p>
                   </header>
                   ${mediaMarkup(entry, "story-entry-photo")}
-                  ${caption ? `<p class="story-caption">${escapeStoryText(caption)}</p>` : ""}
+                  ${caption
+                    ? `<p class="story-caption">“${escapeStoryText(caption)}”</p>`
+  : ""}
                 </article>`;
             }).join("")}
           </div>
@@ -155,7 +157,7 @@
       <div class="quest-card keepsake-quest-card${quest.final ? " final-quest-card" : ""}" data-keepsake-quest="${quest.id}" style="--keepsake-tile-color:${categoryTileColor(index)}" aria-label="${escapeStoryText(quest.title)}">
         <span class="quest-card__visual is-open">
           <span class="quest-card-content">
-            <img class="quest-illustration" src="${questIllustrationPath(quest, true)}" alt="" aria-hidden="true" />
+            <img class="quest-illustration" src="${questIllustrationPath(quest)}" alt="" aria-hidden="true" />
             <span class="quest-title">${renderQuestTitle(quest.title)}</span>
           </span>
         </span>
@@ -311,7 +313,9 @@
         ? captureVideoFrame(submission.dataUrl)
         : submission.dataUrl;
     }));
-    const illustrations = quests.map(quest => questIllustrationPath(quest, true));
+    const illustrations = quests.map(
+  quest => questIllustrationPath(quest)
+    );
     const [mediaImages, iconImages] = await Promise.all([
       Promise.all(mediaSources.map(loadCanvasImage)),
       Promise.all(illustrations.map(loadCanvasImage))
@@ -568,7 +572,7 @@
         }
         if (caption) {
           context.fillStyle = "#4f4a44";
-          context.font = 'italic 22px "Libre Baskerville", serif';
+          context.font = 'italic 20px Montserrat, sans-serif';
           y = drawWrappedText(context, `"${caption}"`, margin, y, contentWidth, 34, 4) + 14;
         }
         y += 46;
