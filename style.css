@@ -725,8 +725,8 @@ line-height: normal;
 }
 .upload-box {
   display: block;
-  margin-top: 14px;
-  padding: 14px 18px;
+  margin-top: 12px;
+  padding: 10px 15px;
   border: 1.5px dashed rgba(241, 108, 98, 0.45);
   border-radius: 18px;
   text-align: center;
@@ -752,7 +752,7 @@ line-height: normal;
   object-fit: cover;
 }
 
-.field { display:block; margin-top: 22px; }
+.field { display:block; margin-top: 18px; }
 .field > span { display:block; font-weight:500; margin-bottom:12px; }
 .field small {
   color: var(--muted);
@@ -764,7 +764,7 @@ line-height: normal;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
-  margin-top: 22px;
+  margin-top: 18px;
 }
 .form-row .field { margin-top: 0; }
 .counter {
@@ -816,7 +816,7 @@ textarea.text-input {
 .bonus-field {
   display: grid;
   gap: 12px;
-  margin-top: 22px;
+  margin-top: 18px;
 }
 
 .bonus-option {
@@ -862,7 +862,7 @@ textarea.text-input {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 3px 16px;
-  margin:22px 0;
+  margin:18px 0;
   padding:14px 18px;
   border-radius:18px;
   background:#fff1d1;
@@ -876,7 +876,7 @@ textarea.text-input {
   display: contents;
 }
 .reward-total-line {
-  color: var(--muted);
+  color: var(--coral);
   font-weight: 700;
   line-height: 1.2;
   text-align: right;
@@ -898,6 +898,12 @@ textarea.text-input {
   color: var(--ink);
   font-weight: 500;
 }
+
+.reward-total-earned {
+  color: var(--coral);
+  font-weight: 700;
+}
+
 .reward-earned {
   color: var(--ink);
   font-weight: 700;
@@ -1230,15 +1236,13 @@ textarea.text-input {
 }
 
 .quest-card-content {
-  grid-template-rows: minmax(0, .43fr) minmax(0, .57fr);
+  grid-template-rows: minmax(0, .50fr) minmax(0, .50fr);
   gap: 2px;
-  transform: translateY(3px);
 }
 
 .quest-illustration {
   width: clamp(20px, 7.4vw, 34px);
   height: clamp(20px, 7.4vw, 34px);
-  transform: none;
 }
 
 .quest-title {

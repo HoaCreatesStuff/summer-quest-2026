@@ -234,8 +234,11 @@ function renderProgress() {
   }
 }
 
-function rewardValue(earned, maximum) {
-  return `<span class="reward-earned">${earned}</span><span class="reward-maximum">/${maximum}</span>`;
+function rewardValue(earned, maximum, total = false) {
+  return `
+    <span class="${total ? "reward-total-earned" : "reward-earned"}">${earned}</span>
+    <span class="reward-maximum">/${maximum}</span>
+  `;
 }
 
 function renderRewardPreview() {
@@ -301,7 +304,7 @@ function renderRewardPreview() {
 
   els.rewardRows.innerHTML = `
     <div class="reward-total-line">
-      ${rewardValue(currentPoints, maximumPoints)}
+      ${rewardValue(currentPoints, maximumPoints, true)}
     </div>
 
     <div class="reward-detail-line">
@@ -768,7 +771,7 @@ function renderGrid() {
 
     button.innerHTML = `
       <span class="quest-card__visual ${completed ? "is-completed" : "is-open"}">
-        <span class="quest-completed-badge" aria-hidden="true">✓</span>
+        <span class="quest-completed-badge material-symbols-outlined" aria-hidden="true">check_small</span>
         <span class="quest-card-content">
           <img class="quest-illustration" src="${questIllustrationPath(quest, true)}" alt="" aria-hidden="true" />
           <span class="quest-title">${renderQuestTitle(quest.title)}</span>
