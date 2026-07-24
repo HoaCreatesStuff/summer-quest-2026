@@ -37,7 +37,7 @@ window.BOARD_ORDER = [
   "cinema-moment",
   "nyc-spirit",
   "human-pyramid",
-  "celebrate"
+  "party-time"
 ];
 
 window.BOARD_COLORS = [

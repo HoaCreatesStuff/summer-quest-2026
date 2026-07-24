@@ -4,7 +4,7 @@ const QUEST_DATA_MIGRATION_VERSION = 2;
 const MEDIA_MIGRATION_VERSION = 1;
 const MAX_FRIENDS = 5;
 const BONUS_POINTS = 2;
-const FINAL_QUEST_ID = "celebrate";
+const FINAL_QUEST_ID = "party-time";
 const mediaStore = window.QuestMediaStore;
 
 window.validateBoardConfig();
@@ -918,9 +918,8 @@ function orderedQuests() {
 function renderQuestTitle(title) {
   const cardTitleLines = {
     "SHOWTIME!": ["SHOW", "TIME!"],
-    "Pup-arazzi": ["Pup-", "arazzi"]
-    "Off the Map": ["Off", "the Map"]
-    "Celebrate!": ["Cele", "brate!"]
+    "Pup-arazzi": ["Pup-", "arazzi"],
+    "Off the Map": ["Off", "the Map"],
   };
 
   return (cardTitleLines[title] || title.split(/\s+/))

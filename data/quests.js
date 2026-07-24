@@ -46,7 +46,7 @@ window.QUEST_ILLUSTRATIONS = {
   "diy-craft": "assets/illustrations/icons/diy-craft.png",
   "human-pyramid": "assets/illustrations/icons/human-pyramid.png",
   "open-market": "assets/illustrations/icons/open-market.png",
-  "celebrate": "assets/illustrations/icons/celebrate-together.png"
+  "party-time": "assets/illustrations/icons/celebrate-together.png"
 };
 
 window.QUESTS = {
@@ -440,10 +440,10 @@ window.QUESTS = {
     }
   },
 
-  "celebrate": {
+  "party-time": {
     category: "community",
     icon: "celebration",
-    title: "Celebrate!",
+    title: "Party Time!",
     description: "Take a selfie with the birthday girls. If you couldn't make it, a selfie with our photo counts too!",
     basePoints: 5,
     bonuses: [
@@ -453,14 +453,13 @@ window.QUESTS = {
     reflection: null,
     bonusMemories: {},
     final: true,
-    missionCode: "summer26",
     triviaQuestions: [
       {
         prompt: "How did the birthday girls meet?",
         acceptedAnswers: ["reddit", "online"]
       },
       {
-        prompt: "How many days apart are their birthdays?",
+        prompt: "How many days apart are the girls' birthdays?",
         acceptedAnswers: ["4", "four", "735"]
       }
     ]
