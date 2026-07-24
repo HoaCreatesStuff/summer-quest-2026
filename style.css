@@ -1525,6 +1525,7 @@ textarea.text-input {
   .hero-title-stack {
     padding-top: clamp(6px, 2vw, 10px);
     transform: none;
+    max-width: 70%;
   }
   .hero-title-stack::before {
     width: 88%;
