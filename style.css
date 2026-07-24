@@ -975,7 +975,7 @@ line-height: normal;
   padding: 12px;
   border: 0;
   border-radius: 20px;
-  background: rgba(255,255,255,.38);
+  background: transparent;
 }
 .install-step-illustration {
   width: 100%;
@@ -1525,7 +1525,6 @@ textarea.text-input {
   .hero-title-stack {
     padding-top: clamp(6px, 2vw, 10px);
     transform: none;
-    max-width: 70%;
   }
   .hero-title-stack::before {
     width: 88%;
