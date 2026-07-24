@@ -359,7 +359,9 @@ line-height: normal;
 
 .reset-link {
   margin-left: auto;          /* pushes it all the way right */
-  padding: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0 0 12px;
   border: 0;
   background: none;
 
@@ -1266,6 +1268,7 @@ textarea.text-input {
 
 @media (max-width: 620px) {
   .app-shell { padding-top: 0; }
+  .intro-lead { white-space: normal; }
 
   #boardPage .hero-cover {
     aspect-ratio: 1696 / 1020;

@@ -67,7 +67,12 @@ const LEGACY_BONUS_ID_MAP = {
 
 function loadStoredState() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"submissions":{}}');
+    const savedState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"submissions":{}}');
+    if (!savedState || typeof savedState !== "object" || Array.isArray(savedState)) {
+      console.warn("[Quest migration] Saved progress had an invalid shape and was reset.");
+      return { submissions: {} };
+    }
+    return savedState;
   } catch (error) {
     console.error("[Quest migration] Saved progress could not be parsed.", error);
     return { submissions: {} };
@@ -81,9 +86,9 @@ function selectedBonusIdsFrom(record) {
       ? record.selectedBonuses.map((bonus) => typeof bonus === "string" ? bonus : bonus?.id)
       : [];
 
-  return savedBonuses
+  return [...new Set(savedBonuses
     .filter(Boolean)
-    .map((bonusId) => LEGACY_BONUS_ID_MAP[bonusId] || bonusId);
+    .map((bonusId) => LEGACY_BONUS_ID_MAP[bonusId] || bonusId))];
 }
 
 function migrateSavedCollection(collection, collectionName, migration) {
@@ -173,6 +178,8 @@ let mediaPreviewRequest = 0;
 let friendCount = 0;
 let selectedBonusIds = [];
 let finalScoreResizeObserver = null;
+let saveInProgress = false;
+let sheetTrigger = null;
 
 const ranks = [
   { min: 0, max: 29, title: "Summer Rookie", blurb: "Every adventure starts somewhere.", next: 30 },
@@ -725,19 +732,19 @@ function buildFinalSummary() {
   const summary = [
     {
       kind: "completed",
-      html: `One adventure at a time, you completed <strong>${completedCount} NYC quests</strong>.`
+      html: `One adventure at a time, you completed <strong>${completedCount} NYC ${completedCount === 1 ? "quest" : "quests"}</strong>.`
     }
   ];
 
   if (friendCount === 1) {
     summary.push({
       kind: "friends",
-      html: `Along the way, friends joined you on <strong>1 adventure</strong>.`
+      html: "Along the way, <strong>1 person</strong> joined your adventures."
     });
   } else if (friendCount > 1) {
     summary.push({
       kind: "friends",
-      html: `Along the way, friends joined you on <strong>${friendCount} adventures</strong>.`
+      html: `Along the way, <strong>${friendCount} people</strong> joined your adventures.`
     });
   }
 
@@ -757,12 +764,7 @@ function buildFinalSummary() {
     .map((entry) => questStoryCandidate(entry))
     .filter(Boolean);
 
-  const featuredCount =
-    baseStories.length <= 1
-      ? baseStories.length
-      : Math.random() < 0.5
-        ? 1
-        : 2;
+  const featuredCount = Math.min(2, baseStories.length);
 
   return [
     ...summary,
@@ -887,7 +889,9 @@ function renderFinalQuest(quest, existing, draft) {
   els.finalResults.hidden = true;
   els.form.classList.add("final-gate-mode");
   els.form.classList.remove("final-quest-mode", "final-complete-mode");
+  els.title.textContent = "Final Quest Locked";
   els.desc.textContent = "Answer the birthday trivia question to unlock the final mission.";
+  els.questIcon.hidden = true;
   els.saveQuest.hidden = true;
   els.remove.hidden = true;
 }
@@ -902,6 +906,7 @@ function renderStandardQuest(existing, finalQuest = false) {
   els.form.classList.toggle("final-quest-mode", finalQuest);
   els.form.classList.remove("final-gate-mode", "final-complete-mode");
   els.saveQuest.textContent = finalQuest ? "Submit Final Quest" : "Save Memory";
+  els.saveQuest.disabled = false;
   els.saveQuest.hidden = false;
   els.remove.hidden = finalQuest || !existing;
 }
@@ -950,7 +955,11 @@ function renderGrid() {
 function setBriefingCollapsed(isCollapsed) {
   els.briefing.classList.toggle("collapsed", isCollapsed);
   els.briefingToggle.setAttribute("aria-expanded", String(!isCollapsed));
-  localStorage.setItem(BRIEFING_STATE_KEY, String(isCollapsed));
+  try {
+    localStorage.setItem(BRIEFING_STATE_KEY, String(isCollapsed));
+  } catch (error) {
+    console.warn("[Quest state] Briefing preference could not be saved.", error);
+  }
 }
 
 function initBriefing() {
@@ -974,6 +983,11 @@ function captureDraft() {
   if (!activeQuest || els.sheet.hidden) return false;
   const finalQuest = isFinalQuest(activeQuest);
   const finalUnlocked = Boolean(state.drafts[activeQuest.id]?.finalUnlocked);
+  const previousDraft = state.drafts[activeQuest.id];
+  const restorePreviousDraft = () => {
+    if (previousDraft) state.drafts[activeQuest.id] = previousDraft;
+    else delete state.drafts[activeQuest.id];
+  };
 
   if (finalQuest && !finalUnlocked) {
     if (questIsCompleted(activeQuest.id)) return false;
@@ -987,6 +1001,7 @@ function captureDraft() {
       save();
       return true;
     } catch (error) {
+      restorePreviousDraft();
       console.warn("[Quest drafts] Final Quest draft could not be saved.", error);
       return false;
     }
@@ -1008,6 +1023,7 @@ function captureDraft() {
     save();
     return true;
   } catch (error) {
+    restorePreviousDraft();
     console.warn("[Quest drafts] Draft metadata could not be saved.", error);
     return false;
   }
@@ -1068,14 +1084,21 @@ function renderQuest(quest, announce = false) {
 }
 
 function openSheet(quest) {
+  sheetTrigger = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
   renderQuest(quest);
   els.backdrop.hidden = false;
   els.modalWrapper.hidden = false;
   els.sheet.hidden = false;
   document.body.classList.add("sheet-open");
+  requestAnimationFrame(() => els.close.focus());
 }
 
 function closeSheet(preserveDraft = true) {
+  if (saveInProgress) return;
+  const focusTarget = sheetTrigger;
+  sheetTrigger = null;
   if (preserveDraft) captureDraft();
   mediaPreviewRequest += 1;
   renderMediaPreview(null, null);
@@ -1084,9 +1107,11 @@ function closeSheet(preserveDraft = true) {
   els.backdrop.hidden = true;
   document.body.classList.remove("sheet-open");
   els.mediaInput.value = "";
+  focusTarget?.focus({ preventScroll: true });
 }
 
 function navigateQuest(offset) {
+  if (saveInProgress) return;
   const quests = orderedQuests();
   const currentIndex = quests.findIndex(quest => quest.id === activeQuest?.id);
   const target = quests[currentIndex + offset];
@@ -1159,10 +1184,13 @@ els.mediaInput.addEventListener("change", async (event) => {
   const questId = activeQuest?.id;
   const existingMediaId = completedSubmission(questId)?.mediaId || null;
   const priorDraftMediaId = state.drafts[questId]?.mediaId || null;
+  const previousMediaRecord = state.drafts[questId] || completedSubmission(questId);
+  let newMediaId = null;
 
   try {
     const blob = file.type.startsWith("image/") ? await mediaStore.compressImage(file) : file;
     const mediaId = mediaStore.createMediaId();
+    newMediaId = mediaId;
     await mediaStore.put(mediaId, blob);
     if (selectionRequest !== mediaPreviewRequest || activeQuest?.id !== questId) {
       await mediaStore.remove(mediaId);
@@ -1176,6 +1204,21 @@ els.mediaInput.addEventListener("change", async (event) => {
     renderRewardPreview();
     const draftSaved = captureDraft();
 
+    if (!draftSaved) {
+      activeMediaId = previousMediaRecord?.mediaId || null;
+      activeMediaBlob = null;
+      activeMediaType = previousMediaRecord?.mediaType || null;
+      await mediaStore.remove(mediaId);
+      if (previousMediaRecord?.mediaId || previousMediaRecord?.dataUrl) {
+        await loadMediaPreviewForRecord(previousMediaRecord, questId);
+      } else {
+        renderMediaPreview(null, null);
+      }
+      window.alert("We couldn't save this photo draft on your device. Check browser storage access and try again.");
+      els.mediaInput.value = "";
+      return;
+    }
+
     if (draftSaved && priorDraftMediaId && priorDraftMediaId !== existingMediaId && priorDraftMediaId !== mediaId) {
       try {
         await mediaStore.remove(priorDraftMediaId);
@@ -1184,6 +1227,13 @@ els.mediaInput.addEventListener("change", async (event) => {
       }
     }
   } catch (error) {
+    if (newMediaId && newMediaId !== activeMediaId) {
+      try {
+        await mediaStore.remove(newMediaId);
+      } catch (cleanupError) {
+        console.warn("[Media storage] Failed photo selection cleanup will be retried on startup.", cleanupError);
+      }
+    }
     reportMediaError(error, error?.code === "compression-failure" ? "compress" : "save");
     els.mediaInput.value = "";
   }
@@ -1237,13 +1287,19 @@ els.resetBoard.addEventListener("click", async () => {
   );
   if (!confirmed) return;
   try {
-    await mediaStore.clearDatabase();
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(BRIEFING_STATE_KEY);
-    window.location.reload();
+  } catch (error) {
+    console.error("[Quest state] Reset metadata failed.", error);
+    window.alert("We couldn't reset saved progress in this browser. Check storage access and try again.");
+    return;
+  }
+  try {
+    await mediaStore.clearDatabase();
   } catch (error) {
     reportMediaError(error, "reset");
   }
+  window.location.reload();
 });
 
 function unlockFinalQuest() {
@@ -1307,6 +1363,7 @@ els.finalResults.addEventListener("click", (event) => {
 
 els.form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (saveInProgress) return;
   const finalQuest = isFinalQuest(activeQuest);
 
   if (finalQuest && !state.drafts[activeQuest.id]?.finalUnlocked) {
@@ -1319,6 +1376,9 @@ els.form.addEventListener("submit", async (event) => {
     alert("Add a photo or video first.");
     return;
   }
+  saveInProgress = true;
+  els.saveQuest.disabled = true;
+  els.saveQuest.textContent = "Saving…";
   const mediaType = activeMediaType || completedSubmission(activeQuest.id)?.mediaType || "image/jpeg";
   const questId = activeQuest.id;
   const submittedMediaId = activeMediaId;
@@ -1357,6 +1417,9 @@ els.form.addEventListener("submit", async (event) => {
     else delete state.submissions[questId];
     if (previousDraft) state.drafts[questId] = previousDraft;
     reportMediaError(error, "save");
+    saveInProgress = false;
+    els.saveQuest.disabled = false;
+    els.saveQuest.textContent = finalQuest ? "Submit Final Quest" : "Save Memory";
     return;
   }
 
@@ -1375,10 +1438,12 @@ els.form.addEventListener("submit", async (event) => {
   renderBoardActions();
   renderQuest(activeQuest);
   els.announcement.textContent = `${activeQuest.title} completed. ${questPoints(nextSubmission)} points earned.`;
+  saveInProgress = false;
+  els.saveQuest.disabled = false;
 });
 
 els.remove.addEventListener("click", async () => {
-  if (!activeQuest) return;
+  if (!activeQuest || saveInProgress) return;
   const questId = activeQuest.id;
   const removedSubmission = state.submissions[questId] || null;
   const removedDraft = state.drafts[questId] || null;
@@ -1412,6 +1477,30 @@ els.backdrop.addEventListener("click", closeSheet);
 
 document.addEventListener("keydown", (event) => {
   if (els.sheet.hidden || event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSheet();
+    return;
+  }
+  if (event.key === "Tab") {
+    const focusable = Array.from(els.modalWrapper.querySelectorAll(
+      "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])"
+    )).filter(element => !element.hidden && element.getClientRects().length);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!els.modalWrapper.contains(document.activeElement)) {
+      event.preventDefault();
+      first.focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+    return;
+  }
   const formControl = event.target.closest("input, textarea, select, [contenteditable='true']");
   if (formControl || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
   event.preventDefault();
