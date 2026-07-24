@@ -212,7 +212,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   width: 0%;
   height: 100%;
   border-radius: inherit;
-  background: var(--gold);
+  background: var(--yellow);
   transition: width .35s ease;
 }
 .progress-meta {
@@ -1142,7 +1142,7 @@ textarea.text-input {
   width: 20px;
   height: 20px;
   margin: 2px 0 0;
-  accent-color: var(--gold);
+  accent-color: var(--yellow);
   cursor: pointer;
 }
 
@@ -1153,7 +1153,7 @@ textarea.text-input {
   margin-top: 5px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--gold);
+  background: var(--yellow);
   color: var(--ink);
   font-size: 0.65rem;
   font-weight: 700;
