@@ -94,6 +94,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   text-transform: none;
   letter-spacing: .14em;
   font-size: .9rem;
+  white-space: nowrap;
 }
 .hero-illustration {
   position: absolute;
@@ -1511,7 +1512,7 @@ textarea.text-input {
   }
   .hero .eyebrow {
     margin-bottom: 14px;
-    font-size: .84rem;
+    font-size: .8rem;
     letter-spacing: .1em;
   }
   
