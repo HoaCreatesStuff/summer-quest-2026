@@ -916,9 +916,15 @@ function orderedQuests() {
 }
 
 function renderQuestTitle(title) {
-  return title
-    .split(/\s+/)
-    .map(word => `<span class="quest-title-word">${word}</span>`)
+  const cardTitleLines = {
+    "SHOWTIME!": ["SHOW", "TIME!"],
+    "Pup-arazzi": ["Pup-", "arazzi"]
+    "Off the Map": ["Off", "the Map"]
+    "Celebrate!": ["Cele", "brate!"]
+  };
+
+  return (cardTitleLines[title] || title.split(/\s+/))
+    .map(line => `<span class="quest-title-word">${line}</span>`)
     .join("");
 }
 
