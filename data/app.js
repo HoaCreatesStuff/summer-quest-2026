@@ -1,9 +1,162 @@
-const storyTemplates = window.STORY_TEMPLATES;
-
 const STORAGE_KEY = "nyc-summer-quest-mvp-v1";
 const BRIEFING_STATE_KEY = "nyc-summer-quest-briefing-collapsed";
+const QUEST_DATA_MIGRATION_VERSION = 2;
+const MEDIA_MIGRATION_VERSION = 1;
 const MAX_FRIENDS = 5;
-const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"submissions":{}}');
+const BONUS_POINTS = 2;
+const FINAL_QUEST_ID = "celebrate";
+const mediaStore = window.QuestMediaStore;
+
+window.validateBoardConfig();
+window.validateQuestData();
+
+const boardItems = window.BOARD_ORDER
+  .map((questId, index) => {
+    const quest = window.QUESTS[questId];
+
+    if (!quest) {
+      console.error(`Missing quest for board ID: ${questId}`);
+      return null;
+    }
+
+    return {
+      id: questId,
+      ...quest,
+      boardIndex: index,
+      boardNumber: index + 1,
+      boardColor: window.BOARD_COLORS[index]
+    };
+  })
+  .filter(Boolean);
+
+function isFinalQuest(questOrId) {
+  const questId = typeof questOrId === "string" ? questOrId : questOrId?.id;
+  return questId === FINAL_QUEST_ID;
+}
+
+const LEGACY_QUEST_ID_MAP = {
+  1: "golden-hour",
+  3: "street-style",
+  4: "city-freebies",
+  5: "water-wonders",
+  7: "showtime",
+  8: "random-kindness",
+  9: "art-walk",
+  10: "diy-craft",
+  11: "hidden-gems",
+  12: "pup-arazzi",
+  15: "open-market",
+  16: "get-sweaty",
+  17: "street-mural",
+  19: "hidden-gems",
+  20: "cinema-moment",
+  21: "park-picnic",
+  22: "celebrate",
+  23: "animal-statue",
+  24: "human-pyramid",
+  25: "celebrate"
+};
+
+const LEGACY_BONUS_ID_MAP = {
+  "quester-fashionable-look": "self-model",
+  "ferry-ride": "nyc-ferry",
+  "five-different-breeds": "different-breeds",
+  "fresh-purchase": "local-vendor-purchase",
+  "nyc-related-scene": "new-york-scene"
+};
+
+function loadStoredState() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"submissions":{}}');
+  } catch (error) {
+    console.error("[Quest migration] Saved progress could not be parsed.", error);
+    return { submissions: {} };
+  }
+}
+
+function selectedBonusIdsFrom(record) {
+  const savedBonuses = Array.isArray(record?.selectedBonusIds)
+    ? record.selectedBonusIds
+    : Array.isArray(record?.selectedBonuses)
+      ? record.selectedBonuses.map((bonus) => typeof bonus === "string" ? bonus : bonus?.id)
+      : [];
+
+  return savedBonuses
+    .filter(Boolean)
+    .map((bonusId) => LEGACY_BONUS_ID_MAP[bonusId] || bonusId);
+}
+
+function migrateSavedCollection(collection, collectionName, migration) {
+  const migrated = {};
+  const entries = Object.entries(collection || {}).sort(([left], [right]) => {
+    if (left === "25") return -1;
+    if (right === "25") return 1;
+    return 0;
+  });
+
+  entries.forEach(([savedId, record]) => {
+    if (!record || typeof record !== "object") return;
+
+    const questId = window.QUESTS[savedId]
+      ? savedId
+      : LEGACY_QUEST_ID_MAP[savedId];
+
+    if (!questId || !window.QUESTS[questId]) {
+      console.warn(`[Quest migration] Could not safely map ${collectionName} quest ID: ${savedId}`);
+      migration.unmapped[collectionName][savedId] = record;
+      return;
+    }
+
+    if (migrated[questId]) {
+      console.warn(
+        `[Quest migration] ${collectionName} IDs ${savedId} and another legacy quest both map to ${questId}; the extra record was retained as unmapped data.`
+      );
+      migration.unmapped[collectionName][savedId] = record;
+      return;
+    }
+
+    const selectedBonusIds = selectedBonusIdsFrom(record);
+    migrated[questId] = {
+      ...record,
+      questId,
+      selectedBonusIds
+    };
+    delete migrated[questId].selectedBonuses;
+  });
+
+  return migrated;
+}
+
+function migrateSavedState(savedState) {
+  const migration = {
+    version: QUEST_DATA_MIGRATION_VERSION,
+    completedAt: new Date().toISOString(),
+    unmapped: {
+      submissions: {},
+      drafts: {}
+    }
+  };
+
+  const migratedState = {
+    ...savedState,
+    submissions: migrateSavedCollection(savedState.submissions, "submissions", migration),
+    drafts: migrateSavedCollection(savedState.drafts, "drafts", migration),
+    questDataMigrationVersion: QUEST_DATA_MIGRATION_VERSION,
+    questDataMigration: migration
+  };
+
+  return migratedState;
+}
+
+let state = loadStoredState();
+if (state.questDataMigrationVersion !== QUEST_DATA_MIGRATION_VERSION) {
+  state = migrateSavedState(state);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.warn("[Quest migration] Migrated progress could not be persisted.", error);
+  }
+}
 state.submissions ||= {};
 state.drafts ||= {};
 Object.values(state.submissions).forEach((submission) => {
@@ -12,7 +165,11 @@ Object.values(state.submissions).forEach((submission) => {
   }
 });
 let activeQuest = null;
-let activeFileData = null;
+let activeMediaId = null;
+let activeMediaBlob = null;
+let activeMediaType = null;
+let activePreviewUrl = "";
+let mediaPreviewRequest = 0;
 let friendCount = 0;
 let selectedBonusIds = [];
 let finalScoreResizeObserver = null;
@@ -61,14 +218,12 @@ const els = {
   missionCodeInput: document.querySelector("#missionCodeInput"),
   missionCodeError: document.querySelector("#missionCodeError"),
   unlockFinalChallenge: document.querySelector("#unlockFinalChallenge"),
-  finalChallenge: document.querySelector("#finalChallengeSection"),
-  finalQuestionOne: document.querySelector("#finalQuestionOne"),
-  finalQuestionTwo: document.querySelector("#finalQuestionTwo"),
-  finalAnswerOne: document.querySelector("#finalAnswerOne"),
-  finalAnswerTwo: document.querySelector("#finalAnswerTwo"),
+  finalGateQuestion: document.querySelector("#finalGateQuestion"),
   finalResults: document.querySelector("#finalResults"),
   mediaInput: document.querySelector("#mediaInput"),
   mediaPreview: document.querySelector("#mediaPreview"),
+  friendsField: document.querySelector("#friendsField"),
+  questDetailsRow: document.querySelector("#questDetailsRow"),
   location: document.querySelector("#locationInput"),
   caption: document.querySelector("#captionInput"),
   bonusField: document.querySelector("#bonusField"),
@@ -85,34 +240,6 @@ const els = {
   resetBoard: document.querySelector("#resetBoard"),
 };
 
-const questIllustrations = {
-  1: "golden-hour",
-  2: "judgmental-pigeon",
-  3: "street-fashion",
-  4: "free-event",
-  5: "waterfront-wonders",
-  6: "dance-party",
-  7: "showtime",
-  8: "random-kindness",
-  9: "favorite-art",
-  10: "diy-craft",
-  11: "hidden-bookstore",
-  12: "pup-arazzi",
-  13: "iconic-skyline",
-  14: "kindness-notes",
-  15: "farmers-market",
-  16: "get-sweaty",
-  17: "street-mural",
-  18: "group-stoop",
-  19: "favorite-hideaway",
-  20: "cinema-moment",
-  21: "park-picnic",
-  22: "birthday-selfie",
-  23: "animal-statue",
-  24: "human-pyramid",
-  25: "celebrate-together"
-};
-
 const storyIcons = {
   location: "location_on",
   completed: "flag",
@@ -120,21 +247,85 @@ const storyIcons = {
   bonuses: "auto_awesome"
 };
 
-function questIllustrationPath(quest) {
-  const illustration = questIllustrations[quest.id];
-  if (!illustration) return "";
-  return `assets/illustrations/icons/${illustration}.png`;
+function questIllustrationPath(questId) {
+  return window.QUEST_ILLUSTRATIONS[questId] || "";
 }
 
-const categoryMeta = {
-  experience: { label: "NYC Experience", className: "category-experience" },
-  community: { label: "Community", className: "category-community" },
-  challenge: { label: "Challenge", className: "category-challenge" },
-  final: { label: "Final Quest", className: "category-final" }
-};
+function questVisualMarkup(quest) {
+  const illustration = questIllustrationPath(quest.id);
+  if (illustration) {
+    return `<img class="quest-illustration" src="${illustration}" alt="" aria-hidden="true" />`;
+  }
+  return `<span class="quest-illustration quest-symbol material-symbols-outlined" aria-hidden="true">${quest.icon}</span>`;
+}
 
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function mediaRecordsInState() {
+  const collections = [
+    state.submissions,
+    state.drafts,
+    state.questDataMigration?.unmapped?.submissions,
+    state.questDataMigration?.unmapped?.drafts
+  ];
+  return collections.flatMap(collection => Object.values(collection || {}))
+    .filter(record => record && typeof record === "object");
+}
+
+function referencedMediaIds() {
+  const ids = new Set();
+  const visit = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (typeof value.mediaId === "string" && value.mediaId) ids.add(value.mediaId);
+    Object.values(value).forEach(visit);
+  };
+  visit(state);
+  return ids;
+}
+
+async function migrateLegacyMediaState() {
+  const legacyRecords = mediaRecordsInState()
+    .filter(record => typeof record.dataUrl === "string" && record.dataUrl.startsWith("data:"));
+
+  for (const record of legacyRecords) {
+    const blob = mediaStore.dataUrlToBlob(record.dataUrl);
+    const mediaId = record.mediaId || mediaStore.createMediaId();
+    await mediaStore.put(mediaId, blob);
+    record.mediaId = mediaId;
+    record.mediaType = record.mediaType || blob.type || "application/octet-stream";
+    delete record.dataUrl;
+  }
+
+  if (legacyRecords.length || state.mediaMigrationVersion !== MEDIA_MIGRATION_VERSION) {
+    state.mediaMigrationVersion = MEDIA_MIGRATION_VERSION;
+    save();
+  }
+}
+
+function mediaErrorMessage(error, action = "save") {
+  if (error?.code === "indexeddb-unavailable") {
+    return "Photo storage isn't available in this browser. Try a current browser with private browsing turned off.";
+  }
+  if (error?.code === "compression-failure") {
+    return "We couldn't prepare that image. Please choose a different photo and try again.";
+  }
+  if (action === "load") {
+    return "We couldn't load this photo from device storage. It may have been removed by the browser.";
+  }
+  if (action === "reset") {
+    return "We couldn't fully reset photos stored on this device. Close other Summer Quest tabs and try again.";
+  }
+  if (action === "remove") {
+    return "The memory was removed, but its photo could not be fully cleared from device storage. We'll try again next time.";
+  }
+  return "We couldn't save this photo on your device. Free up some browser storage and try again.";
+}
+
+function reportMediaError(error, action = "save") {
+  console.error(`[Media storage] ${action} failed.`, error);
+  window.alert(mediaErrorMessage(error, action));
 }
 
 function completedSubmission(questId) {
@@ -160,20 +351,15 @@ function questPoints(submission) {
       Math.max(0, Number(submission.friends) || 0)
     ) * 2;
 
-  const bonusPoints = Array.isArray(submission.selectedBonuses)
-    ? submission.selectedBonuses.reduce(
-        (total, bonus) => total + (Number(bonus.points) || 0),
-        0
-      )
-    : 0;
+  const bonusPoints = selectedBonusIdsFrom(submission).length * BONUS_POINTS;
 
   return basePoints + friendPoints + bonusPoints;
 }
 
 function getTotals() {
-  const submissions = Object.values(state.submissions).filter(
-    submission => submission?.completed === true
-  );
+  const submissions = window.BOARD_ORDER
+    .map((questId) => state.submissions[questId])
+    .filter((submission) => submission?.completed === true);
 
   return {
     score: submissions.reduce(
@@ -195,9 +381,7 @@ function getTotals() {
     bonusCount: submissions.reduce(
       (total, submission) =>
         total +
-        (Array.isArray(submission.selectedBonuses)
-          ? submission.selectedBonuses.length
-          : 0),
+        selectedBonusIdsFrom(submission).length,
       0
     )
   };
@@ -208,8 +392,7 @@ function currentRank(score) {
 }
 
 function finalQuestCompleted() {
-  const finalQuest = window.QUESTS.find(quest => quest.final);
-  return Boolean(finalQuest && questIsCompleted(finalQuest.id));
+  return questIsCompleted(FINAL_QUEST_ID);
 }
 
 function renderBoardActions() {
@@ -223,7 +406,7 @@ function renderProgress() {
   els.score.textContent = score;
   els.rankTitle.textContent = rank.title;
   els.rankBlurb.textContent = rank.blurb;
-  els.completedCount.textContent = `${completed} / ${window.QUESTS.length} completed`;
+  els.completedCount.textContent = `${completed} / ${window.BOARD_ORDER.length} completed`;
 
   if (!rank.next) {
     els.progressFill.style.width = "100%";
@@ -244,9 +427,10 @@ function rewardValue(earned, maximum, total = false) {
 }
 
 function renderRewardPreview() {
-  if (!activeQuest || activeQuest.final) return;
+  if (!activeQuest) return;
 
   const savedSubmission = completedSubmission(activeQuest.id);
+  const includesFriends = !isFinalQuest(activeQuest);
 
   const baseMaximum =
     savedSubmission?.basePoints ??
@@ -254,36 +438,38 @@ function renderRewardPreview() {
     5;
 
   const basePoints =
-    savedSubmission || activeFileData
+    savedSubmission || activeMediaId
       ? baseMaximum
       : 0;
 
   const friendPoints =
-    Math.min(
-      MAX_FRIENDS,
-      Math.max(0, friendCount)
-    ) * 2;
+    includesFriends
+      ? Math.min(
+        MAX_FRIENDS,
+        Math.max(0, friendCount)
+      ) * 2
+      : 0;
 
   const questBonuses = Array.isArray(activeQuest.bonuses)
     ? activeQuest.bonuses
     : [];
 
   const bonusMaximum = questBonuses.reduce(
-    (total, bonus) => total + (Number(bonus.points) || 0),
+    (total) => total + BONUS_POINTS,
     0
   );
 
   const bonusEarned = questBonuses.reduce(
     (total, bonus) =>
       selectedBonusIds.includes(bonus.id)
-        ? total + (Number(bonus.points) || 0)
+        ? total + BONUS_POINTS
         : total,
     0
   );
 
   const maximumPoints =
     baseMaximum +
-    (MAX_FRIENDS * 2) +
+    (includesFriends ? MAX_FRIENDS * 2 : 0) +
     bonusMaximum;
 
   const currentPoints =
@@ -292,9 +478,14 @@ function renderRewardPreview() {
     bonusEarned;
 
   const details = [
-    `<span><b>Base</b> ${rewardValue(basePoints, baseMaximum)}</span>`,
-    `<span><b>Friends</b> ${rewardValue(friendPoints, MAX_FRIENDS * 2)}</span>`
+    `<span><b>Base</b> ${rewardValue(basePoints, baseMaximum)}</span>`
   ];
+
+  if (includesFriends) {
+    details.push(
+      `<span><b>Friends</b> ${rewardValue(friendPoints, MAX_FRIENDS * 2)}</span>`
+    );
+  }
 
   if (questBonuses.length > 0) {
     details.push(
@@ -340,13 +531,13 @@ function renderBonusOptions() {
         type="checkbox"
         class="bonus-option-input"
         value="${bonus.id}"
+        ${selectedBonusIds.includes(bonus.id) ? "checked" : ""}
       />
 
       <span class="bonus-option-content">
           <span class="bonus-pill">BONUS</span>
           <span class="bonus-option-label">${bonus.label}</span>
       </span>
-</label>
     </label>
   `).join("");
 }
@@ -360,8 +551,10 @@ function finalAnswerIsCorrect(answer, acceptedAnswers = []) {
   return acceptedAnswers.some(candidate => normalizeFinalAnswer(candidate) === normalizedAnswer);
 }
 
-function finalQuestionLabel(number, prompt) {
-  return `<small>Question ${number}</small>${prompt}`;
+function finalGateQuestionFor(quest) {
+  return (quest?.triviaQuestions || []).find(
+    question => /how many days apart/i.test(question.prompt)
+  ) || quest?.triviaQuestions?.[0];
 }
 
 function escapeStoryText(value) {
@@ -400,54 +593,40 @@ function storyTextContent(markup) {
   return wrapper.textContent.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 }
 
-function questStoryKey(quest) {
-  return quest.title;
-}
-
 function completedStandardQuestEntries() {
   return orderedQuests()
-    .filter((quest) => !quest.final)
+    .filter((quest) => !isFinalQuest(quest))
     .map((quest) => ({
       quest,
       submission: completedSubmission(quest.id)
     }))
-    .filter((entry) => Boolean(entry.submission))
-    .sort((a, b) => {
-      const aTime = new Date(a.submission.completedAt || 0).getTime();
-      const bTime = new Date(b.submission.completedAt || 0).getTime();
-
-      return aTime - bTime;
-    });
+    .filter((entry) => Boolean(entry.submission));
 }
 
 function questStoryCandidate(entry) {
-  const storyKey = questStoryKey(entry.quest);
-  const template = storyTemplates[storyKey];
-
-  if (!template) return null;
+  const quest = window.QUESTS[entry.quest.id];
+  if (!quest) return null;
 
   const location = String(entry.submission.location || "").trim();
-
-  const baseTemplate = location
-    ? template.storyWithLocation
-    : template.storyWithoutLocation;
-
-  const baseHtml = renderStoryMarkup(baseTemplate, { location });
+  const hasLocationToken = quest.story.includes("{locationSentence}");
+  const locationSentence = hasLocationToken && location
+    ? ` at <strong>${escapeStoryText(location)}</strong>`
+    : "";
+  const baseHtml = renderStoryMarkup(
+    quest.story.replaceAll("{locationSentence}", locationSentence)
+  );
   if (!baseHtml) return null;
 
-  const selectedBonuses = Array.isArray(entry.submission.selectedBonuses)
-    ? entry.submission.selectedBonuses
-    : [];
-
-  const bonusHtml = selectedBonuses
-    .map((bonus) =>
-      renderStoryMarkup(template.bonusMemories?.[bonus.id])
-    )
+  const reflectionHtml = renderStoryMarkup(quest.reflection);
+  const earnedBonusIds = new Set(selectedBonusIdsFrom(entry.submission));
+  const bonusHtml = quest.bonuses
+    .filter((bonus) => earnedBonusIds.has(bonus.id))
+    .map((bonus) => renderStoryMarkup(quest.bonusMemories[bonus.id]))
     .filter(Boolean);
 
   return {
-    html: [baseHtml, ...bonusHtml].join(" "),
-    kind: location ? "location" : null,
+    html: [baseHtml, reflectionHtml, ...bonusHtml].filter(Boolean).join(" "),
+    kind: hasLocationToken && location ? "location" : null,
     completedAt: entry.submission.completedAt || ""
   };
 }
@@ -477,17 +656,15 @@ function buildSummerStory() {
   );
 
   const bonusCount = completedEntries.filter(
-  ({ submission }) =>
-    Array.isArray(submission.selectedBonuses) &&
-    submission.selectedBonuses.length > 0
-).length;
+    ({ submission }) => selectedBonusIdsFrom(submission).length > 0
+  ).length;
 
   const aggregateStories = [];
 
   if (totalFriendJoins > 0) {
     const friendTemplate = totalFriendJoins === 1
-      ? storyTemplates.summary?.friendsSingular
-      : storyTemplates.summary?.friends;
+      ? "<strong>{friendCount}</strong> person joined your adventures across NYC."
+      : "<strong>{friendCount}</strong> people joined your adventures across NYC.";
 
     const html = renderStoryMarkup(friendTemplate, {
       friendCount: totalFriendJoins
@@ -503,8 +680,8 @@ function buildSummerStory() {
 
   if (bonusCount > 0) {
     const bonusTemplate = bonusCount === 1
-      ? storyTemplates.summary?.bonusesSingular
-      : storyTemplates.summary?.bonuses;
+      ? "You went above and beyond for <strong>{bonusCount}</strong> quest."
+      : "You went above and beyond for <strong>{bonusCount}</strong> quests.";
 
     const html = renderStoryMarkup(bonusTemplate, {
       bonusCount
@@ -540,9 +717,7 @@ function buildFinalSummary() {
     (total, { submission }) =>
       total +
       (
-        Array.isArray(submission.selectedBonuses)
-          ? submission.selectedBonuses.length
-          : 0
+        selectedBonusIdsFrom(submission).length
       ),
     0
   );
@@ -579,34 +754,8 @@ function buildFinalSummary() {
   }
 
   const baseStories = completedEntries
-    .map(({ quest, submission }) => {
-      const template = storyTemplates[questStoryKey(quest)];
-      if (!template) return null;
-
-      const location = String(submission.location || "").trim();
-
-      const baseTemplate = location
-        ? template.storyWithLocation
-        : template.storyWithoutLocation;
-
-      const html = renderStoryMarkup(baseTemplate, { location });
-      if (!html) return null;
-
-      return {
-        kind: location ? "location" : null,
-        html
-      };
-    })
+    .map((entry) => questStoryCandidate(entry))
     .filter(Boolean);
-
-  for (let index = baseStories.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-
-    [baseStories[index], baseStories[randomIndex]] = [
-      baseStories[randomIndex],
-      baseStories[index]
-    ];
-  }
 
   const featuredCount =
     baseStories.length <= 1
@@ -705,55 +854,65 @@ function renderFinalResults() {
 
 function renderFinalQuest(quest, existing, draft) {
   const unlocked = Boolean(existing || draft?.finalUnlocked);
-  const answers = existing?.triviaAnswers || draft?.triviaAnswers || ["", ""];
-  const questions = quest.triviaQuestions || [];
+  const gateQuestion = finalGateQuestionFor(quest);
 
+  els.missionCodeInput.value = draft?.gateAnswer || "";
+  els.finalGateQuestion.textContent = gateQuestion?.prompt || "How many days apart are their birthdays?";
+  els.missionCodeError.hidden = true;
+  els.missionCodeInput.removeAttribute("aria-invalid");
+
+  if (existing) {
+    els.standardFields.hidden = true;
+    els.finalFlow.hidden = false;
+    els.missionCodeSection.hidden = true;
+    els.finalResults.hidden = false;
+    els.form.classList.add("final-quest-mode", "final-complete-mode");
+    els.form.classList.remove("final-gate-mode");
+    els.saveQuest.hidden = true;
+    els.remove.hidden = true;
+    renderFinalResults();
+    return;
+  }
+
+  if (unlocked) {
+    renderStandardQuest(null, true);
+    return;
+  }
+
+  finalScoreResizeObserver?.disconnect();
+  finalScoreResizeObserver = null;
   els.standardFields.hidden = true;
   els.finalFlow.hidden = false;
-  els.form.classList.add("final-quest-mode");
-  els.form.classList.toggle("final-complete-mode", Boolean(existing));
-  els.missionCodeSection.hidden = unlocked;
-  els.finalChallenge.hidden = !unlocked || Boolean(existing);
-  els.finalResults.hidden = !existing;
-  els.missionCodeInput.value = draft?.missionCode || "";
-  els.missionCodeError.hidden = true;
-  els.finalQuestionOne.innerHTML = finalQuestionLabel(1, questions[0]?.prompt || "Question 1");
-  els.finalQuestionTwo.innerHTML = finalQuestionLabel(2, questions[1]?.prompt || "Question 2");
-  els.finalAnswerOne.value = answers[0] || "";
-  els.finalAnswerTwo.value = answers[1] || "";
-  els.saveQuest.textContent = "COMPLETE ADVENTURE";
-  els.saveQuest.hidden = !unlocked || Boolean(existing);
+  els.missionCodeSection.hidden = false;
+  els.finalResults.hidden = true;
+  els.form.classList.add("final-gate-mode");
+  els.form.classList.remove("final-quest-mode", "final-complete-mode");
+  els.desc.textContent = "Answer the birthday trivia question to unlock the final mission.";
+  els.saveQuest.hidden = true;
   els.remove.hidden = true;
-
-  if (existing) renderFinalResults();
 }
 
-function renderStandardQuest(existing) {
+function renderStandardQuest(existing, finalQuest = false) {
   finalScoreResizeObserver?.disconnect();
   finalScoreResizeObserver = null;
   els.standardFields.hidden = false;
   els.finalFlow.hidden = true;
-  els.form.classList.remove("final-quest-mode", "final-complete-mode");
-  els.saveQuest.textContent = "Save Memory";
+  els.friendsField.hidden = finalQuest;
+  els.questDetailsRow.classList.toggle("no-friends", finalQuest);
+  els.form.classList.toggle("final-quest-mode", finalQuest);
+  els.form.classList.remove("final-gate-mode", "final-complete-mode");
+  els.saveQuest.textContent = finalQuest ? "Submit Final Quest" : "Save Memory";
   els.saveQuest.hidden = false;
-  els.remove.hidden = !existing;
+  els.remove.hidden = finalQuest || !existing;
 }
 
 function orderedQuests() {
-  return [
-    ...window.QUESTS.filter(quest => !quest.final),
-    ...window.QUESTS.filter(quest => quest.final)
-  ];
+  return boardItems;
 }
 
 function renderQuestTitle(title) {
-  const cardTitleLines = {
-    "SHOWTIME!": ["SHOW", "TIME!"],
-    "Pup-arazzi": ["Pup-", "arazzi"],
-    "Hideaway": ["Hide", "away"]
-  };
-
-  return (cardTitleLines[title] || title.split(" "))
+  return title
+    .split(/\s+/)
     .map(word => `<span class="quest-title-word">${word}</span>`)
     .join("");
 }
@@ -766,7 +925,11 @@ function renderGrid() {
     const completed = questIsCompleted(quest.id);
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `quest-card${quest.final ? " final-quest-card" : ""}`;
+    button.className = [
+      "quest-card",
+      `board-square--${quest.boardColor}`,
+      isFinalQuest(quest) ? "final-quest-card" : ""
+    ].filter(Boolean).join(" ");
     button.dataset.questId = String(quest.id);
     button.setAttribute("aria-label", completed ? `${quest.title}, completed` : quest.title);
 
@@ -774,7 +937,7 @@ function renderGrid() {
       <span class="quest-card__visual ${completed ? "is-completed" : "is-open"}">
         <span class="quest-completed-badge material-symbols-outlined" aria-hidden="true">check_small</span>
         <span class="quest-card-content">
-          <img class="quest-illustration" src="${questIllustrationPath(quest)}" alt="" aria-hidden="true" />
+          ${questVisualMarkup(quest)}
           <span class="quest-title">${renderQuestTitle(quest.title)}</span>
         </span>
       </span>
@@ -808,49 +971,68 @@ function updateBriefingPlacement() {
 }
 
 function captureDraft() {
-  if (!activeQuest || els.sheet.hidden) return;
-  if (activeQuest.final) {
-    if (questIsCompleted(activeQuest.id)) return;
+  if (!activeQuest || els.sheet.hidden) return false;
+  const finalQuest = isFinalQuest(activeQuest);
+  const finalUnlocked = Boolean(state.drafts[activeQuest.id]?.finalUnlocked);
+
+  if (finalQuest && !finalUnlocked) {
+    if (questIsCompleted(activeQuest.id)) return false;
     state.drafts[activeQuest.id] = {
       ...state.drafts[activeQuest.id],
-      finalUnlocked: !els.finalChallenge.hidden,
-      missionCode: els.missionCodeInput.value,
-      triviaAnswers: [els.finalAnswerOne.value, els.finalAnswerTwo.value]
+      questId: activeQuest.id,
+      finalUnlocked: false,
+      gateAnswer: els.missionCodeInput.value
     };
-    try { save(); } catch (error) { /* Final Quest drafts contain text only. */ }
-    return;
+    try {
+      save();
+      return true;
+    } catch (error) {
+      console.warn("[Quest drafts] Final Quest draft could not be saved.", error);
+      return false;
+    }
   }
   state.drafts[activeQuest.id] = {
-    dataUrl: activeFileData,
-    mediaType: els.mediaPreview.dataset.mediaType || completedSubmission(activeQuest.id)?.mediaType || null,
-    friends: friendCount,
+    questId: activeQuest.id,
+    mediaId: activeMediaId,
+    mediaType: activeMediaType || completedSubmission(activeQuest.id)?.mediaType || null,
+    friends: finalQuest ? 0 : friendCount,
     location: els.location.value,
     caption: els.caption.value,
-    selectedBonusIds: [...selectedBonusIds]
+    selectedBonusIds: [...selectedBonusIds],
+    ...(finalQuest ? {
+      finalUnlocked: true,
+      gateAnswer: state.drafts[activeQuest.id]?.gateAnswer || els.missionCodeInput.value
+    } : {})
   };
-  try { save(); } catch (error) { /* Saving the completed submission still reports storage errors. */ }
+  try {
+    save();
+    return true;
+  } catch (error) {
+    console.warn("[Quest drafts] Draft metadata could not be saved.", error);
+    return false;
+  }
 }
 
 function renderQuest(quest, announce = false) {
   activeQuest = quest;
   const existing = completedSubmission(quest.id);
   const draft = state.drafts[quest.id] || existing;
-  activeFileData = draft?.dataUrl || null;
+  activeMediaId = draft?.mediaId || null;
+  activeMediaBlob = null;
+  activeMediaType = draft?.mediaType || null;
   friendCount = Math.min(MAX_FRIENDS, Math.max(0, draft?.friends || 0));
-  selectedBonusIds = Array.isArray(draft?.selectedBonusIds)
-  ? [...draft.selectedBonusIds]
-  : Array.isArray(draft?.selectedBonuses)
-    ? draft.selectedBonuses.map((bonus) => bonus.id)
-    : [];
-  const meta = categoryMeta[quest.category] || categoryMeta.experience;
+  selectedBonusIds = selectedBonusIdsFrom(draft);
+  const meta = window.QUEST_CATEGORIES[quest.category];
   const quests = orderedQuests();
   const questIndex = quests.findIndex(item => item.id === quest.id);
 
-  els.questNumber.textContent = quest.final ? "Final Quest" : `Quest ${quest.position}`;
+  els.questNumber.textContent = isFinalQuest(quest) ? "Final Quest" : `Quest ${quest.boardNumber}`;
   els.category.textContent = meta.label;
   els.category.className = `category-pill ${meta.className}`;
-  els.category.hidden = Boolean(quest.final);
-  els.questIcon.src = questIllustrationPath(quest);
+  els.category.hidden = isFinalQuest(quest);
+  const modalIllustration = questIllustrationPath(quest.id);
+  els.questIcon.src = modalIllustration;
+  els.questIcon.hidden = !modalIllustration;
   els.completedStamp.hidden = !existing;
   els.title.textContent = quest.title;
   els.desc.textContent = quest.description;
@@ -858,20 +1040,28 @@ function renderQuest(quest, announce = false) {
   els.nextQuest.disabled = questIndex === quests.length - 1;
   els.desktopPreviousQuest.disabled = questIndex === 0;
   els.desktopNextQuest.disabled = questIndex === quests.length - 1;
-  els.desktopPreviousQuest.hidden = Boolean(quest.final && existing);
-  els.desktopNextQuest.hidden = Boolean(quest.final && existing);
+  els.desktopPreviousQuest.hidden = Boolean(isFinalQuest(quest) && existing);
+  els.desktopNextQuest.hidden = Boolean(isFinalQuest(quest) && existing);
   els.questPosition.textContent = `Quest ${questIndex + 1} of ${quests.length}`;
 
-  if (quest.final) {
+  if (isFinalQuest(quest)) {
     renderFinalQuest(quest, existing, draft);
     renderMediaPreview(null, null);
+    if (!existing && draft?.finalUnlocked) {
+      renderFriendControls();
+      els.location.value = draft?.location || "";
+      els.caption.value = draft?.caption || "";
+      renderBonusOptions();
+      loadMediaPreviewForRecord(draft, quest.id);
+    }
   } else {
-    renderStandardQuest(existing);
+    renderStandardQuest(existing, false);
     renderFriendControls();
     els.location.value = draft?.location || "";
     els.caption.value = draft?.caption || "";
     renderBonusOptions();
-    renderMediaPreview(draft?.dataUrl, draft?.mediaType);
+    renderMediaPreview(null, null);
+    loadMediaPreviewForRecord(draft, quest.id);
   }
   els.form.scrollTop = 0;
   if (announce) els.announcement.textContent = `${quest.title} opened`;
@@ -887,6 +1077,8 @@ function openSheet(quest) {
 
 function closeSheet(preserveDraft = true) {
   if (preserveDraft) captureDraft();
+  mediaPreviewRequest += 1;
+  renderMediaPreview(null, null);
   els.sheet.hidden = true;
   els.modalWrapper.hidden = true;
   els.backdrop.hidden = true;
@@ -920,9 +1112,11 @@ function navigateQuest(offset) {
   }, 130);
 }
 
-function renderMediaPreview(dataUrl, mediaType) {
+function renderMediaPreview(blob, mediaType) {
+  if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
+  activePreviewUrl = "";
   els.mediaPreview.innerHTML = "";
-  if (!dataUrl) {
+  if (!blob) {
     els.mediaPreview.hidden = true;
     delete els.mediaPreview.dataset.mediaType;
     return;
@@ -930,51 +1124,69 @@ function renderMediaPreview(dataUrl, mediaType) {
   els.mediaPreview.hidden = false;
   if (mediaType) els.mediaPreview.dataset.mediaType = mediaType;
   const media = document.createElement(mediaType?.startsWith("video/") ? "video" : "img");
-  media.src = dataUrl;
+  activePreviewUrl = URL.createObjectURL(blob);
+  media.src = activePreviewUrl;
   if (media.tagName === "VIDEO") media.controls = true;
   els.mediaPreview.appendChild(media);
 }
 
-function compressImage(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const max = 1200;
-        const scale = Math.min(1, max / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", .78));
-      };
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
+async function loadMediaPreviewForRecord(record, questId) {
+  const requestId = ++mediaPreviewRequest;
+  if (!record?.mediaId && !record?.dataUrl) return;
+
+  try {
+    const blob = await mediaStore.blobFor(record);
+    if (!blob) {
+      const error = new Error("The media record is missing from IndexedDB.");
+      error.code = "storage-failure";
+      throw error;
+    }
+    if (requestId !== mediaPreviewRequest || activeQuest?.id !== questId) return;
+    activeMediaBlob = blob;
+    activeMediaType = record.mediaType || blob.type;
+    renderMediaPreview(blob, activeMediaType);
+  } catch (error) {
+    if (requestId !== mediaPreviewRequest || activeQuest?.id !== questId) return;
+    reportMediaError(error, "load");
+  }
 }
 
 els.mediaInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
-  if (file.type.startsWith("image/")) {
-    activeFileData = await compressImage(file);
-  } else {
-    // LocalStorage is intentionally limited; small video files may work, large ones will not.
-    activeFileData = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+
+  const selectionRequest = ++mediaPreviewRequest;
+  const questId = activeQuest?.id;
+  const existingMediaId = completedSubmission(questId)?.mediaId || null;
+  const priorDraftMediaId = state.drafts[questId]?.mediaId || null;
+
+  try {
+    const blob = file.type.startsWith("image/") ? await mediaStore.compressImage(file) : file;
+    const mediaId = mediaStore.createMediaId();
+    await mediaStore.put(mediaId, blob);
+    if (selectionRequest !== mediaPreviewRequest || activeQuest?.id !== questId) {
+      await mediaStore.remove(mediaId);
+      return;
+    }
+
+    activeMediaId = mediaId;
+    activeMediaBlob = blob;
+    activeMediaType = blob.type || file.type;
+    renderMediaPreview(blob, activeMediaType);
+    renderRewardPreview();
+    const draftSaved = captureDraft();
+
+    if (draftSaved && priorDraftMediaId && priorDraftMediaId !== existingMediaId && priorDraftMediaId !== mediaId) {
+      try {
+        await mediaStore.remove(priorDraftMediaId);
+      } catch (error) {
+        console.warn("[Media storage] Replaced draft cleanup will be retried on startup.", error);
+      }
+    }
+  } catch (error) {
+    reportMediaError(error, error?.code === "compression-failure" ? "compress" : "save");
+    els.mediaInput.value = "";
   }
-  renderMediaPreview(activeFileData, file.type);
-  els.mediaPreview.dataset.mediaType = file.type;
-  renderRewardPreview();
-  captureDraft();
 });
 
 els.incrementFriends.addEventListener("click", () => {
@@ -1001,13 +1213,6 @@ els.bonusField.addEventListener("change", (event) => {
       bonusId => bonusId !== input.value
     );
   }
-els.resetBoard.addEventListener("click", () => {
-  if (!confirm("Clear all Summer Quest progress?")) return;
-
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(BRIEFING_STATE_KEY);
-  location.reload();
-});
   renderRewardPreview();
   captureDraft();
 });
@@ -1016,8 +1221,7 @@ els.rewardPreview.addEventListener("click", () => {
 });
 els.location.addEventListener("input", captureDraft);
 els.caption.addEventListener("input", captureDraft);
-els.finalAnswerOne.addEventListener("input", captureDraft);
-els.finalAnswerTwo.addEventListener("input", captureDraft);
+els.missionCodeInput.addEventListener("input", captureDraft);
 els.previousQuest.addEventListener("click", () => navigateQuest(-1));
 els.nextQuest.addEventListener("click", () => navigateQuest(1));
 els.desktopPreviousQuest.addEventListener("click", () => navigateQuest(-1));
@@ -1027,29 +1231,59 @@ els.briefingToggle.addEventListener("click", () => {
   setBriefingCollapsed(!els.briefing.classList.contains("collapsed"));
 });
 
-els.unlockFinalChallenge.addEventListener("click", () => {
-  if (!activeQuest?.final || questIsCompleted(activeQuest.id)) return;
-  const submittedCode = normalizeFinalAnswer(els.missionCodeInput.value);
-  const configuredCode = normalizeFinalAnswer(activeQuest.missionCode);
+els.resetBoard.addEventListener("click", async () => {
+  const confirmed = window.confirm(
+    "Start over and remove all completed quests, photos, and saved progress?"
+  );
+  if (!confirmed) return;
+  try {
+    await mediaStore.clearDatabase();
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(BRIEFING_STATE_KEY);
+    window.location.reload();
+  } catch (error) {
+    reportMediaError(error, "reset");
+  }
+});
 
-  if (!submittedCode || submittedCode !== configuredCode) {
-    els.missionCodeError.textContent = "Incorrect Mission Code.\nPlease try again.";
+function unlockFinalQuest() {
+  if (!isFinalQuest(activeQuest) || questIsCompleted(activeQuest.id)) return;
+  const gateAnswer = els.missionCodeInput.value;
+  const gateQuestion = finalGateQuestionFor(activeQuest);
+
+  if (!finalAnswerIsCorrect(gateAnswer, gateQuestion?.acceptedAnswers)) {
+    els.missionCodeError.textContent = "That answer isn't correct.\nPlease try again.";
     els.missionCodeError.hidden = false;
     els.missionCodeInput.setAttribute("aria-invalid", "true");
     els.missionCodeInput.focus();
     return;
   }
 
-  els.missionCodeError.hidden = true;
-  els.missionCodeInput.removeAttribute("aria-invalid");
-  els.missionCodeSection.hidden = true;
-  els.finalChallenge.hidden = false;
-  els.finalChallenge.classList.add("is-revealing");
-  els.saveQuest.hidden = false;
-  captureDraft();
-  els.announcement.textContent = "Final Challenge unlocked";
-  els.finalAnswerOne.focus({ preventScroll: true });
-  window.setTimeout(() => els.finalChallenge.classList.remove("is-revealing"), 420);
+  const previousDraft = state.drafts[activeQuest.id] || null;
+  state.drafts[activeQuest.id] = {
+    ...previousDraft,
+    questId: activeQuest.id,
+    finalUnlocked: true,
+    gateAnswer
+  };
+
+  try {
+    save();
+  } catch (error) {
+    if (previousDraft) state.drafts[activeQuest.id] = previousDraft;
+    else delete state.drafts[activeQuest.id];
+    console.warn("[Quest drafts] Final Quest unlock could not be saved.", error);
+    els.missionCodeError.textContent = "We couldn't save the unlock. Please try again.";
+    els.missionCodeError.hidden = false;
+    return;
+  }
+
+  renderQuest(activeQuest);
+  els.announcement.textContent = "Final mission unlocked";
+}
+
+els.unlockFinalChallenge.addEventListener("click", () => {
+  unlockFinalQuest();
 });
 
 els.finalResults.addEventListener("click", (event) => {
@@ -1071,77 +1305,102 @@ els.finalResults.addEventListener("click", (event) => {
   }
 });
 
-els.form.addEventListener("submit", (event) => {
+els.form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (activeQuest?.final) {
-    if (questIsCompleted(activeQuest.id) || els.finalChallenge.hidden) return;
-    const triviaAnswers = [els.finalAnswerOne.value.trim(), els.finalAnswerTwo.value.trim()];
-    const triviaResults = (activeQuest.triviaQuestions || []).slice(0, 2).map((question, index) => (
-      finalAnswerIsCorrect(triviaAnswers[index], question.acceptedAnswers)
-    ));
-    while (triviaResults.length < 2) triviaResults.push(false);
-    const earnedPoints = triviaResults.filter(Boolean).length * 5;
+  const finalQuest = isFinalQuest(activeQuest);
 
-    state.submissions[activeQuest.id] = {
-      completed: true,
-      final: true,
-      missionCode: els.missionCodeInput.value.trim(),
-      triviaAnswers,
-      triviaResults,
-      earnedPoints,
-      basePoints: 0,
-      completedAt: new Date().toISOString()
-    };
-    delete state.drafts[activeQuest.id];
-    save();
-    renderGrid();
-    renderProgress();
-    renderBoardActions();
-    updateBriefingPlacement();
-    renderQuest(activeQuest);
-    els.announcement.textContent = `Adventure complete. ${earnedPoints} points earned.`;
+  if (finalQuest && !state.drafts[activeQuest.id]?.finalUnlocked) {
+    unlockFinalQuest();
     return;
   }
-  if (!activeFileData) {
+  if (finalQuest && questIsCompleted(activeQuest.id)) return;
+
+  if (!activeMediaId) {
     alert("Add a photo or video first.");
     return;
   }
-  const mediaType = els.mediaPreview.dataset.mediaType || completedSubmission(activeQuest.id)?.mediaType || "image/jpeg";
-  state.submissions[activeQuest.id] = {
+  const mediaType = activeMediaType || completedSubmission(activeQuest.id)?.mediaType || "image/jpeg";
+  const questId = activeQuest.id;
+  const submittedMediaId = activeMediaId;
+  const submittedMediaBlob = activeMediaBlob;
+  const previousSubmission = state.submissions[questId] || null;
+  const previousDraft = state.drafts[questId] || null;
+  const nextSubmission = {
+    questId: activeQuest.id,
     completed: true,
-    dataUrl: activeFileData,
+    mediaId: submittedMediaId,
     mediaType,
-    friends: friendCount,
+    friends: finalQuest ? 0 : friendCount,
     location: els.location.value.trim(),
     caption: els.caption.value.trim(),
     basePoints: activeQuest.basePoints ?? 5,
-    selectedBonuses: (activeQuest.bonuses || [])
-  .filter((bonus) => selectedBonusIds.includes(bonus.id))
-  .map((bonus) => ({
-    id: bonus.id,
-    points: bonus.points
-  })),
+    selectedBonusIds: (activeQuest.bonuses || [])
+      .filter((bonus) => selectedBonusIds.includes(bonus.id))
+      .map((bonus) => bonus.id),
+    ...(finalQuest ? {
+      final: true,
+      finalUnlocked: true,
+      gateAnswer: previousDraft?.gateAnswer || ""
+    } : {}),
     completedAt: new Date().toISOString()
   };
-  delete state.drafts[activeQuest.id];
+
   try {
+    const blob = submittedMediaBlob || await mediaStore.get(submittedMediaId);
+    if (!blob) throw new Error("The selected media is missing from IndexedDB.");
+    await mediaStore.put(submittedMediaId, blob);
+    state.submissions[questId] = nextSubmission;
+    delete state.drafts[questId];
     save();
   } catch (error) {
-    alert("This file is too large for the local prototype. Try a photo or a shorter video.");
+    if (previousSubmission) state.submissions[questId] = previousSubmission;
+    else delete state.submissions[questId];
+    if (previousDraft) state.drafts[questId] = previousDraft;
+    reportMediaError(error, "save");
     return;
   }
+
+  const obsoleteMediaIds = new Set([
+    previousSubmission?.mediaId,
+    previousDraft?.mediaId
+  ].filter(mediaId => mediaId && mediaId !== submittedMediaId));
+  try {
+    await Promise.all(Array.from(obsoleteMediaIds, mediaId => mediaStore.remove(mediaId)));
+  } catch (error) {
+    console.warn("[Media storage] Obsolete media cleanup will be retried on startup.", error);
+  }
+
   renderGrid();
   renderProgress();
   renderBoardActions();
   renderQuest(activeQuest);
-  els.announcement.textContent = `${activeQuest.title} completed. ${questPoints(state.submissions[activeQuest.id])} points earned.`;
+  els.announcement.textContent = `${activeQuest.title} completed. ${questPoints(nextSubmission)} points earned.`;
 });
 
-els.remove.addEventListener("click", () => {
+els.remove.addEventListener("click", async () => {
   if (!activeQuest) return;
-  delete state.submissions[activeQuest.id];
-  delete state.drafts[activeQuest.id];
-  save();
+  const questId = activeQuest.id;
+  const removedSubmission = state.submissions[questId] || null;
+  const removedDraft = state.drafts[questId] || null;
+  const mediaIds = new Set([
+    removedSubmission?.mediaId,
+    removedDraft?.mediaId
+  ].filter(Boolean));
+  delete state.submissions[questId];
+  delete state.drafts[questId];
+  try {
+    save();
+  } catch (error) {
+    if (removedSubmission) state.submissions[questId] = removedSubmission;
+    if (removedDraft) state.drafts[questId] = removedDraft;
+    reportMediaError(error, "save");
+    return;
+  }
+  try {
+    await Promise.all(Array.from(mediaIds, mediaId => mediaStore.remove(mediaId)));
+  } catch (error) {
+    reportMediaError(error, "remove");
+  }
   renderGrid();
   renderProgress();
   renderBoardActions();
@@ -1188,7 +1447,31 @@ els.content.addEventListener("touchend", (event) => {
 }, { passive: true });
 els.content.addEventListener("touchcancel", () => { swipe = null; }, { passive: true });
 
-renderGrid();
-renderProgress();
-renderBoardActions();
-initBriefing();
+window.addEventListener("pagehide", () => {
+  if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
+});
+
+async function initializeApp() {
+  let mediaReady = true;
+  try {
+    await migrateLegacyMediaState();
+  } catch (error) {
+    mediaReady = false;
+    reportMediaError(error, "save");
+  }
+
+  if (mediaReady) {
+    try {
+      await mediaStore.removeUnreferenced(referencedMediaIds());
+    } catch (error) {
+      reportMediaError(error, "save");
+    }
+  }
+
+  renderGrid();
+  renderProgress();
+  renderBoardActions();
+  initBriefing();
+}
+
+initializeApp();

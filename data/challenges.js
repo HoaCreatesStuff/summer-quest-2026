@@ -1,4 +1,5 @@
-// Canonical quest content. Loaded as a classic script by index.html.
+// DEPRECATED BACKUP: no longer loaded by index.html.
+// Canonical quest content now lives in quests.js and questOrder.js.
 
 window.QUESTS = [
   {

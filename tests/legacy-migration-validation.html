@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Summer Quest legacy media migration validation</title>
+</head>
+<body>
+  <h1>Summer Quest legacy media migration validation</h1>
+  <pre id="result">Running…</pre>
+  <iframe id="appFrame" title="Migration test app" hidden></iframe>
+
+  <script src="../data/mediaStorage.js"></script>
+  <script>
+    (async () => {
+      const STORAGE_KEY = "nyc-summer-quest-mvp-v1";
+      const result = document.querySelector("#result");
+      const frame = document.querySelector("#appFrame");
+      const store = window.QuestMediaStore;
+      const waitForFrameLoad = () => new Promise(resolve => {
+        frame.addEventListener("load", resolve, { once: true });
+      });
+      const waitForMigration = async () => {
+        const deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+          const records = [saved.submissions?.["ny-eats"], saved.drafts?.["bodega-cat"]];
+          if (
+            saved.mediaMigrationVersion === 1 &&
+            records.every(record => record?.mediaId && !record.dataUrl)
+          ) {
+            return saved;
+          }
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error("Timed out waiting for the app migration.");
+      };
+      const waitFor = async (predicate, message) => {
+        const deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+          if (await predicate()) return;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error(message);
+      };
+
+      try {
+        await store.clearDatabase();
+        const canvas = document.createElement("canvas");
+        canvas.width = 40;
+        canvas.height = 30;
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#f35f59";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/png");
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          submissions: {
+            "ny-eats": {
+              questId: "ny-eats",
+              completed: true,
+              dataUrl,
+              mediaType: "image/png",
+              friends: 0,
+              location: "Legacy location",
+              caption: "Legacy submission",
+              basePoints: 5,
+              selectedBonusIds: [],
+              completedAt: "2026-07-24T00:00:00.000Z"
+            }
+          },
+          drafts: {
+            "bodega-cat": {
+              questId: "bodega-cat",
+              dataUrl,
+              mediaType: "image/png",
+              friends: 1,
+              location: "Legacy draft",
+              caption: "",
+              selectedBonusIds: []
+            }
+          },
+          questDataMigrationVersion: 2
+        }));
+
+        let loadPromise = waitForFrameLoad();
+        frame.src = "../index.html?migration-validation=first";
+        await loadPromise;
+        const firstState = await waitForMigration();
+        const firstIds = [
+          firstState.submissions["ny-eats"].mediaId,
+          firstState.drafts["bodega-cat"].mediaId
+        ];
+        const migratedBlobs = await Promise.all(firstIds.map(mediaId => store.get(mediaId)));
+
+        loadPromise = waitForFrameLoad();
+        frame.src = "../index.html?migration-validation=second";
+        await loadPromise;
+        const secondState = await waitForMigration();
+        const secondIds = [
+          secondState.submissions["ny-eats"].mediaId,
+          secondState.drafts["bodega-cat"].mediaId
+        ];
+        const serializedState = localStorage.getItem(STORAGE_KEY) || "";
+        await waitFor(
+          () => frame.contentDocument?.querySelectorAll("#questGrid [data-quest-id]").length === 25,
+          "Timed out waiting for the test app to render."
+        );
+
+        frame.contentDocument.querySelector('[data-quest-id="ny-eats"]').click();
+        frame.contentDocument.querySelector("#removeQuest").click();
+        await waitFor(async () => {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+          return !saved.submissions?.["ny-eats"] && !(await store.get(firstIds[0]));
+        }, "Timed out waiting for submission media removal.");
+        const removedSubmissionBlob = await store.get(firstIds[0]);
+
+        frame.contentWindow.confirm = () => true;
+        loadPromise = waitForFrameLoad();
+        frame.contentDocument.querySelector("#resetBoard").click();
+        await loadPromise;
+        await waitFor(async () => {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+          return (
+            Object.keys(saved.submissions || {}).length === 0 &&
+            Object.keys(saved.drafts || {}).length === 0 &&
+            !(await store.get(firstIds[1]))
+          );
+        }, "Timed out waiting for the board reset.");
+        const removedDraftBlob = await store.get(firstIds[1]);
+
+        result.textContent = JSON.stringify({
+          status: migratedBlobs.every(blob => blob instanceof Blob) ? "PASS" : "FAIL",
+          submissionMigrated: Boolean(secondState.submissions["ny-eats"].mediaId),
+          draftMigrated: Boolean(secondState.drafts["bodega-cat"].mediaId),
+          base64RemovedFromLocalStorage: !serializedState.includes("data:image"),
+          migrationRanOnce: firstIds.every((mediaId, index) => mediaId === secondIds[index]),
+          migratedBlobTypes: migratedBlobs.map(blob => blob?.type),
+          removingSubmissionDeletedBlob: removedSubmissionBlob === null,
+          resetClearedDraftBlob: removedDraftBlob === null
+        }, null, 2);
+      } catch (error) {
+        result.textContent = JSON.stringify({
+          status: "FAIL",
+          name: error.name,
+          code: error.code,
+          message: error.message
+        }, null, 2);
+      }
+    })();
+  </script>
+</body>
+</html>

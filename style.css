@@ -7,6 +7,13 @@
   --coral: #f35f59;
   --gold: #f6b900;
   --teal: #1ba9b9;
+  --category-experience: #edbc40;
+  --category-community: #5c9f92;
+  --category-challenges: #e2695f;
+  --board-yellow: #f6b900;
+  --board-green: #1ba9b9;
+  --board-coral: #f35f59;
+  --board-final: #e8d2a2;
   --sand: #e8d8c4;
   --line: rgba(39,37,34,.12);
   --final-card-padding: clamp(20px, 5vw, 28px);
@@ -332,6 +339,9 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   gap: 12px;
   margin-bottom: 14px;
 }
+.section-heading > div {
+  width: 100%;
+}
 .section-heading h2 { margin: 0; 
 font-size: 1.35rem; 
 line-height: normal;
@@ -417,7 +427,7 @@ line-height: normal;
   pointer-events: none;
 }
 .quest-card__visual.is-open {
-  box-shadow: inset 0 0 0 9999px rgba(255,255,255,.15);
+  box-shadow: inset 0 0 0 9999px rgba(255,255,255,.25);
 }
 .quest-card__visual.is-completed {
   box-shadow: none;
@@ -445,9 +455,23 @@ line-height: normal;
 }
 .quest-card:hover { transform: translateY(-2px); border-color: rgba(39,37,34,.24); }
 .quest-card:active { transform: translateY(1px); }
-.quest-card:nth-child(3n+1) { background: var(--gold); color: var(--ink); }
-.quest-card:nth-child(3n+2) { background: var(--coral); }
-.quest-card:nth-child(3n+3) { background: var(--teal); }
+.board-square--yellow {
+  --board-square-color: var(--board-yellow);
+  background: var(--board-yellow);
+  color: var(--ink);
+}
+.board-square--green {
+  --board-square-color: var(--board-green);
+  background: var(--board-green);
+}
+.board-square--red {
+  --board-square-color: var(--board-coral);
+  background: var(--board-coral);
+}
+.board-square--final {
+  --board-square-color: var(--board-final);
+  background: var(--board-final);
+}
 .quest-card.final-quest-card {
   background:
     radial-gradient(circle at 18% 12%, rgba(255,250,242,.86), transparent 28%),
@@ -488,6 +512,12 @@ line-height: normal;
   width: clamp(28px, 6.5vw, 50px);
   height: clamp(28px, 6.5vw, 50px);
   object-fit: contain;
+}
+.quest-symbol {
+  display: grid;
+  place-items: center;
+  font-size: clamp(1.75rem, 6.5vw, 3.1rem);
+  line-height: 1;
 }
 .quest-title {
   font-family: "Libre Baskerville", serif;
@@ -693,19 +723,19 @@ line-height: normal;
   border: 1px solid var(--line);
 }
 .category-experience {
-  background: #fff1d1;
-  border-color: rgba(246,185,0,.42);
+  background: #fff4d2;
+  border-color: #d9ad3d;
   color: #66552c;
 }
 .category-community {
-  background: rgba(47,143,140,.14);
-  border-color: rgba(47,143,140,.34);
-  color: #225a57;
+  background: #d5e8e3;
+  border-color: #78b4a8;
+  color: #173f3a;
 }
-.category-challenge {
-  background: rgba(243,95,89,.14);
-  border-color: rgba(243,95,89,.34);
-  color: #7c332f;
+.category-challenges {
+  background: #f9d7d4;
+  border-color: #cf6259;
+  color: #6a2f2a;
 }
 .category-final {
   background: #efe7dc;
@@ -796,6 +826,9 @@ line-height: normal;
   gap: 16px;
   align-items: start;
   margin-top: 18px;
+}
+.form-row.no-friends {
+  grid-template-columns: 1fr;
 }
 .form-row .field { margin-top: 0; }
 .counter {
@@ -1006,7 +1039,8 @@ textarea.text-input {
   margin-top: 22px;
 }
 
-.final-quest-mode .sheet-description {
+.final-quest-mode .sheet-description,
+.final-gate-mode .sheet-description {
   display: block;
   overflow: visible;
   -webkit-line-clamp: unset;
@@ -1015,7 +1049,6 @@ textarea.text-input {
   margin-top: 22px;
 }
 .final-stage,
-.final-challenge,
 .final-results {
   margin-inline: 0;
   border: 1px solid rgba(157,112,29,.32);
@@ -1026,7 +1059,6 @@ textarea.text-input {
     linear-gradient(145deg, rgba(255,244,213,.82), rgba(234,209,154,.46));
 }
 .final-stage h3,
-.final-unlocked-message h3,
 .final-results h3 {
   margin: 0;
   color: #5f481d;
@@ -1036,7 +1068,6 @@ textarea.text-input {
   line-height: 1.25;
 }
 .final-stage > p,
-.final-unlocked-message p,
 .final-results-heading p {
   margin: 8px 0 0;
   color: var(--muted);
@@ -1060,38 +1091,11 @@ textarea.text-input {
   white-space: pre-line;
 }
 .final-unlock-button { margin-top: 20px; }
-.final-quest-mode .primary-button {
+.final-quest-mode .primary-button,
+.final-gate-mode .primary-button {
   background: linear-gradient(135deg, #e0b652, #f2d68f);
   color: #4d3915;
   box-shadow: inset 0 0 0 1px rgba(113,78,17,.18);
-}
-.final-challenge.is-revealing {
-  animation: final-challenge-reveal .38s cubic-bezier(.22,.8,.32,1) both;
-}
-@keyframes final-challenge-reveal {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.final-unlocked-message {
-  padding-bottom: 20px;
-  border-bottom: 1px solid rgba(157,112,29,.25);
-}
-.final-trivia-fields .field { margin-top: 22px; }
-.final-trivia-fields .field > span {
-  line-height: 1.45;
-}
-.final-trivia-fields .field > span small {
-  display: block;
-  margin-bottom: 4px;
-  color: #87661f;
-  font-size: .65rem;
-  font-weight: 700;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-}
-.final-trivia-fields .text-input {
-  border-color: rgba(157,112,29,.28);
-  background: rgba(255,250,242,.72);
 }
 .final-complete-mode .quest-detail-header,
 .final-complete-mode .quest-navigation,
@@ -1371,7 +1375,6 @@ textarea.text-input {
 
 @media (prefers-reduced-motion: reduce) {
   .bottom-sheet { animation: none; }
-  .final-challenge.is-revealing { animation: none; }
   .quest-content,
   .quest-nav-button,
   .close-button { transition-duration: .01ms !important; }
@@ -1451,7 +1454,7 @@ body.keepsake-preview-open { overflow: hidden; }
   margin-top: 8px;
 }
 .story-hero .hero-cover {
-  aspect-ratio: 1696 / 1040;
+  aspect-ratio: 7 / 4;
 }
 .story-hero .hero-title-stack {
   height: 100%;
@@ -1460,6 +1463,11 @@ body.keepsake-preview-open { overflow: hidden; }
 }
 .story-hero .hero-title-stack::before {
   height: clamp(120px, 22vw, 220px);
+}
+.story-hero .eyebrow {
+  font-size: clamp(.62rem, 2.4vw, .8rem);
+  letter-spacing: .06em;
+  white-space: nowrap;
 }
 .story-hero h1 {
   width: 100%;
@@ -1790,7 +1798,7 @@ body.keepsake-preview-open { overflow: hidden; }
 .keepsake-board .keepsake-quest-card {
   border-radius: 1.4cqw;
   padding: 1.25cqw;
-  background: var(--keepsake-tile-color);
+  background: var(--board-square-color);
   pointer-events: none;
 }
 .keepsake-board .keepsake-quest-card.final-quest-card {
@@ -1952,7 +1960,7 @@ body.keepsake-preview-open { overflow: hidden; }
     margin-top: 0px;
   }
   .story-hero .hero-cover {
-    aspect-ratio: 1696 / 850;
+    aspect-ratio: 7 / 4;
   }
   .story-hero h1 {
     font-size: clamp(1.45rem, 6.2vw, 2.3rem);

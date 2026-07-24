@@ -23,13 +23,32 @@
   let keepsakeReturnPage = "board";
   let generatedKeepsake = null;
   let generatedKeepsakeUrl = "";
+  let storyMediaUrls = new Set();
+  let keepsakeMediaUrls = new Set();
   const videoFrameCache = new Map();
+
+  function revokeMediaUrls(urls) {
+    urls.forEach(url => URL.revokeObjectURL(url));
+    urls.clear();
+  }
+
+  async function mediaSourceFor(submission, urls) {
+    try {
+      const blob = await window.QuestMediaStore.blobFor(submission);
+      if (!blob) return "";
+      const source = URL.createObjectURL(blob);
+      urls.add(source);
+      return source;
+    } catch (error) {
+      console.error("[Media storage] Export media could not be loaded.", error);
+      return "";
+    }
+  }
 
   function completedEntries() {
     return orderedQuests()
       .map(quest => ({ quest, submission: completedSubmission(quest.id) }))
-      .filter(entry => Boolean(entry.submission))
-      .sort((a, b) => new Date(a.submission.completedAt || 0) - new Date(b.submission.completedAt || 0));
+      .filter(entry => Boolean(entry.submission));
   }
 
   function localDateKey(value) {
@@ -54,16 +73,23 @@
 
   function mediaMarkup(entry, className) {
     const { submission, quest } = entry;
-    if (!submission.dataUrl) return "";
+    if (!entry.mediaSource) return "";
     const alt = `${quest.title} memory`;
     if (submission.mediaType?.startsWith("video/")) {
-      return `<video class="${className}" src="${submission.dataUrl}" muted playsinline preload="metadata" aria-label="${escapeStoryText(alt)}"></video>`;
+      return `<video class="${className}" src="${entry.mediaSource}" data-media-id="${escapeStoryText(submission.mediaId || "")}" muted playsinline preload="metadata" aria-label="${escapeStoryText(alt)}"></video>`;
     }
-    return `<img class="${className}" src="${submission.dataUrl}" alt="${escapeStoryText(alt)}" />`;
+    return `<img class="${className}" src="${entry.mediaSource}" alt="${escapeStoryText(alt)}" />`;
   }
 
-  function renderStory() {
+  async function renderStory() {
     const entries = completedEntries();
+    const nextUrls = new Set();
+    await Promise.all(entries.map(async (entry) => {
+      entry.mediaSource = await mediaSourceFor(entry.submission, nextUrls);
+    }));
+    revokeMediaUrls(storyMediaUrls);
+    storyMediaUrls = nextUrls;
+
     const groups = [];
     entries.forEach((entry) => {
       const key = localDateKey(entry.submission.completedAt);
@@ -91,7 +117,9 @@
           </header>
           <div class="story-date-entries">
             ${group.entries.map(entry => {
-              const location = String(entry.submission.location || "").trim();
+              const location = entry.quest.story.includes("{locationSentence}")
+                ? String(entry.submission.location || "").trim()
+                : "";
               const caption = String(entry.submission.caption || "").trim();
               const generatedStory = questStoryCandidate(entry)?.html || "";
               return `
@@ -133,7 +161,7 @@
       </div>`).join("");
 
     storyTimeline.querySelectorAll("video").forEach(async (video) => {
-      const still = await captureVideoFrame(video.src);
+      const still = await captureVideoFrame(video.src, video.dataset.mediaId || video.src);
       if (!still || !video.isConnected) return;
       const image = document.createElement("img");
       image.className = video.className;
@@ -143,41 +171,54 @@
     });
   }
 
-  function categoryTileColor(index) {
-    const palette = ["#f6b900", "#f35f59", "#1ba9b9"];
-    return palette[index % palette.length];
+  function boardTileColor(quest) {
+    const colorVariable = quest.boardColor === "red"
+      ? "--board-coral"
+      : `--board-${quest.boardColor}`;
+    const color = getComputedStyle(document.documentElement)
+      .getPropertyValue(colorVariable)
+      .trim();
+    return color || "#f6b900";
   }
 
-  function keepsakeTileMarkup(quest, index) {
+  function keepsakeTileMarkup(quest, mediaSource) {
     const submission = completedSubmission(quest.id);
-    const isImage = submission?.dataUrl && !submission.mediaType?.startsWith("video/");
+    const isImage = mediaSource && !submission?.mediaType?.startsWith("video/");
     if (isImage) {
       return `
-        <div class="quest-card keepsake-quest-card is-photo" aria-label="${escapeStoryText(quest.title)}, completed">
-          <img class="keepsake-tile-photo" src="${submission.dataUrl}" alt="" />
+        <div class="quest-card keepsake-quest-card board-square--${quest.boardColor} is-photo" aria-label="${escapeStoryText(quest.title)}, completed">
+          <img class="keepsake-tile-photo" src="${mediaSource}" alt="" />
         </div>`;
     }
     return `
-      <div class="quest-card keepsake-quest-card${quest.final ? " final-quest-card" : ""}" data-keepsake-quest="${quest.id}" style="--keepsake-tile-color:${categoryTileColor(index)}" aria-label="${escapeStoryText(quest.title)}">
+      <div class="quest-card keepsake-quest-card board-square--${quest.boardColor}${isFinalQuest(quest) ? " final-quest-card" : ""}" data-keepsake-quest="${quest.id}" data-media-source="${mediaSource || ""}" aria-label="${escapeStoryText(quest.title)}">
         <span class="quest-card__visual is-open">
           <span class="quest-card-content">
-            <img class="quest-illustration" src="${questIllustrationPath(quest)}" alt="" aria-hidden="true" />
+            ${questVisualMarkup(quest)}
             <span class="quest-title">${renderQuestTitle(quest.title)}</span>
           </span>
         </span>
       </div>`;
   }
 
-  function renderKeepsake() {
+  async function renderKeepsake() {
     const totals = getTotals();
     const rank = currentRank(totals.score);
-    keepsakeArtworkCompleted.textContent = `${totals.completed}/${window.QUESTS.length} Quests`;
+    const quests = orderedQuests();
+    const nextUrls = new Set();
+    const mediaSources = await Promise.all(quests.map(quest => (
+      mediaSourceFor(completedSubmission(quest.id), nextUrls)
+    )));
+    revokeMediaUrls(keepsakeMediaUrls);
+    keepsakeMediaUrls = nextUrls;
+
+    keepsakeArtworkCompleted.textContent = `${totals.completed}/${window.BOARD_ORDER.length} Quests`;
     keepsakeArtworkRank.textContent = rank.title;
-    keepsakeBoard.innerHTML = orderedQuests().map(keepsakeTileMarkup).join("");
+    keepsakeBoard.innerHTML = quests.map((quest, index) => keepsakeTileMarkup(quest, mediaSources[index])).join("");
     keepsakeBoard.querySelectorAll("[data-keepsake-quest]").forEach(async (tile) => {
-      const submission = completedSubmission(Number(tile.dataset.keepsakeQuest));
-      if (!submission?.dataUrl || !submission.mediaType?.startsWith("video/")) return;
-      const still = await captureVideoFrame(submission.dataUrl);
+      const submission = completedSubmission(tile.dataset.keepsakeQuest);
+      if (!tile.dataset.mediaSource || !submission?.mediaType?.startsWith("video/")) return;
+      const still = await captureVideoFrame(tile.dataset.mediaSource, submission.mediaId || tile.dataset.mediaSource);
       if (!still || !tile.isConnected) return;
       tile.classList.add("is-photo");
       tile.innerHTML = `<img class="keepsake-tile-photo" src="${still}" alt="" />`;
@@ -210,9 +251,9 @@
     keepsakeStatus.textContent = "";
   }
 
-  async function captureVideoFrame(source) {
+  async function captureVideoFrame(source, cacheKey = source) {
     if (!source) return "";
-    if (videoFrameCache.has(source)) return videoFrameCache.get(source);
+    if (videoFrameCache.has(cacheKey)) return videoFrameCache.get(cacheKey);
     const promise = new Promise((resolve) => {
       const video = document.createElement("video");
       video.muted = true;
@@ -242,7 +283,7 @@
       video.addEventListener("error", () => resolve(""), { once: true });
       video.src = source;
     });
-    videoFrameCache.set(source, promise);
+    videoFrameCache.set(cacheKey, promise);
     return promise;
   }
 
@@ -259,6 +300,25 @@
       window.setTimeout(() => resolve(null), 6000);
       image.src = source;
     });
+  }
+
+  async function loadSubmissionCanvasImage(submission) {
+    if (!submission) return null;
+    let sourceUrl = "";
+    try {
+      const blob = await window.QuestMediaStore.blobFor(submission);
+      if (!blob) return null;
+      sourceUrl = URL.createObjectURL(blob);
+      const source = submission.mediaType?.startsWith("video/")
+        ? await captureVideoFrame(sourceUrl, submission.mediaId || sourceUrl)
+        : sourceUrl;
+      return await loadCanvasImage(source);
+    } catch (error) {
+      console.error("[Media storage] Canvas media could not be loaded.", error);
+      return null;
+    } finally {
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    }
   }
 
   function roundedRect(context, x, y, width, height, radius) {
@@ -310,18 +370,11 @@
   async function renderKeepsakeCanvas() {
     await document.fonts?.ready;
     const quests = orderedQuests();
-    const mediaSources = await Promise.all(quests.map(async (quest) => {
-      const submission = completedSubmission(quest.id);
-      if (!submission?.dataUrl) return "";
-      return submission.mediaType?.startsWith("video/")
-        ? captureVideoFrame(submission.dataUrl)
-        : submission.dataUrl;
-    }));
     const illustrations = quests.map(
-  quest => questIllustrationPath(quest)
+      quest => questIllustrationPath(quest.id)
     );
     const [mediaImages, iconImages] = await Promise.all([
-      Promise.all(mediaSources.map(loadCanvasImage)),
+      Promise.all(quests.map(quest => loadSubmissionCanvasImage(completedSubmission(quest.id)))),
       Promise.all(illustrations.map(loadCanvasImage))
     ]);
 
@@ -381,7 +434,7 @@
       tileSize
     );
   } else {
-    if (quest.final) {
+    if (isFinalQuest(quest)) {
       const gradient = context.createLinearGradient(
         x,
         y,
@@ -394,7 +447,7 @@
       gradient.addColorStop(1, "#f8e7bd");
       context.fillStyle = gradient;
     } else {
-      context.fillStyle = categoryTileColor(index);
+      context.fillStyle = boardTileColor(quest);
     }
 
     context.fillRect(x, y, tileSize, tileSize);
@@ -414,7 +467,7 @@
 
   context.restore();
 
-  context.strokeStyle = quest.final
+  context.strokeStyle = isFinalQuest(quest)
     ? "rgba(157,112,29,.58)"
     : "rgba(39,37,34,.12)";
 
@@ -514,13 +567,9 @@
   async function renderStoryPdfCanvas() {
     await document.fonts?.ready;
     const entries = completedEntries();
-    const mediaImages = await Promise.all(entries.map(async (entry) => {
-      const source = entry.submission.dataUrl;
-      if (!source) return null;
-      return loadCanvasImage(entry.submission.mediaType?.startsWith("video/")
-        ? await captureVideoFrame(source)
-        : source);
-    }));
+    const mediaImages = await Promise.all(
+      entries.map(entry => loadSubmissionCanvasImage(entry.submission))
+    );
 
     const width = 900;
     const margin = 64;
@@ -688,13 +737,15 @@
     }
   }
 
-  function navigateTo(page) {
+  async function navigateTo(page) {
     if (!pageElements.some(element => element.dataset.page === page)) return;
+    if (currentPage === "story" && page !== "story") revokeMediaUrls(storyMediaUrls);
+    if (currentPage === "keepsake" && page !== "keepsake") revokeMediaUrls(keepsakeMediaUrls);
     if (page === "keepsake") {
       keepsakeReturnPage = currentPage === "keepsake" ? keepsakeReturnPage : currentPage;
-      renderKeepsake();
+      await renderKeepsake();
     }
-    if (page === "story") renderStory();
+    if (page === "story") await renderStory();
     pageElements.forEach(element => { element.hidden = element.dataset.page !== page; });
     currentPage = page;
     document.body.dataset.page = page;
@@ -825,6 +876,11 @@
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && keepsakePreviewStage.classList.contains("is-fullscreen")) setFullscreenPreview(false);
+  });
+  window.addEventListener("pagehide", () => {
+    revokeMediaUrls(storyMediaUrls);
+    revokeMediaUrls(keepsakeMediaUrls);
+    if (generatedKeepsakeUrl) URL.revokeObjectURL(generatedKeepsakeUrl);
   });
 
   syncKeepsakeName();

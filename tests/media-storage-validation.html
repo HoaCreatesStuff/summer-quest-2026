@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Summer Quest media storage validation</title>
+</head>
+<body>
+  <h1>Summer Quest media storage validation</h1>
+  <pre id="result">Running…</pre>
+
+  <script src="../data/mediaStorage.js"></script>
+  <script>
+    (async () => {
+      const result = document.querySelector("#result");
+      const store = window.QuestMediaStore;
+
+      try {
+        await store.clearDatabase();
+        const response = await fetch("../assets/hero-park-clean.png");
+        const sourceBlob = await response.blob();
+        const pipelineBlob = await store.compressImage(sourceBlob);
+        const pipelineImage = await createImageBitmap(pipelineBlob);
+        const capacityCanvas = document.createElement("canvas");
+        capacityCanvas.width = 1400;
+        capacityCanvas.height = 900;
+        const capacityContext = capacityCanvas.getContext("2d");
+        const pixels = capacityContext.createImageData(capacityCanvas.width, capacityCanvas.height);
+        let seed = 20260724;
+        for (let offset = 0; offset < pixels.data.length; offset += 4) {
+          seed = (seed * 1664525 + 1013904223) >>> 0;
+          pixels.data[offset] = seed & 255;
+          pixels.data[offset + 1] = (seed >>> 8) & 255;
+          pixels.data[offset + 2] = (seed >>> 16) & 255;
+          pixels.data[offset + 3] = 255;
+        }
+        capacityContext.putImageData(pixels, 0, 0);
+        const mediaIds = [];
+        const sizes = [];
+
+        for (let index = 0; index < 25; index += 1) {
+          capacityContext.fillStyle = `hsl(${index * 31} 85% 50%)`;
+          capacityContext.fillRect(index * 47 % 1300, index * 29 % 800, 100, 100);
+          const uniqueBlob = await new Promise((resolve, reject) => {
+            capacityCanvas.toBlob(
+              blob => blob ? resolve(blob) : reject(new Error("JPEG encoding failed.")),
+              "image/jpeg",
+              0.75
+            );
+          });
+          const mediaId = `capacity-photo-${index + 1}`;
+          await store.put(mediaId, uniqueBlob);
+          mediaIds.push(mediaId);
+          sizes.push(uniqueBlob.size);
+        }
+
+        const restored = await Promise.all(mediaIds.map(mediaId => store.get(mediaId)));
+        const firstImage = await createImageBitmap(restored[0]);
+        const legacyCanvas = document.createElement("canvas");
+        legacyCanvas.width = 12;
+        legacyCanvas.height = 8;
+        legacyCanvas.getContext("2d").fillRect(0, 0, 12, 8);
+        const legacyBlob = store.dataUrlToBlob(legacyCanvas.toDataURL("image/png"));
+
+        const report = {
+          status: restored.every(blob => blob instanceof Blob) ? "PASS" : "FAIL",
+          recordsStored: restored.length,
+          totalBytes: sizes.reduce((total, size) => total + size, 0),
+          mediaType: restored[0]?.type,
+          width: firstImage.width,
+          height: firstImage.height,
+          pipelineWidth: pipelineImage.width,
+          pipelineHeight: pipelineImage.height,
+          legacyDataUrlConvertedToBlob: legacyBlob instanceof Blob,
+          databaseName: store.databaseName,
+          storeName: store.storeName
+        };
+        firstImage.close();
+        pipelineImage.close();
+        result.textContent = JSON.stringify(report, null, 2);
+      } catch (error) {
+        result.textContent = JSON.stringify({
+          status: "FAIL",
+          name: error.name,
+          code: error.code,
+          message: error.message
+        }, null, 2);
+      }
+    })();
+  </script>
+</body>
+</html>

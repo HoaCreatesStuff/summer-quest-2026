@@ -10,7 +10,8 @@
 -   HTML5
 -   CSS3
 -   Vanilla JavaScript
--   LocalStorage
+-   localStorage for lightweight metadata
+-   IndexedDB for uploaded media Blobs
 -   Mobile-first responsive design
 
 No frameworks.
@@ -27,8 +28,11 @@ No frameworks.
 │   └── icons/
 │
 ├── data/
-│   ├── challenges.js
-│   └── rankConfig.js
+│   ├── quests.js
+│   ├── boardConfig.js
+│   ├── mediaStorage.js
+│   ├── app.js
+│   └── journal.js
 │
 ├── docs/
 │   ├── Product Vision.md
@@ -47,25 +51,39 @@ No frameworks.
 
 # Core Data Models
 
-## Challenge
+## Quest
 
 ``` js
 {
-  id: "nyc-sunset",
-  title: "NYC Sunset",
+  category: "experience-nyc",
+  icon: "wb_twilight",
+  title: "Golden Hour",
   description: "...",
-  final: false
+  basePoints: 5,
+  bonuses: [],
+  story: "...",
+  reflection: null,
+  bonusMemories: {}
 }
 ```
+
+Stable IDs are the keys in `window.QUESTS`. Board and navigation order lives in
+`window.BOARD_ORDER`, while fixed physical-square colors live independently in
+`window.BOARD_COLORS`.
 
 ## Submission
 
 ``` js
 {
-  challengeId: "nyc-sunset",
+  questId: "golden-hour",
+  completed: true,
+  mediaId: "0e3e7d8f-...",
   mediaType: "image/jpeg",
-  dataUrl: "...",
   friends: 2,
+  location: "Brooklyn Bridge Park",
+  caption: "Golden hour with the crew",
+  basePoints: 5,
+  selectedBonusIds: [],
   completedAt: "2026-08-05T18:30:00Z"
 }
 ```
@@ -85,19 +103,29 @@ No frameworks.
 
 # State
 
-Current MVP stores:
+localStorage key `nyc-summer-quest-mvp-v1` stores:
 
 -   Completed quests
--   Uploaded media (compressed)
+-   Draft and submission metadata
+-   IndexedDB media IDs
 -   Friend counts
--   Total score
--   Current rank
+-   Final Quest state
 
-Storage key:
+Uploaded media is stored separately:
 
 ``` text
-nyc-summer-quest-mvp-v1
+Database: nyc-summer-quest-media
+Object store: media
+Record: { mediaId, blob }
 ```
+
+Images are compressed to JPEG Blobs at approximately 0.75 quality with a
+maximum 1400 px edge. Preview, story, keepsake, and PDF rendering use temporary
+`blob:` URLs that are revoked when no longer needed.
+
+On startup, legacy `dataUrl` fields in submissions and drafts are converted to
+Blobs, written to IndexedDB, replaced with `mediaId`, and removed from
+localStorage. Unreferenced media records are cleaned up after migration.
 
 ------------------------------------------------------------------------
 

@@ -1,3 +1,5 @@
+// DEPRECATED BACKUP: no longer loaded by index.html.
+// Canonical journal stories now live on each quest in quests.js.
 // Journal story templates keyed by the exact quest titles in challenges.js.
 // All journal copy lives here, including bonus memory continuations.
 
@@ -232,4 +234,3 @@ window.STORY_TEMPLATES = {
       "You completed <strong>{completedCount}</strong> NYC adventures.",
   }
 };
-
