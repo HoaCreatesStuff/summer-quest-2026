@@ -171,14 +171,23 @@
     });
   }
 
-  function boardTileColor(quest) {
-    const colorVariable = quest.boardColor === "red"
-      ? "--board-coral"
-      : `--board-${quest.boardColor}`;
-    const color = getComputedStyle(document.documentElement)
-      .getPropertyValue(colorVariable)
+  const boardCategoryColorVariables = Object.freeze({
+    experience: "--category-experience",
+    community: "--category-community",
+    challenges: "--category-challenges",
+    final: "--board-final"
+  });
+
+  function cssVariableColor(variableName) {
+    return getComputedStyle(document.documentElement)
+      .getPropertyValue(variableName)
       .trim();
-    return color || "#f6b900";
+  }
+
+  function boardTileColor(quest) {
+    const colorVariable = boardCategoryColorVariables[quest.boardColor]
+      || boardCategoryColorVariables.experience;
+    return cssVariableColor(colorVariable);
   }
 
   function keepsakeTileMarkup(quest, mediaSource) {
@@ -393,7 +402,7 @@
     context.font = '600 25px Montserrat, sans-serif';
     context.fillText("Hoa & Erika's Birthday Edition", margin, 64);
     context.font = '700 62px "Libre Baskerville", serif';
-    context.fillStyle = "#f35f59";
+    context.fillStyle = cssVariableColor("--coral");
     context.fillText("NYC Summer Quest", margin, 120);
     const totals = getTotals();
     const rank = currentRank(totals.score);
@@ -401,7 +410,7 @@
     context.fillStyle = "#272522";
     context.font = '600 25px Montserrat, sans-serif';
     context.fillText("August 2026", width - margin, 64);
-    context.fillStyle = "#1ba9b9";
+    context.fillStyle = cssVariableColor("--teal");
     context.font = '700 42px Montserrat, sans-serif';
     context.fillText(keepsakeNameInput.value.trim(), width - margin, 110);
     context.fillStyle = "#272522";
@@ -590,7 +599,7 @@
     context.font = '400 54px "Libre Baskerville", serif';
     context.fillText("Your Summer Story", margin, 64);
     context.font = '600 16px Montserrat, sans-serif';
-    context.fillStyle = "#1ba9b9";
+    context.fillStyle = cssVariableColor("--teal");
     context.fillText("NYC SUMMER QUEST", margin, 132);
 
     let y = 190;
@@ -603,7 +612,7 @@
         const image = mediaImages[index];
         const location = String(entry.submission.location || "").trim();
         const caption = String(entry.submission.caption || "").trim();
-        context.fillStyle = "#1ba9b9";
+        context.fillStyle = cssVariableColor("--teal");
         context.font = '700 15px Montserrat, sans-serif';
         context.fillText(formattedDate(entry.submission.completedAt).toUpperCase(), margin, y);
         y += 34;

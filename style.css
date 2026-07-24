@@ -4,19 +4,27 @@
   --paper-2: #fffaf2;
   --ink: #272522;
   --muted: #6f6a63;
+
+  /* Canonical brand colors */
   --coral: #f35f59;
-  --gold: #f6b900;
+  --yellow: #f6b900;
   --teal: #1ba9b9;
-  --category-experience: #edbc40;
-  --category-community: #5c9f92;
-  --category-challenges: #e2695f;
-  --board-yellow: #f6b900;
-  --board-green: #1ba9b9;
-  --board-coral: #f35f59;
+
+  /* Semantic category aliases */
+  --category-experience: var(--yellow);
+  --category-community: var(--teal);
+  --category-challenges: var(--coral);
+
+  /* Board states */
+  --board-open-yellow: #f8e6b2;
+  --board-open-teal: #b4e0d5;
+  --board-open-coral: #f5d0ca;
   --board-final: #e8d2a2;
+  --board-open-final: #e8d2a2;
+
   --sand: #e8d8c4;
-  --line: rgba(39,37,34,.12);
-  --final-card-padding: clamp(20px, 5vw, 28px);
+  --line: rgba(39, 37, 34, 0.12);
+  --final-card-padding: clamp(16px, 5vw, 28px);
   --button-height: 48px;
 }
 
@@ -32,6 +40,13 @@ body {
   font-weight: 300;
 }
 body.sheet-open { overflow: hidden; }
+
+@media (display-mode: standalone),
+       (display-mode: fullscreen),
+       (display-mode: minimal-ui),
+       (display-mode: window-controls-overlay) {
+  #homeScreenHelpItem { display: none !important; }
+}
 
 button, input, textarea, select {font: inherit;}
 
@@ -309,12 +324,23 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   color: var(--teal);
   margin-top: .16em;
 }
+.briefing-inline-link {
+  color: var(--teal);
+  font-weight: 600;
+  text-underline-offset: 2px;
+}
+.briefing-inline-link:focus-visible {
+  outline: 2px solid rgba(47,143,140,.42);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
 .briefing-callout {
   margin: 20px 0;
   border-radius: 18px;
   padding: 16px 18px;
   background: rgba(246,185,0,.11);
-  border: 1px solid rgba(246,185,0,.22);
+  border: none;
+  text-align: center;
 }
 .briefing-callout span {
   display: block;
@@ -426,59 +452,65 @@ line-height: normal;
   opacity: 1;
   filter: none;
   box-shadow: none;
+  background: transparent;
   pointer-events: none;
 }
 .quest-card__visual.is-open {
-  box-shadow: inset 0 0 0 9999px rgba(255,255,255,.25);
+  background: var(--board-open-color);
 }
 .quest-card__visual.is-completed {
-  box-shadow: none;
+  background: transparent;
 }
-.quest-completed-badge {
+#questGrid > .quest-card:not(.final-quest-card) {
+  border: 0;
+}
+#questGrid > .quest-card:not(.final-quest-card) .quest-card__visual::before {
+  content: "";
   position: absolute;
-  z-index: 3;
-  top: clamp(5px, 1.2vw, 9px);
-  right: clamp(5px, 1.2vw, 9px);
-  width: clamp(18px, 4.2vw, 27px);
-  height: clamp(18px, 4.2vw, 27px);
-  display: none;
-  place-items: center;
-  border: 2px solid rgba(255,255,255,.92);
-  border-radius: 50%;
-  background: var(--teal);
-  color: white;
-  font-size: clamp(.65rem, 2.2vw, 1rem);
-  font-weight: 700;
-  line-height: 1;
+  inset: 0;
+  z-index: 0;
+  background-image: url("assets/illustrations/icon.png");
+  background-position: 42% 64%;
+  background-size: 450%;
+  mix-blend-mode: soft-light;
+  opacity: .08;
   pointer-events: none;
 }
-.quest-card__visual.is-completed .quest-completed-badge {
-  display: grid;
+#questGrid > .quest-card:not(.final-quest-card) .quest-card__visual.is-open {
+  color: var(--ink);
+}
+#questGrid > .board-square--experience:not(.final-quest-card) .quest-card__visual.is-completed {
+  color: var(--ink);
+}
+#questGrid > .board-square--community:not(.final-quest-card) .quest-card__visual.is-completed,
+#questGrid > .board-square--challenges:not(.final-quest-card) .quest-card__visual.is-completed {
+  color: var(--paper);
 }
 .quest-card:hover { transform: translateY(-2px); border-color: rgba(39,37,34,.24); }
 .quest-card:active { transform: translateY(1px); }
-.board-square--yellow {
-  --board-square-color: var(--board-yellow);
-  background: var(--board-yellow);
+.board-square--experience {
+  --board-square-color: var(--category-experience);
+  --board-open-color: var(--board-open-yellow);
+  background: var(--category-experience);
   color: var(--ink);
 }
-.board-square--green {
-  --board-square-color: var(--board-green);
-  background: var(--board-green);
+.board-square--community {
+  --board-square-color: var(--category-community);
+  --board-open-color: var(--board-open-teal);
+  background: var(--category-community);
 }
-.board-square--red {
-  --board-square-color: var(--board-coral);
-  background: var(--board-coral);
+.board-square--challenges {
+  --board-square-color: var(--category-challenges);
+  --board-open-color: var(--board-open-coral);
+  background: var(--category-challenges);
 }
 .board-square--final {
   --board-square-color: var(--board-final);
+  --board-open-color: var(--board-open-final);
   background: var(--board-final);
 }
 .quest-card.final-quest-card {
-  background:
-    radial-gradient(circle at 18% 12%, rgba(255,250,242,.86), transparent 28%),
-    radial-gradient(circle at 82% 88%, rgba(246,185,0,.22), transparent 30%),
-    linear-gradient(135deg, #fff4d5 0%, #ead19a 52%, #f8e7bd 100%);
+  background: var(--board-final);
   border-color: rgba(157,112,29,.58);
   color: #5f481d;
   box-shadow: 0 10px 24px rgba(97,70,18,.14);
@@ -498,6 +530,25 @@ line-height: normal;
 .quest-card.final-quest-card:hover {
   border-color: rgba(157,112,29,.72);
   box-shadow: 0 12px 26px rgba(97,70,18,.16);
+}
+#questGrid > .quest-card.final-quest-card {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,250,242,.72), transparent 28%),
+    radial-gradient(circle at 82% 88%, rgba(246,185,0,.16), transparent 32%),
+    linear-gradient(135deg, #fff4d5 0%, var(--board-final) 52%, #f8e7bd 100%);
+  border: 0;
+  box-shadow: 0 3px 10px rgba(157,112,29,.1);
+}
+#questGrid > .quest-card.final-quest-card .quest-card__visual {
+  background: transparent;
+}
+#questGrid > .quest-card.final-quest-card::before {
+  z-index: 0;
+  opacity: .5;
+}
+#questGrid > .quest-card.final-quest-card:hover {
+  border: 0;
+  box-shadow: 0 4px 12px rgba(157,112,29,.12);
 }
 .quest-card-content {
   position: relative;
@@ -522,8 +573,9 @@ line-height: normal;
   line-height: 1;
 }
 .quest-title {
-  font-family: "Libre Baskerville", serif;
+  font-family: "Montserrat", sans-serif;
   font-size: clamp(.50rem, 1.6vw, .82rem);
+  font-weight: 500;
   line-height: 1;
   overflow-wrap: normal;
   word-break: normal;
@@ -775,6 +827,7 @@ line-height: normal;
 }
 .completed-stamp {
   position: absolute;
+  z-index: 2;
   width: 142%;
   height: auto;
   left: 50%;
@@ -785,6 +838,180 @@ line-height: normal;
   filter:
     drop-shadow(0 1px 0 rgba(39,37,34,.48))
     drop-shadow(0 0 2px rgba(255,250,242,.72));
+}
+.stamp-particles {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 50%;
+  width: 300px;
+  height: 300px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Completion stages: focus/dim, stamp, then a quiet return to full brightness. */
+.quest-modal-shell.is-completing {
+  cursor: wait;
+}
+.quest-modal-wrapper[data-completion-locked] {
+  pointer-events: none;
+}
+.quest-modal-shell.is-completing .quest-modal-scroll {
+  overflow-y: hidden;
+  touch-action: none;
+}
+.quest-modal-shell.is-completing .quest-form-fields,
+.quest-modal-shell.is-completing .final-quest-flow,
+.quest-modal-shell.is-completing .quest-navigation,
+.quest-modal-shell.is-completing .quest-content > .primary-button,
+.quest-modal-shell.is-completing .quest-content > .adventure-text-button {
+  opacity: .76;
+  transition: opacity 220ms ease-out;
+}
+.quest-modal-shell.is-completing .completed-stamp {
+  opacity: 0;
+}
+.quest-modal-shell.is-completing.is-completion-stamp-visible .completed-stamp {
+  opacity: .92;
+  transition: opacity 200ms ease-out;
+}
+.quest-modal-shell.is-completion-restoring .quest-form-fields,
+.quest-modal-shell.is-completion-restoring .final-quest-flow,
+.quest-modal-shell.is-completion-restoring .quest-navigation,
+.quest-modal-shell.is-completion-restoring .quest-content > .primary-button,
+.quest-modal-shell.is-completion-restoring .quest-content > .adventure-text-button {
+  opacity: 1;
+  transition-duration: 180ms;
+}
+
+/* Save-to-home-screen help reuses the shared bottom-sheet shell and scroll area. */
+.home-screen-help-content {
+  width: 100%;
+  max-width: 632px;
+  margin: 0 auto;
+  padding: 2px 0 8px;
+}
+.home-screen-help-header {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+.home-screen-help-header h2 {
+  margin: 0 0 4px;
+}
+.home-screen-help-subtitle {
+  display: block;
+  margin: 0;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+.home-screen-help-supporting {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 500;
+  line-height: 1.42;
+}
+.home-screen-app-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 22%;
+  box-shadow:
+    0 10px 24px rgba(39,37,34,.13),
+    0 0 0 1px rgba(39,37,34,.08);
+}
+.home-screen-app-icon-wrap {
+  overflow: visible;
+}
+.platform-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 430px;
+  margin: 18px auto 0;
+  padding: 4px;
+  border: 1px solid rgba(39,37,34,.09);
+  border-radius: 999px;
+  background: #efe7dc;
+}
+.platform-tab {
+  min-height: 42px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+}
+.platform-tab[aria-selected="true"] {
+  background: var(--paper-2);
+  color: var(--ink);
+  box-shadow: 0 2px 8px rgba(39,37,34,.1);
+}
+.platform-tab:focus-visible {
+  outline: 3px solid rgba(47,143,140,.36);
+  outline-offset: 2px;
+}
+.platform-instructions {
+  margin-top: 20px;
+}
+.install-steps {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.install-step-card {
+  display: grid;
+  grid-template-columns: minmax(0, 42%) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 12px;
+  border: 0;
+  border-radius: 20px;
+  background: rgba(255,255,255,.38);
+}
+.install-step-illustration {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1.5px dashed rgba(111,106,99,.28);
+  border-radius: 13px;
+  background: #efe7dc;
+}
+.install-step-copy {
+  min-width: 0;
+}
+.install-step-copy span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--coral);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.install-step-copy p {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 500;
+  line-height: 1.48;
+}
+.home-screen-help-footer {
+  margin-top: 22px;
+  text-align: center;
+}
+.home-screen-help-footer p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: .84rem;
+  font-weight: 500;
 }
 .upload-box {
   display: block;
@@ -1048,7 +1275,7 @@ textarea.text-input {
   -webkit-line-clamp: unset;
 }
 .final-quest-flow {
-  margin-top: 22px;
+  margin-top: 16px;
 }
 .final-stage,
 .final-results {
@@ -1099,7 +1326,6 @@ textarea.text-input {
   color: #4d3915;
   box-shadow: inset 0 0 0 1px rgba(113,78,17,.18);
 }
-.final-complete-mode .quest-detail-header,
 .final-complete-mode .quest-navigation,
 .final-complete-mode .quest-content > .primary-button,
 .final-complete-mode .quest-content > .secondary-button {
@@ -1237,6 +1463,13 @@ textarea.text-input {
 [hidden] { display:none !important; }
 
 @media (min-width: 621px) {
+  .install-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .install-step-card {
+    grid-template-columns: 1fr;
+    align-content: start;
+  }
   .quest-navigation { display: none; }
   .desktop-quest-control {
     position: absolute;
@@ -1381,6 +1614,14 @@ textarea.text-input {
   .quest-content,
   .quest-nav-button,
   .close-button { transition-duration: .01ms !important; }
+  .quest-modal-shell.is-completing .completed-stamp,
+  .quest-modal-shell.is-completing .quest-form-fields,
+  .quest-modal-shell.is-completing .final-quest-flow,
+  .quest-modal-shell.is-completing .quest-navigation,
+  .quest-modal-shell.is-completing .quest-content > .primary-button,
+  .quest-modal-shell.is-completing .quest-content > .adventure-text-button {
+    transition-duration: .01ms !important;
+  }
 }
 
 /* Journal and keepsake pages */
@@ -1805,10 +2046,7 @@ body.keepsake-preview-open { overflow: hidden; }
   pointer-events: none;
 }
 .keepsake-board .keepsake-quest-card.final-quest-card {
-  background:
-    radial-gradient(circle at 18% 12%, rgba(255,250,242,.86), transparent 28%),
-    radial-gradient(circle at 82% 88%, rgba(246,185,0,.22), transparent 30%),
-    linear-gradient(135deg, #fff4d5 0%, #ead19a 52%, #f8e7bd 100%);
+  background: var(--board-final);
   border-color: rgba(157,112,29,.58);
   color: #5f481d;
 }

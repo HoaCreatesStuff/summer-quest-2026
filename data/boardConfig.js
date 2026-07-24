@@ -41,34 +41,34 @@ window.BOARD_ORDER = [
 ];
 
 window.BOARD_COLORS = [
-  "yellow",
-  "green",
-  "red",
-  "yellow",
-  "green",
+  "experience",
+  "community",
+  "challenges",
+  "experience",
+  "community",
 
-  "red",
-  "yellow",
-  "green",
-  "red",
-  "yellow",
+  "challenges",
+  "experience",
+  "community",
+  "challenges",
+  "experience",
 
-  "green",
-  "red",
-  "yellow",
-  "green",
-  "red",
+  "community",
+  "challenges",
+  "experience",
+  "community",
+  "challenges",
 
-  "yellow",
-  "green",
-  "red",
-  "yellow",
-  "green",
+  "experience",
+  "community",
+  "challenges",
+  "experience",
+  "community",
 
-  "red",
-  "yellow",
-  "green",
-  "red",
+  "challenges",
+  "experience",
+  "community",
+  "challenges",
   "final"
 ];
 
@@ -99,7 +99,7 @@ window.validateBoardConfig = function validateBoardConfig() {
     console.error("Quest IDs missing from BOARD_ORDER:", missingIds);
   }
 
-  const allowedColors = new Set(["yellow", "green", "red", "final"]);
+  const allowedColors = new Set(["experience", "community", "challenges", "final"]);
   const invalidColors = colors.filter((color) => !allowedColors.has(color));
 
   if (invalidColors.length) {

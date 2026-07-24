@@ -5,6 +5,12 @@ const MEDIA_MIGRATION_VERSION = 1;
 const MAX_FRIENDS = 5;
 const BONUS_POINTS = 2;
 const FINAL_QUEST_ID = "party-time";
+const COMPLETION_TIMING = Object.freeze({
+  focus: 350,
+  stamp: 200,
+  particles: 360,
+  restore: 180
+});
 const mediaStore = window.QuestMediaStore;
 
 window.validateBoardConfig();
@@ -180,6 +186,7 @@ let selectedBonusIds = [];
 let finalScoreResizeObserver = null;
 let saveInProgress = false;
 let sheetTrigger = null;
+let homeScreenSheetTrigger = null;
 
 const ranks = [
   { min: 0, max: 29, title: "Summer Rookie", blurb: "Every adventure starts somewhere.", next: 30 },
@@ -201,10 +208,18 @@ const els = {
   briefing: document.querySelector("#briefing"),
   briefingToggle: document.querySelector("#briefingToggle"),
   briefingBody: document.querySelector("#briefingBody"),
+  homeScreenHelpItem: document.querySelector("#homeScreenHelpItem"),
+  homeScreenHelpLink: document.querySelector("#homeScreenHelpLink"),
   backdrop: document.querySelector("#sheetBackdrop"),
   modalWrapper: document.querySelector("#questModalWrapper"),
   sheet: document.querySelector("#questSheet"),
   close: document.querySelector("#closeSheet"),
+  homeScreenModalWrapper: document.querySelector("#homeScreenModalWrapper"),
+  homeScreenSheet: document.querySelector("#homeScreenSheet"),
+  closeHomeScreenSheet: document.querySelector("#closeHomeScreenSheet"),
+  confirmHomeScreenHelp: document.querySelector("#confirmHomeScreenHelp"),
+  platformTabs: document.querySelector(".platform-tabs"),
+  platformPanels: document.querySelectorAll(".platform-panel"),
   content: document.querySelector("#questContent"),
   previousQuest: document.querySelector("#previousQuest"),
   nextQuest: document.querySelector("#nextQuest"),
@@ -216,6 +231,7 @@ const els = {
   category: document.querySelector("#sheetCategory"),
   questIcon: document.querySelector("#sheetQuestIcon"),
   completedStamp: document.querySelector("#completedStamp"),
+  stampParticles: document.querySelector("#stampParticles"),
   title: document.querySelector("#sheetTitle"),
   desc: document.querySelector("#sheetDescription"),
   form: document.querySelector("#questForm"),
@@ -264,6 +280,170 @@ function questVisualMarkup(quest) {
     return `<img class="quest-illustration" src="${illustration}" alt="" aria-hidden="true" />`;
   }
   return `<span class="quest-illustration quest-symbol material-symbols-outlined" aria-hidden="true">${quest.icon}</span>`;
+}
+
+function delay(milliseconds) {
+  return new Promise(resolve => window.setTimeout(resolve, Math.max(0, milliseconds)));
+}
+
+function delayUntil(startedAt, elapsedMilliseconds) {
+  return delay(elapsedMilliseconds - (performance.now() - startedAt));
+}
+
+function setCompletionInteractionLock(locked) {
+  els.modalWrapper.toggleAttribute("inert", locked);
+  els.modalWrapper.toggleAttribute("data-completion-locked", locked);
+  els.sheet.classList.toggle("is-completing", locked);
+  els.sheet.setAttribute("aria-busy", String(locked));
+}
+
+function clearCompletionStage() {
+  els.sheet.classList.remove(
+    "is-completing",
+    "is-completion-stamp-visible",
+    "is-completion-restoring"
+  );
+  els.modalWrapper.removeAttribute("inert");
+  els.modalWrapper.removeAttribute("data-completion-locked");
+  els.sheet.removeAttribute("aria-busy");
+  const context = els.stampParticles.getContext("2d");
+  context?.clearRect(0, 0, els.stampParticles.width, els.stampParticles.height);
+}
+
+function beginCompletionFocus() {
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const scrollBounds = els.form.getBoundingClientRect();
+  const titleBounds = els.title.getBoundingClientRect();
+  const iconBounds = els.questIcon.parentElement.getBoundingClientRect();
+  const fullyVisible = [titleBounds, iconBounds].every(bounds => (
+    bounds.top >= scrollBounds.top && bounds.bottom <= scrollBounds.bottom
+  ));
+
+  setCompletionInteractionLock(true);
+
+  // Stage 1: reveal the keepsake header while the lower form gently recedes.
+  if (!reducedMotion && !fullyVisible) {
+    els.form.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  return { reducedMotion, startedAt: performance.now() };
+}
+
+function triggerCompletionHaptic() {
+  try {
+    navigator.vibrate?.(12);
+  } catch (error) {
+    // Vibration is optional and may be blocked by the browser or device.
+  }
+}
+
+function drawParticle(context, particle, x, y, rotation, alpha) {
+  context.save();
+  context.translate(x, y);
+  context.rotate(rotation);
+  context.globalAlpha = alpha;
+  context.fillStyle = particle.color;
+
+  if (particle.shape === "dot") {
+    context.beginPath();
+    context.arc(0, 0, particle.size * .55, 0, Math.PI * 2);
+    context.fill();
+  } else if (particle.shape === "fleck") {
+    context.fillRect(-particle.size * .35, -particle.size, particle.size * .7, particle.size * 2);
+  } else {
+    const points = particle.shape === "sparkle" ? 4 : 5;
+    const innerRadius = particle.shape === "sparkle" ? particle.size * .16 : particle.size * .42;
+    context.beginPath();
+    for (let point = 0; point < points * 2; point += 1) {
+      const radius = point % 2 ? innerRadius : particle.size;
+      const angle = -Math.PI / 2 + (point * Math.PI) / points;
+      context.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+    }
+    context.closePath();
+    context.fill();
+  }
+  context.restore();
+}
+
+function launchGoldParticleBurst() {
+  const canvas = els.stampParticles;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const cssSize = 300;
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = cssSize * pixelRatio;
+  canvas.height = cssSize * pixelRatio;
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+  const shapes = ["star", "sparkle", "fleck", "dot"];
+  const golds = ["#c98b13", "#e4aa24", "#f3c75d", "#fff0a8"];
+  const particles = Array.from({ length: 24 }, (_, index) => ({
+    angle: (index / 24) * Math.PI * 2 + (Math.random() - .5) * .2,
+    color: golds[index % golds.length],
+    rotation: Math.random() * Math.PI,
+    rotationSpeed: (Math.random() - .5) * 7,
+    shape: shapes[index % shapes.length],
+    size: 1.7 + Math.random() * 2.4,
+    speed: 185 + Math.random() * 125
+  }));
+  const startedAt = performance.now();
+
+  function paint(now) {
+    const elapsed = Math.min((now - startedAt) / 1000, COMPLETION_TIMING.particles / 1000);
+    const progress = elapsed / (COMPLETION_TIMING.particles / 1000);
+    context.clearRect(0, 0, cssSize, cssSize);
+
+    particles.forEach(particle => {
+      const distance = particle.speed * elapsed * (1 - progress * .24);
+      const x = cssSize / 2 + Math.cos(particle.angle) * distance;
+      const y = cssSize / 2 + Math.sin(particle.angle) * distance + 42 * elapsed * elapsed;
+      drawParticle(
+        context,
+        particle,
+        x,
+        y,
+        particle.rotation + particle.rotationSpeed * elapsed,
+        Math.max(0, 1 - progress * progress)
+      );
+    });
+
+    if (progress < 1) {
+      requestAnimationFrame(paint);
+    } else {
+      context.clearRect(0, 0, cssSize, cssSize);
+    }
+  }
+
+  requestAnimationFrame(paint);
+}
+
+async function playCompletionCelebration(stage) {
+  try {
+    if (stage.reducedMotion) {
+      // Reduced motion: show the durable state immediately without scroll or particles.
+      els.sheet.classList.add("is-completion-stamp-visible", "is-completion-restoring");
+      triggerCompletionHaptic();
+      await delay(20);
+      return;
+    }
+
+    // Stage 2: let the fixed stamp settle through opacity only.
+    await delayUntil(stage.startedAt, COMPLETION_TIMING.focus);
+    els.sheet.classList.add("is-completion-stamp-visible");
+    await delay(COMPLETION_TIMING.stamp);
+
+    // Stage 3: one haptic and one localized metallic-gold burst at full opacity.
+    triggerCompletionHaptic();
+    launchGoldParticleBurst();
+    await delay(COMPLETION_TIMING.particles);
+
+    // Stage 4: bring the journal details back, keeping the completed state visible.
+    els.sheet.classList.add("is-completion-restoring");
+    await delay(COMPLETION_TIMING.restore);
+  } finally {
+    clearCompletionStage();
+  }
 }
 
 function save() {
@@ -889,9 +1069,7 @@ function renderFinalQuest(quest, existing, draft) {
   els.finalResults.hidden = true;
   els.form.classList.add("final-gate-mode");
   els.form.classList.remove("final-quest-mode", "final-complete-mode");
-  els.title.textContent = "Final Quest Locked";
-  els.desc.textContent = "Answer the birthday trivia question to unlock the final mission.";
-  els.questIcon.hidden = true;
+  els.desc.textContent = "Answer the trivia question to unlock the final mission.";
   els.saveQuest.hidden = true;
   els.remove.hidden = true;
 }
@@ -905,7 +1083,11 @@ function renderStandardQuest(existing, finalQuest = false) {
   els.questDetailsRow.classList.toggle("no-friends", finalQuest);
   els.form.classList.toggle("final-quest-mode", finalQuest);
   els.form.classList.remove("final-gate-mode", "final-complete-mode");
-  els.saveQuest.textContent = finalQuest ? "Submit Final Quest" : "Save Memory";
+  els.saveQuest.textContent = existing
+    ? "Save Changes"
+    : finalQuest
+      ? "Complete Final Quest"
+      : "Complete Quest";
   els.saveQuest.disabled = false;
   els.saveQuest.hidden = false;
   els.remove.hidden = finalQuest || !existing;
@@ -945,7 +1127,6 @@ function renderGrid() {
 
     button.innerHTML = `
       <span class="quest-card__visual ${completed ? "is-completed" : "is-open"}">
-        <span class="quest-completed-badge material-symbols-outlined" aria-hidden="true">check_small</span>
         <span class="quest-card-content">
           ${questVisualMarkup(quest)}
           <span class="quest-title">${renderQuestTitle(quest.title)}</span>
@@ -1113,6 +1294,85 @@ function closeSheet(preserveDraft = true) {
   document.body.classList.remove("sheet-open");
   els.mediaInput.value = "";
   focusTarget?.focus({ preventScroll: true });
+}
+
+function isRunningStandalone() {
+  const installedDisplayModes = [
+    "standalone",
+    "fullscreen",
+    "minimal-ui",
+    "window-controls-overlay"
+  ];
+  return navigator.standalone === true || installedDisplayModes.some(
+    mode => window.matchMedia(`(display-mode: ${mode})`).matches
+  );
+}
+
+function detectedHomeScreenPlatform() {
+  const platform = navigator.userAgentData?.platform || navigator.platform || "";
+  const agent = `${platform} ${navigator.userAgent}`.toLowerCase();
+  const isIPadOS = agent.includes("mac") && navigator.maxTouchPoints > 1;
+
+  if (agent.includes("android")) return "android";
+  if (/iphone|ipad|ipod/.test(agent) || isIPadOS || agent.includes("mac")) return "iphone";
+  if (/chrome|chromium|crios|edg/.test(agent)) return "android";
+  return "iphone";
+}
+
+function setHomeScreenPlatform(platform, moveFocus = false) {
+  const nextPlatform = platform === "android" ? "android" : "iphone";
+  const tabs = Array.from(els.platformTabs.querySelectorAll("[role='tab']"));
+
+  tabs.forEach(tab => {
+    const selected = tab.dataset.platform === nextPlatform;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && moveFocus) tab.focus();
+  });
+  els.platformPanels.forEach(panel => {
+    panel.hidden = panel.id !== `${nextPlatform}Instructions`;
+  });
+}
+
+function openHomeScreenHelp(event) {
+  event?.preventDefault();
+  if (isRunningStandalone()) return;
+  homeScreenSheetTrigger = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  els.backdrop.hidden = false;
+  els.homeScreenModalWrapper.hidden = false;
+  els.homeScreenSheet.hidden = false;
+  document.body.classList.add("sheet-open");
+  requestAnimationFrame(() => els.closeHomeScreenSheet.focus());
+}
+
+function closeHomeScreenHelp() {
+  const focusTarget = homeScreenSheetTrigger;
+  homeScreenSheetTrigger = null;
+  els.homeScreenSheet.hidden = true;
+  els.homeScreenModalWrapper.hidden = true;
+  els.backdrop.hidden = true;
+  document.body.classList.remove("sheet-open");
+  focusTarget?.focus({ preventScroll: true });
+}
+
+function activeModalContext() {
+  if (!els.homeScreenSheet.hidden) {
+    return {
+      wrapper: els.homeScreenModalWrapper,
+      close: closeHomeScreenHelp,
+      isQuest: false
+    };
+  }
+  if (!els.sheet.hidden) {
+    return {
+      wrapper: els.modalWrapper,
+      close: closeSheet,
+      isQuest: true
+    };
+  }
+  return null;
 }
 
 function navigateQuest(offset) {
@@ -1286,6 +1546,18 @@ els.briefingToggle.addEventListener("click", () => {
   setBriefingCollapsed(!els.briefing.classList.contains("collapsed"));
 });
 
+els.homeScreenHelpLink.addEventListener("click", openHomeScreenHelp);
+els.platformTabs.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-platform]");
+  if (tab) setHomeScreenPlatform(tab.dataset.platform);
+});
+els.platformTabs.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  event.preventDefault();
+  const platform = event.currentTarget.querySelector("[aria-selected='true']")?.dataset.platform;
+  setHomeScreenPlatform(platform === "iphone" ? "android" : "iphone", true);
+});
+
 els.resetBoard.addEventListener("click", async () => {
   const confirmed = window.confirm(
     "Start over and remove all completed quests, photos, and saved progress?"
@@ -1382,6 +1654,8 @@ els.form.addEventListener("submit", async (event) => {
     return;
   }
   saveInProgress = true;
+  const isNewCompletion = !questIsCompleted(activeQuest.id);
+  const completionStage = isNewCompletion ? beginCompletionFocus() : null;
   els.saveQuest.disabled = true;
   els.saveQuest.textContent = "Saving…";
   const mediaType = activeMediaType || completedSubmission(activeQuest.id)?.mediaType || "image/jpeg";
@@ -1423,8 +1697,13 @@ els.form.addEventListener("submit", async (event) => {
     if (previousDraft) state.drafts[questId] = previousDraft;
     reportMediaError(error, "save");
     saveInProgress = false;
+    if (completionStage) clearCompletionStage();
     els.saveQuest.disabled = false;
-    els.saveQuest.textContent = finalQuest ? "Submit Final Quest" : "Save Memory";
+    els.saveQuest.textContent = previousSubmission
+      ? "Save Changes"
+      : finalQuest
+        ? "Complete Final Quest"
+        : "Complete Quest";
     return;
   }
 
@@ -1443,8 +1722,14 @@ els.form.addEventListener("submit", async (event) => {
   renderBoardActions();
   renderQuest(activeQuest);
   els.announcement.textContent = `${activeQuest.title} completed. ${questPoints(nextSubmission)} points earned.`;
-  saveInProgress = false;
-  els.saveQuest.disabled = false;
+  try {
+    if (completionStage) {
+      await playCompletionCelebration(completionStage);
+    }
+  } finally {
+    saveInProgress = false;
+    els.saveQuest.disabled = false;
+  }
 });
 
 els.remove.addEventListener("click", async () => {
@@ -1478,23 +1763,29 @@ els.remove.addEventListener("click", async () => {
 });
 
 els.close.addEventListener("click", closeSheet);
-els.backdrop.addEventListener("click", closeSheet);
+els.closeHomeScreenSheet.addEventListener("click", closeHomeScreenHelp);
+els.confirmHomeScreenHelp.addEventListener("click", closeHomeScreenHelp);
+els.backdrop.addEventListener("click", () => {
+  if (!els.homeScreenSheet.hidden) closeHomeScreenHelp();
+  else closeSheet();
+});
 
 document.addEventListener("keydown", (event) => {
-  if (els.sheet.hidden || event.altKey || event.ctrlKey || event.metaKey) return;
+  const modal = activeModalContext();
+  if (!modal || event.altKey || event.ctrlKey || event.metaKey) return;
   if (event.key === "Escape") {
     event.preventDefault();
-    closeSheet();
+    modal.close();
     return;
   }
   if (event.key === "Tab") {
-    const focusable = Array.from(els.modalWrapper.querySelectorAll(
+    const focusable = Array.from(modal.wrapper.querySelectorAll(
       "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])"
     )).filter(element => !element.hidden && element.getClientRects().length);
     if (!focusable.length) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    if (!els.modalWrapper.contains(document.activeElement)) {
+    if (!modal.wrapper.contains(document.activeElement)) {
       event.preventDefault();
       first.focus();
     } else if (event.shiftKey && document.activeElement === first) {
@@ -1506,6 +1797,7 @@ document.addEventListener("keydown", (event) => {
     }
     return;
   }
+  if (!modal.isQuest) return;
   const formControl = event.target.closest("input, textarea, select, [contenteditable='true']");
   if (formControl || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
   event.preventDefault();
@@ -1546,6 +1838,9 @@ window.addEventListener("pagehide", () => {
 });
 
 async function initializeApp() {
+  els.homeScreenHelpItem.hidden = isRunningStandalone();
+  setHomeScreenPlatform(detectedHomeScreenPlatform());
+
   let mediaReady = true;
   try {
     await migrateLegacyMediaState();

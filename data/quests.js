@@ -329,7 +329,7 @@ window.QUESTS = {
   },
 
   "pup-arazzi": {
-    category: "community",
+    category: "challenges",
     icon: "sound_detection_dog_barking",
     title: "Pup-arazzi",
     description: "Round up at least three dogs for a group photo.",

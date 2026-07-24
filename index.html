@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&amp;family=Montserrat:wght@300;400;500;600&amp;family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&amp;family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=launch-stabilization-v1" />
+  <link rel="stylesheet" href="style.css?v=home-screen-help-v2" />
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./assets/favicon/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon/favicon-32x32.png">
@@ -75,14 +75,14 @@
     to share your favorite moments and hang out with the Summer Quest squad.
   </span>
 </li>
-            <li><span class="material-symbols-outlined" aria-hidden="true">install_mobile</span><span>Save the <strong>Summer Quest web app</strong> to your home screen to start playing!</span>
+            <li id="homeScreenHelpItem"><span class="material-symbols-outlined" aria-hidden="true">install_mobile</span><span>Save the <a id="homeScreenHelpLink" href="#save-to-home-screen">Summer Quest web app</a> to your home screen to start playing!</span>
 </li>
           </ul>
           <div class="briefing-callout">
-            <span>Birthday Picnic</span>
+            <span>Birthday Party</span>
             <p>Join us for one final quest, lots of laughs, and the crowning of the official <strong>Summer Quest Champion</strong>.</p>
             <p><strong>Sunday, August 16, 2026 • 2:00–5:00 PM</strong></p>
-            <p>Bryant Park Lawn, New York 10018</p>
+            <p>Bryant Park • <a class="briefing-inline-link" href="https://partiful.com/e/O38rSNjmcQWjphAEI98O?c=4zeCvvke" target="_blank" rel="noopener noreferrer"> RSVP on Partiful</a></p>
           </div>
           <p class="closing">Most importantly: have fun, explore somewhere new, and make this your best NYC summer yet.</p>
         </div>
@@ -207,6 +207,7 @@
       <div class="sheet-icon-wrap" aria-hidden="true">
         <img id="sheetQuestIcon" class="sheet-quest-icon" alt="" />
         <img id="completedStamp" class="completed-stamp" src="assets/illustrations/overlays/completed-stamp-256.png" alt="" hidden />
+        <canvas id="stampParticles" class="stamp-particles" aria-hidden="true"></canvas>
       </div>
     </div>
 
@@ -250,7 +251,7 @@
 
       <div id="finalQuestFlow" class="final-quest-flow" hidden>
         <section id="missionCodeSection" class="final-stage final-code-stage" aria-labelledby="missionCodeHeading">
-          <h3 id="missionCodeHeading">Birthday Question</h3>
+          <!--<h3 id="missionCodeHeading">Trivia</h3>-->
           <label class="field final-code-field">
             <span id="finalGateQuestion">How many days apart are their birthdays?</span>
             <input id="missionCodeInput" class="text-input" type="text" placeholder="Enter your answer" autocomplete="off" />
@@ -283,10 +284,78 @@
   </button>
   </div>
 
+  <div id="homeScreenModalWrapper" class="quest-modal-wrapper home-screen-modal-wrapper" hidden>
+    <section id="homeScreenSheet" class="bottom-sheet home-screen-help-sheet" aria-modal="true" role="dialog" aria-labelledby="homeScreenTitle" hidden>
+      <div class="sheet-handle"></div>
+      <button id="closeHomeScreenSheet" class="close-button" type="button" aria-label="Close">×</button>
+
+      <div class="quest-modal-scroll home-screen-help-scroll">
+        <div class="home-screen-help-content">
+          <header class="quest-detail-header home-screen-help-header">
+            <div class="quest-detail-copy">
+              <h2 id="homeScreenTitle">Save to Home Screen</h2>
+              <p class="sheet-description home-screen-help-subtitle">Summer Quest works best when saved to your phone like a real app.</p>
+              <p class="home-screen-help-supporting">It only takes about 10 seconds. Then you'll have this proud NYC pigeon waiting for you every time you open it.</p>
+            </div>
+            <div class="sheet-icon-wrap home-screen-app-icon-wrap" aria-hidden="true">
+              <img class="sheet-quest-icon home-screen-app-icon" src="assets/favicon/icon-512.png" alt="" />
+            </div>
+          </header>
+
+          <div class="platform-tabs" role="tablist" aria-label="Choose your phone">
+            <button id="iphoneHelpTab" class="platform-tab" type="button" role="tab" aria-selected="true" aria-controls="iphoneInstructions" data-platform="iphone">iPhone</button>
+            <button id="androidHelpTab" class="platform-tab" type="button" role="tab" aria-selected="false" aria-controls="androidInstructions" data-platform="android" tabindex="-1">Android</button>
+          </div>
+
+          <div class="platform-instructions">
+            <section id="iphoneInstructions" class="platform-panel" role="tabpanel" aria-labelledby="iphoneHelpTab">
+              <ol class="install-steps">
+                <li class="install-step-card">
+                  <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-1.png" alt="" data-placeholder-illustration />
+                  <div class="install-step-copy"><span>Step 1</span><p>Tap the Share button on the bottom of your screen.</p></div>
+                </li>
+                <li class="install-step-card">
+                  <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-2.png" alt="" data-placeholder-illustration />
+                  <div class="install-step-copy"><span>Step 2</span><p>Tap "See more", scroll down and select "Add to Home Screen".</p></div>
+                </li>
+                <li class="install-step-card">
+                  <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-3.png" alt="" data-placeholder-illustration />
+                  <div class="install-step-copy"><span>Step 3</span><p>Tap "Add" and make sure you enable "Open as Web App".</p></div>
+                </li>
+              </ol>
+            </section>
+
+            <section id="androidInstructions" class="platform-panel" role="tabpanel" aria-labelledby="androidHelpTab" hidden>
+              <ol class="install-steps">
+                <li class="install-step-card">
+                  <img class="install-step-illustration" src="assets/home-screen-help/android-step-1.png" alt="" data-placeholder-illustration />
+                  <div class="install-step-copy"><span>Step 1</span><p>Tap the browser menu (⋮) on the top right of your screen.</p></div>
+                </li>
+                <li class="install-step-card">
+                  <img class="install-step-illustration" src="assets/home-screen-help/android-step-2.png" alt="" data-placeholder-illustration />
+                  <div class="install-step-copy"><span>Step 2</span><p>Tap "Add to Home Screen", "Install App", or "Add Page to" depending on your browser.</p></div>
+                </li>
+                <li class="install-step-card">
+                  <img class="install-step-illustration" src="assets/home-screen-help/android-step-3.png" alt="" data-placeholder-illustration />
+                  <div class="install-step-copy"><span>Step 3</span><p>Tap "Add" to save it to your phone.</p></div>
+                </li>
+              </ol>
+            </section>
+          </div>
+
+          <footer class="home-screen-help-footer">
+            <p>You’ll only need to do this once.</p>
+            <button id="confirmHomeScreenHelp" class="primary-button" type="button">Got it</button>
+          </footer>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <script src="data/quests.js?v=illustrations-v2"></script>
-  <script src="data/boardConfig.js?v=position-colors-v1"></script>
+  <script src="data/boardConfig.js?v=semantic-board-colors-v1"></script>
   <script src="data/mediaStorage.js?v=indexeddb-v1"></script>
-  <script src="data/app.js?v=launch-stabilization-v1"></script>
-  <script src="data/journal.js?v=launch-stabilization-v1"></script>
+  <script src="data/app.js?v=home-screen-help-v1"></script>
+  <script src="data/journal.js?v=semantic-board-colors-v1"></script>
 </body>
 </html>
