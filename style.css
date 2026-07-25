@@ -1546,8 +1546,8 @@ textarea.text-input {
 }
 
 .quest-card-content {
-  grid-template-rows: minmax(0, .50fr) minmax(0, .50fr);
-  gap: 2px;
+  grid-template-rows: minmax(0, .56fr) minmax(0, .44fr);
+  gap: 0px;
 }
 
 .quest-illustration {
