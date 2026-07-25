@@ -181,6 +181,9 @@ let activeMediaBlob = null;
 let activeMediaType = null;
 let activePreviewUrl = "";
 let mediaPreviewRequest = 0;
+let cropper = null;
+let cropSourceUrl = "";
+let pendingCropFile = null;
 let friendCount = 0;
 let selectedBonusIds = [];
 let finalScoreResizeObserver = null;
@@ -245,6 +248,16 @@ const els = {
   finalResults: document.querySelector("#finalResults"),
   mediaInput: document.querySelector("#mediaInput"),
   mediaPreview: document.querySelector("#mediaPreview"),
+  
+  mediaInput: document.querySelector("#mediaInput"),
+  mediaPreview: document.querySelector("#mediaPreview"),
+
+  cropModal: document.querySelector("#cropModal"),
+  cropImage: document.querySelector("#cropImage"),
+  closeCropModal: document.querySelector("#closeCropModal"),
+  cancelCrop: document.querySelector("#cancelCrop"),
+  confirmCrop: document.querySelector("#confirmCrop"),
+  
   friendsField: document.querySelector("#friendsField"),
   questDetailsRow: document.querySelector("#questDetailsRow"),
   location: document.querySelector("#locationInput"),
@@ -1402,6 +1415,53 @@ function navigateQuest(offset) {
   }, 130);
 }
 
+function closeCropper({ clearInput = false } = {}) {
+  cropper?.destroy();
+  cropper = null;
+
+  if (cropSourceUrl) {
+    URL.revokeObjectURL(cropSourceUrl);
+    cropSourceUrl = "";
+  }
+
+  pendingCropFile = null;
+  els.cropImage.removeAttribute("src");
+  els.cropModal.hidden = true;
+
+  if (clearInput) {
+    els.mediaInput.value = "";
+  }
+}
+
+function openCropper(file) {
+  if (!file?.type.startsWith("image/")) return;
+
+  closeCropper();
+
+  pendingCropFile = file;
+  cropSourceUrl = URL.createObjectURL(file);
+  els.cropImage.src = cropSourceUrl;
+  els.cropModal.hidden = false;
+
+  els.cropImage.onload = () => {
+    cropper = new Cropper(els.cropImage, {
+      aspectRatio: 1,
+      viewMode: 1,
+      dragMode: "move",
+      autoCropArea: 1,
+      responsive: true,
+      background: false,
+      guides: false,
+      center: false,
+      movable: true,
+      zoomable: true,
+      scalable: false,
+      rotatable: false,
+      toggleDragModeOnDblclick: false
+    });
+  };
+}
+
 function renderMediaPreview(blob, mediaType) {
   if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
   activePreviewUrl = "";
@@ -1444,6 +1504,10 @@ async function loadMediaPreviewForRecord(record, questId) {
 els.mediaInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
+    if (file.type.startsWith("image/")) {
+    openCropper(file);
+    return;
+  }
 
   const selectionRequest = ++mediaPreviewRequest;
   const questId = activeQuest?.id;
