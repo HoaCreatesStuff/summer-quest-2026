@@ -1427,10 +1427,41 @@ function closeCropper({ clearInput = false } = {}) {
   pendingCropFile = null;
   els.cropImage.removeAttribute("src");
   els.cropModal.hidden = true;
+  document.body.classList.remove("crop-open");
 
   if (clearInput) {
     els.mediaInput.value = "";
   }
+}
+
+function openCropper(file) {
+  if (!file?.type.startsWith("image/")) return;
+  
+  closeCropper();
+
+  pendingCropFile = file;
+  cropSourceUrl = URL.createObjectURL(file);
+  els.cropImage.src = cropSourceUrl;
+  els.cropModal.hidden = false;
+  document.body.classList.add("crop-open");
+
+  els.cropImage.onload = () => {
+    cropper = new Cropper(els.cropImage, {
+      aspectRatio: 1,
+      viewMode: 1,
+      dragMode: "move",
+      autoCropArea: 1,
+      responsive: true,
+      background: false,
+      guides: false,
+      center: false,
+      movable: true,
+      zoomable: true,
+      scalable: false,
+      rotatable: false,
+      toggleDragModeOnDblclick: false
+    });
+  };
 }
 
 function openCropper(file) {
@@ -1460,7 +1491,160 @@ function openCropper(file) {
       toggleDragModeOnDblclick: false
     });
   };
+} // ← here
+
+function cancelCropper() {
+  closeCropper({ clearInput: true });
 }
+
+  els.cancelCrop.addEventListener("click", cancelCropper);
+  els.closeCropModal.addEventListener("click", cancelCropper);
+
+  els.cropModal.addEventListener("click", (event) => {
+    if (event.target === els.cropModal) {
+      cancelCropper();
+    }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.cropModal.hidden) {
+    cancelCropper();
+  }
+});
+
+function getCroppedImageBlob() {
+  return new Promise((resolve, reject) => {
+    if (!cropper) {
+      reject(new Error("Cropper is not ready."));
+      return;
+    }
+
+    const canvas = cropper.getCroppedCanvas({
+      width: 1200,
+      height: 1200,
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: "high"
+    });
+
+    if (!canvas) {
+      reject(new Error("The cropped image could not be created."));
+      return;
+    }
+
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("The cropped image could not be exported."));
+        }
+      },
+      "image/jpeg",
+      0.9
+    );
+  });
+}
+
+els.confirmCrop.addEventListener("click", async () => {
+  if (!cropper || !pendingCropFile || !activeQuest) return;
+
+  const originalFile = pendingCropFile;
+  const selectionRequest = ++mediaPreviewRequest;
+  const questId = activeQuest.id;
+  const existingMediaId = completedSubmission(questId)?.mediaId || null;
+  const priorDraftMediaId = state.drafts[questId]?.mediaId || null;
+  const previousMediaRecord =
+    state.drafts[questId] || completedSubmission(questId);
+
+  let newMediaId = null;
+
+  els.confirmCrop.disabled = true;
+  els.confirmCrop.textContent = "Saving…";
+
+  try {
+    const croppedBlob = await getCroppedImageBlob();
+    const blob = await mediaStore.compressImage(croppedBlob);
+
+    const mediaId = mediaStore.createMediaId();
+    newMediaId = mediaId;
+
+    await mediaStore.put(mediaId, blob);
+
+    if (
+      selectionRequest !== mediaPreviewRequest ||
+      activeQuest?.id !== questId
+    ) {
+      await mediaStore.remove(mediaId);
+      return;
+    }
+
+    activeMediaId = mediaId;
+    activeMediaBlob = blob;
+    activeMediaType = blob.type || "image/jpeg";
+
+    renderMediaPreview(blob, activeMediaType);
+    renderRewardPreview();
+
+    const draftSaved = captureDraft();
+
+    if (!draftSaved) {
+      activeMediaId = previousMediaRecord?.mediaId || null;
+      activeMediaBlob = null;
+      activeMediaType = previousMediaRecord?.mediaType || null;
+
+      await mediaStore.remove(mediaId);
+
+      if (previousMediaRecord?.mediaId || previousMediaRecord?.dataUrl) {
+        await loadMediaPreviewForRecord(previousMediaRecord, questId);
+      } else {
+        renderMediaPreview(null, null);
+      }
+
+      window.alert(
+        "We couldn't save this photo draft on your device. Check browser storage access and try again."
+      );
+
+      els.mediaInput.value = "";
+      return;
+    }
+
+    if (
+      priorDraftMediaId &&
+      priorDraftMediaId !== existingMediaId &&
+      priorDraftMediaId !== mediaId
+    ) {
+      try {
+        await mediaStore.remove(priorDraftMediaId);
+      } catch (error) {
+        console.warn(
+          "[Media storage] Replaced draft cleanup will be retried on startup.",
+          error
+        );
+      }
+    }
+
+    closeCropper({ clearInput: true });
+  } catch (error) {
+    if (newMediaId && newMediaId !== activeMediaId) {
+      try {
+        await mediaStore.remove(newMediaId);
+      } catch (cleanupError) {
+        console.warn(
+          "[Media storage] Failed crop cleanup will be retried on startup.",
+          cleanupError
+        );
+      }
+    }
+
+    reportMediaError(
+      error,
+      error?.code === "compression-failure" ? "compress" : "save"
+    );
+  } finally {
+    els.confirmCrop.disabled = false;
+    els.confirmCrop.textContent = "Use Photo";
+  }
+});
 
 function renderMediaPreview(blob, mediaType) {
   if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
@@ -1517,7 +1701,7 @@ els.mediaInput.addEventListener("change", async (event) => {
   let newMediaId = null;
 
   try {
-    const blob = file.type.startsWith("image/") ? await mediaStore.compressImage(file) : file;
+    const blob = file;
     const mediaId = mediaStore.createMediaId();
     newMediaId = mediaId;
     await mediaStore.put(mediaId, blob);

@@ -39,7 +39,7 @@ body {
   font-family: "Montserrat", sans-serif;
   font-weight: 300;
 }
-body.sheet-open { overflow: hidden; }
+body.sheet-open, body.crop-open {overflow: hidden;}
 
 @media (display-mode: standalone),
        (display-mode: fullscreen),
@@ -1034,7 +1034,7 @@ line-height: normal;
   margin-top: 16px;
   border-radius: 20px;
   overflow: hidden;
-  aspect-ratio: 4/3;
+  aspect-ratio: 1/1;
   background: #ede5da;
 }
 .media-preview img, .media-preview video {
@@ -2395,12 +2395,13 @@ body.keepsake-preview-open { overflow: hidden; }
   aspect-ratio: 1 / 1;
   overflow: hidden;
   border-radius: 20px;
-  background: #1d1b18;
+  background: var(--paper);
 }
 
 .crop-stage img {
   display: block;
   max-width: 100%;
+  transition: transform .2s ease;
 }
 
 .crop-help {
@@ -2452,4 +2453,74 @@ body.keepsake-preview-open { overflow: hidden; }
   .crop-stage {
     border-radius: 16px;
   }
+}
+
+.crop-modal:not([hidden]) {
+  animation: crop-backdrop-in 160ms ease-out;
+}
+
+.crop-modal:not([hidden]) .crop-dialog {
+  animation: crop-dialog-in 180ms cubic-bezier(.22, .8, .32, 1);
+}
+
+@keyframes crop-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes crop-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crop-modal:not([hidden]),
+  .crop-modal:not([hidden]) .crop-dialog {
+    animation: none;
+  }
+}
+
+/* Cropper.js visual polish */
+.crop-stage .cropper-view-box {
+  outline: 2px solid rgba(255, 250, 242, 0.96);
+  outline-color: rgba(255, 250, 242, 0.96);
+}
+
+.crop-stage .cropper-face {
+  background: transparent;
+}
+
+.crop-stage .cropper-line,
+.crop-stage .cropper-point {
+  display: none;
+}
+
+.crop-stage .cropper-dashed {
+  border-color: rgba(255, 250, 242, 0.4);
+}
+
+.crop-stage .cropper-modal {
+  background: var(--sand);
+  opacity: 0.55;
+}
+
+.crop-stage .cropper-bg {
+  background-image: none;
+}
+
+.crop-stage .cropper-container {
+  width: 100% !important;
+  height: 100% !important;
 }
