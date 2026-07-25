@@ -123,7 +123,7 @@
               const caption = String(entry.submission.caption || "").trim();
               const generatedStory = questStoryCandidate(entry)?.html || "";
               return `
-                <article class="story-entry">
+                <article class="story-entry" id="story-${entry.quest.id}" data-quest-id="${entry.quest.id}">
                   <header class="story-entry-header">
                     <h3>${escapeStoryText(entry.quest.title)}</h3>
                     <p>
@@ -754,7 +754,25 @@
       keepsakeReturnPage = currentPage === "keepsake" ? keepsakeReturnPage : currentPage;
       await renderKeepsake();
     }
-    if (page === "story") await renderStory();
+    if (page === "story") {
+      await renderStory();
+
+      const targetQuestId = window.pendingStoryQuestId;
+
+      if (targetQuestId) {
+        requestAnimationFrame(() => {
+          document
+            .getElementById(`story-${targetQuestId}`)
+            ?.scrollIntoView({
+              behavior: "smooth",
+              block: "center"
+        });
+
+      window.pendingStoryQuestId = null;
+    });
+  }
+}
+    
     pageElements.forEach(element => { element.hidden = element.dataset.page !== page; });
     currentPage = page;
     document.body.dataset.page = page;

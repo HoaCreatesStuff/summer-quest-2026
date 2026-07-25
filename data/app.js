@@ -188,6 +188,7 @@ let friendCount = 0;
 let selectedBonusIds = [];
 let finalScoreResizeObserver = null;
 let saveInProgress = false;
+let questHasUnsavedChanges = false;
 let sheetTrigger = null;
 let homeScreenSheetTrigger = null;
 
@@ -1087,6 +1088,48 @@ function renderFinalQuest(quest, existing, draft) {
   els.remove.hidden = true;
 }
 
+function updateSaveQuestAction(
+  existing = completedSubmission(activeQuest?.id),
+  finalQuest = isFinalQuest(activeQuest)
+) {
+  const hasSavedMemory = Boolean(existing);
+  const shouldViewJournal = hasSavedMemory && !questHasUnsavedChanges;
+
+  els.saveQuest.dataset.action = shouldViewJournal
+    ? "view-journal"
+    : "save";
+
+  const nextLabel = shouldViewJournal
+    ? "View Summer Journal"
+    : hasSavedMemory
+      ? "Save Changes"
+      : finalQuest
+        ? "Complete Final Quest"
+        : "Save Memory";
+
+  if (els.saveQuest.textContent !== nextLabel) {
+    els.saveQuest.textContent = nextLabel;
+
+    els.saveQuest.animate(
+      [
+        { transform: "scale(.98)", opacity: .92 },
+        { transform: "scale(1)", opacity: 1 }
+      ],
+      {
+        duration: 160,
+        easing: "ease-out"
+      }
+    );
+  }
+}
+
+function markQuestAsChanged() {
+  if (!activeQuest) return;
+
+  questHasUnsavedChanges = true;
+  updateSaveQuestAction();
+}
+
 function renderStandardQuest(existing, finalQuest = false) {
   finalScoreResizeObserver?.disconnect();
   finalScoreResizeObserver = null;
@@ -1096,11 +1139,9 @@ function renderStandardQuest(existing, finalQuest = false) {
   els.questDetailsRow.classList.toggle("no-friends", finalQuest);
   els.form.classList.toggle("final-quest-mode", finalQuest);
   els.form.classList.remove("final-gate-mode", "final-complete-mode");
-  els.saveQuest.textContent = existing
-    ? "Save Changes"
-    : finalQuest
-      ? "Complete Final Quest"
-      : "Complete Quest";
+
+  updateSaveQuestAction(existing, finalQuest);
+  
   els.saveQuest.disabled = false;
   els.saveQuest.hidden = false;
   els.remove.hidden = finalQuest || !existing;
@@ -1228,10 +1269,32 @@ function captureDraft() {
   }
 }
 
+function draftDiffersFromSavedMemory(draft, saved) {
+  if (!draft || !saved) return false;
+
+  const draftBonuses = [...selectedBonusIdsFrom(draft)].sort();
+  const savedBonuses = [...selectedBonusIdsFrom(saved)].sort();
+
+  return (
+    (draft.mediaId || "") !== (saved.mediaId || "") ||
+    Number(draft.friends || 0) !== Number(saved.friends || 0) ||
+    String(draft.location || "").trim() !== String(saved.location || "").trim() ||
+    String(draft.caption || "").trim() !== String(saved.caption || "").trim() ||
+    JSON.stringify(draftBonuses) !== JSON.stringify(savedBonuses)
+  );
+}
+
 function renderQuest(quest, announce = false) {
   activeQuest = quest;
+
   const existing = completedSubmission(quest.id);
   const draft = state.drafts[quest.id] || existing;
+
+  questHasUnsavedChanges = draftDiffersFromSavedMemory(
+    draft,
+    existing
+  );
+  
   activeMediaId = draft?.mediaId || null;
   activeMediaBlob = null;
   activeMediaType = draft?.mediaType || null;
@@ -1581,6 +1644,7 @@ els.confirmCrop.addEventListener("click", async () => {
     activeMediaId = mediaId;
     activeMediaBlob = blob;
     activeMediaType = blob.type || "image/jpeg";
+    markQuestAsChanged();
 
     renderMediaPreview(blob, activeMediaType);
     renderRewardPreview();
@@ -1755,18 +1819,21 @@ els.mediaInput.addEventListener("change", async (event) => {
 els.incrementFriends.addEventListener("click", () => {
   friendCount = Math.min(MAX_FRIENDS, friendCount + 1);
   renderFriendControls();
+  markQuestAsChanged();
   captureDraft();
 });
+
 els.decrementFriends.addEventListener("click", () => {
   friendCount = Math.max(0, friendCount - 1);
   renderFriendControls();
+  markQuestAsChanged();
   captureDraft();
 });
 
 els.bonusField.addEventListener("change", (event) => {
   const input = event.target.closest(".bonus-option-input");
   if (!input) return;
-
+  markQuestAsChanged();
   if (input.checked) {
     if (!selectedBonusIds.includes(input.value)) {
       selectedBonusIds.push(input.value);
@@ -1782,13 +1849,29 @@ els.bonusField.addEventListener("change", (event) => {
 els.rewardPreview.addEventListener("click", () => {
   els.rewardPreview.classList.toggle("expanded");
 });
-els.location.addEventListener("input", captureDraft);
-els.caption.addEventListener("input", captureDraft);
-els.missionCodeInput.addEventListener("input", captureDraft);
+function handleQuestInputChange() {
+  markQuestAsChanged();
+  captureDraft();
+}
+
+els.location.addEventListener("input", handleQuestInputChange);
+els.caption.addEventListener("input", handleQuestInputChange);
+els.missionCodeInput.addEventListener("input", handleQuestInputChange);
 els.previousQuest.addEventListener("click", () => navigateQuest(-1));
 els.nextQuest.addEventListener("click", () => navigateQuest(1));
 els.desktopPreviousQuest.addEventListener("click", () => navigateQuest(-1));
 els.desktopNextQuest.addEventListener("click", () => navigateQuest(1));
+
+els.saveQuest.addEventListener("click", (event) => {
+  if (els.saveQuest.dataset.action !== "view-journal") return;
+
+  event.preventDefault();
+
+  window.pendingStoryQuestId = activeQuest?.id || null;
+  
+  closeSheet();
+  els.viewBoard.click();
+});
 
 els.briefingToggle.addEventListener("click", () => {
   setBriefingCollapsed(!els.briefing.classList.contains("collapsed"));
@@ -1980,6 +2063,7 @@ els.form.addEventListener("submit", async (event) => {
   renderGrid();
   renderProgress();
   renderBoardActions();
+  questHasUnsavedChanges = false;
   renderQuest(activeQuest);
   els.announcement.textContent = `${activeQuest.title} completed. ${questPoints(nextSubmission)} points earned.`;
   try {

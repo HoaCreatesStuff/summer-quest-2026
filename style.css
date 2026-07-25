@@ -1272,7 +1272,14 @@ textarea.text-input {
   font-weight: 600;
   cursor: pointer;
 }
-.primary-button { background:var(--coral); color:white; }
+.primary-button { 
+  background:var(--coral); 
+  color:white;
+  transition:
+    background-color .18s ease,
+    color .18s ease,
+    transform .18s ease; 
+}
 .secondary-button { margin-top:14px; background:transparent; color:var(--muted); border:1px solid var(--line); }
 .final-quest-mode .quest-content > .primary-button {
   margin-top: 22px;
