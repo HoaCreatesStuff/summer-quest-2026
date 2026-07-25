@@ -2064,35 +2064,6 @@ document.addEventListener("keydown", (event) => {
   navigateQuest(event.key === "ArrowLeft" ? -1 : 1);
 });
 
-let swipe = null;
-const swipeExcluded = ".upload-box, .media-preview, input, textarea, .counter, .bonus-field";
-els.content.addEventListener("touchstart", (event) => {
-  if (event.touches.length !== 1 || event.target.closest(swipeExcluded)) return;
-  const touch = event.touches[0];
-  swipe = { x: touch.clientX, y: touch.clientY, intent: null };
-}, { passive: true });
-els.content.addEventListener("touchmove", (event) => {
-  if (!swipe) return;
-  const touch = event.touches[0];
-  const dx = touch.clientX - swipe.x;
-  const dy = touch.clientY - swipe.y;
-  if (!swipe.intent && Math.max(Math.abs(dx), Math.abs(dy)) > 10) {
-    swipe.intent = Math.abs(dx) > Math.abs(dy) * 1.35 ? "horizontal" : "vertical";
-  }
-  if (swipe.intent === "horizontal") event.preventDefault();
-}, { passive: false });
-els.content.addEventListener("touchend", (event) => {
-  if (!swipe) return;
-  const touch = event.changedTouches[0];
-  const dx = touch.clientX - swipe.x;
-  const dy = touch.clientY - swipe.y;
-  if (swipe.intent === "horizontal" && Math.abs(dx) >= 64 && Math.abs(dx) > Math.abs(dy) * 1.35) {
-    navigateQuest(dx < 0 ? 1 : -1);
-  }
-  swipe = null;
-}, { passive: true });
-els.content.addEventListener("touchcancel", () => { swipe = null; }, { passive: true });
-
 window.addEventListener("pagehide", () => {
   if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
 });
