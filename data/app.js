@@ -1660,14 +1660,22 @@ els.form.addEventListener("submit", async (event) => {
   els.saveQuest.textContent = "Saving…";
   const mediaType = activeMediaType || completedSubmission(activeQuest.id)?.mediaType || "image/jpeg";
   const questId = activeQuest.id;
-  const submittedMediaId = activeMediaId;
-  const submittedMediaBlob = activeMediaBlob;
+  
+  const submittedMediaId =
+  activeMediaId ||
+  state.submissions[questId]?.mediaId ||
+  state.drafts[questId]?.mediaId ||
+  null;
+  
   const previousSubmission = state.submissions[questId] || null;
   const previousDraft = state.drafts[questId] || null;
+  
   const nextSubmission = {
     questId: activeQuest.id,
     completed: true,
-    mediaId: submittedMediaId,
+    mediaId: submittedMediaId ||
+             previousSubmission?.mediaId ||
+             previousDraft?.mediaId,
     mediaType,
     friends: finalQuest ? 0 : friendCount,
     location: els.location.value.trim(),
@@ -1681,17 +1689,21 @@ els.form.addEventListener("submit", async (event) => {
       finalUnlocked: true,
       gateAnswer: previousDraft?.gateAnswer || ""
     } : {}),
-    completedAt: new Date().toISOString()
+    completedAt:
+    previousSubmission?.completedAt ||
+    new Date().toISOString()
   };
 
   try {
-    const blob = submittedMediaBlob || await mediaStore.get(submittedMediaId);
-    if (!blob) throw new Error("The selected media is missing from IndexedDB.");
-    await mediaStore.put(submittedMediaId, blob);
+    const storedBlob = await mediaStore.get(submittedMediaId);
+      if (!storedBlob) {
+      throw new Error("The selected media is missing from device storage.");
+      }
     state.submissions[questId] = nextSubmission;
     delete state.drafts[questId];
     save();
-  } catch (error) {
+      } 
+    catch (error) {
     if (previousSubmission) state.submissions[questId] = previousSubmission;
     else delete state.submissions[questId];
     if (previousDraft) state.drafts[questId] = previousDraft;
