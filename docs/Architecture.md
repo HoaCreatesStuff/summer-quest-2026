@@ -92,9 +92,9 @@ inside `data/boardConfig.js`.
 
 ``` js
 {
-  title: "NYC Insider",
-  minPoints: 240,
-  maxPoints: 299,
+  title: "Local Insider",
+  minPoints: 100,
+  maxPoints: 169,
   blurb: "You've earned serious local bragging rights."
 }
 ```
@@ -162,7 +162,7 @@ App
 -   Variable base points and bonus values come from `data/quests.js`
 -   +2 points for each friend joining a non-Final quest, capped at 5 friends
 -   Final Quest friend scoring is disabled
--   Rank thresholds are 0, 80, 160, 240, and 300 points
+-   Rank thresholds are 0, 25, 60, 100, 170, and 220 points
 -   Rank updates automatically
 
 The Final Quest uses the stable ID `party-time`. Its trivia question is an

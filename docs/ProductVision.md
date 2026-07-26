@@ -139,11 +139,12 @@ by saving its memory. The trivia answer does not score independently.
 
 # Current Rank Progression
 
-1.  🌱 Summer Rookie --- 0–79 points
-2.  🗺️ Neighborhood Explorer --- 80–159 points
-3.  🚇 City Adventurer --- 160–239 points
-4.  🌆 NYC Insider --- 240–299 points
-5.  ⭐ Summer Legend --- 300+ points
+1.  🌱 Summer Rookie --- 0–24 points
+2.  🗺️ Neighborhood Explorer --- 25–59 points
+3.  🚇 City Adventurer --- 60–99 points
+4.  🌆 Local Insider --- 100–169 points
+5.  🏆 NYC Champion --- 170–219 points
+6.  ⭐ Social Legend --- 220+ points
 
 ------------------------------------------------------------------------
 

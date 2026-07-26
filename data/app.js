@@ -234,38 +234,33 @@ let removeDialogTrigger = null;
 const ranks = [
   {
     min: 0,
-    max: 79,
     title: "Summer Rookie",
-    blurb: "Every adventure starts somewhere.",
-    next: 80
+    blurb: "Every adventure starts somewhere."
   },
   {
-    min: 80,
-    max: 159,
+    min: 25,
     title: "Neighborhood Explorer",
-    blurb: "Your summer is officially in full swing.",
-    next: 160
+    blurb: "Your summer is officially in full swing."
   },
   {
-    min: 160,
-    max: 239,
+    min: 60,
     title: "City Adventurer",
-    blurb: "You're seeing more of NYC than most locals do.",
-    next: 240
+    blurb: "You're seeing more of NYC than most locals do."
   },
   {
-    min: 240,
-    max: 299,
-    title: "NYC Insider",
-    blurb: "You've earned serious local bragging rights.",
-    next: 300
+    min: 100,
+    title: "Local Insider",
+    blurb: "You've earned serious local bragging rights."
   },
   {
-    min: 300,
-    max: Infinity,
-    title: "Summer Legend",
-    blurb: "You've conquered our New York summer.",
-    next: null
+    min: 170,
+    title: "NYC Champion",
+    blurb: "You've conquered our New York summer."
+  },
+  {
+    min: 220,
+    title: "Social Legend",
+    blurb: "You made this summer legendary by bringing people together."
   }
 ];
 
@@ -641,12 +636,11 @@ function questPoints(submission, questId = submission?.questId) {
   );
 }
 
-function getTotals() {
+function totalsForSubmissions(savedSubmissions = {}) {
   const submissions = window.BOARD_ORDER
     .map((questId) => ({
       questId,
-      quest: window.QUESTS[questId],
-      submission: state.submissions[questId]
+      submission: savedSubmissions[questId]
     }))
     .filter(({ submission }) => submission?.completed === true);
 
@@ -656,24 +650,37 @@ function getTotals() {
       0
     ),
 
-    completed: submissions.length,
-
-    friendPoints: submissions.reduce(
-      (total, { questId, submission }) =>
-        total + (isFinalQuest(questId) ? 0 : friendPointsFor(submission.friends)),
-      0
-    ),
-
-    bonusCount: submissions.reduce(
-      (total, { quest, submission }) =>
-        total + canonicalSelectedBonusIds(quest, submission).length,
-      0
-    )
+    completed: submissions.length
   };
 }
 
+function getTotals() {
+  return totalsForSubmissions(state.submissions);
+}
+
 function currentRank(score) {
-  return ranks.find(r => score >= r.min && score <= r.max) || ranks[0];
+  return [...ranks].reverse().find(rank => score >= rank.min) || ranks[0];
+}
+
+function rankProgressForScore(score) {
+  const rankIndex = ranks.indexOf(currentRank(score));
+  const rank = ranks[rankIndex];
+  const nextRank = ranks[rankIndex + 1] || null;
+
+  if (!nextRank) {
+    return {
+      percentage: 100,
+      pointsToNext: null
+    };
+  }
+
+  const span = nextRank.min - rank.min;
+  const percentage = ((score - rank.min) / span) * 100;
+
+  return {
+    percentage: Math.max(0, Math.min(100, percentage)),
+    pointsToNext: Math.max(0, nextRank.min - score)
+  };
 }
 
 function finalQuestCompleted() {
@@ -683,19 +690,18 @@ function finalQuestCompleted() {
 function renderProgress() {
   const { score, completed } = getTotals();
   const rank = currentRank(score);
+  const rankProgress = rankProgressForScore(score);
   els.score.textContent = score;
   els.rankTitle.textContent = rank.title;
   els.rankBlurb.textContent = rank.blurb;
   els.completedCount.textContent = `${completed} / ${window.BOARD_ORDER.length} completed`;
 
-  if (!rank.next) {
+  if (rankProgress.pointsToNext === null) {
     els.progressFill.style.width = "100%";
     els.nextRankText.textContent = "Top rank reached";
   } else {
-    const span = rank.next - rank.min;
-    const progress = ((score - rank.min) / span) * 100;
-    els.progressFill.style.width = `${Math.max(0, Math.min(100, progress))}%`;
-    els.nextRankText.textContent = `${rank.next - score} pts to next rank`;
+    els.progressFill.style.width = `${rankProgress.percentage}%`;
+    els.nextRankText.textContent = `${rankProgress.pointsToNext} pts to next rank`;
   }
 }
 
@@ -2278,7 +2284,9 @@ if (new URLSearchParams(window.location.search).has("release-critical-validation
       normalizeFriendCount,
       friendPointsFor,
       questPoints,
-      rankForScore: currentRank
+      totalsForSubmissions,
+      rankForScore: currentRank,
+      rankProgressForScore
     }),
     migrations: Object.freeze({
       version: QUEST_DATA_MIGRATION_VERSION,

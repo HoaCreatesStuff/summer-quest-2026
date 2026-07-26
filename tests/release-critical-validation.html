@@ -136,6 +136,56 @@
           "Equivalent legacy and current records produce identical totals",
           oldTotal === currentTotal
         );
+
+        const baseOnlySubmissions = Object.fromEntries(
+          app.BOARD_ORDER.map(questId => [
+            questId,
+            {
+              questId,
+              completed: true,
+              friends: 0,
+              selectedBonusIds: []
+            }
+          ])
+        );
+        const allRewardsSubmissions = Object.fromEntries(
+          app.BOARD_ORDER.map(questId => [
+            questId,
+            {
+              questId,
+              completed: true,
+              friends: 99,
+              selectedBonusIds: app.QUESTS[questId].bonuses.map(bonus => bonus.id)
+            }
+          ])
+        );
+        const canonicalBaseTotal = app.BOARD_ORDER.reduce(
+          (total, questId) => total + app.QUESTS[questId].basePoints,
+          0
+        );
+        const canonicalMaximumTotal = app.BOARD_ORDER.reduce(
+          (total, questId) => {
+            const quest = app.QUESTS[questId];
+            return (
+              total +
+              quest.basePoints +
+              quest.bonuses.reduce((sum, bonus) => sum + bonus.points, 0) +
+              (quest.final ? 0 : scoring.maxFriendReward)
+            );
+          },
+          0
+        );
+        check(
+          "All-quest totals use canonical base points with no fixed-point fallback",
+          scoring.totalsForSubmissions(baseOnlySubmissions).score ===
+            canonicalBaseTotal
+        );
+        check(
+          "All-quest totals include canonical bonuses and capped friend rewards",
+          scoring.totalsForSubmissions(allRewardsSubmissions).score ===
+            canonicalMaximumTotal
+        );
+
         const currentRecord = recordsByFormat.find(
           record => record.questId === "street-style"
         ).currentRecord;
@@ -243,20 +293,62 @@
 
         const rankCases = [
           [0, "Summer Rookie"],
-          [79, "Summer Rookie"],
-          [80, "Neighborhood Explorer"],
-          [159, "Neighborhood Explorer"],
-          [160, "City Adventurer"],
-          [239, "City Adventurer"],
-          [240, "NYC Insider"],
-          [299, "NYC Insider"],
-          [300, "Summer Legend"]
+          [24, "Summer Rookie"],
+          [25, "Neighborhood Explorer"],
+          [59, "Neighborhood Explorer"],
+          [60, "City Adventurer"],
+          [99, "City Adventurer"],
+          [100, "Local Insider"],
+          [169, "Local Insider"],
+          [170, "NYC Champion"],
+          [219, "NYC Champion"],
+          [220, "Social Legend"],
+          [10000, "Social Legend"]
         ];
         check(
           "Rank boundaries match the canonical thresholds",
           rankCases.every(([score, title]) =>
             scoring.rankForScore(score).title === title
           )
+        );
+        const expectedRankTitle = (score) => {
+          if (score >= 220) return "Social Legend";
+          if (score >= 170) return "NYC Champion";
+          if (score >= 100) return "Local Insider";
+          if (score >= 60) return "City Adventurer";
+          if (score >= 25) return "Neighborhood Explorer";
+          return "Summer Rookie";
+        };
+        check(
+          "Every integer score from 0 through 500 maps to the correct rank",
+          Array.from({ length: 501 }, (_, score) =>
+            scoring.rankForScore(score).title === expectedRankTitle(score)
+          ).every(Boolean)
+        );
+
+        const rankProgressCases = [
+          [0, 0, 25],
+          [24, 96, 1],
+          [25, 0, 35],
+          [59, (34 / 35) * 100, 1],
+          [60, 0, 40],
+          [99, 97.5, 1],
+          [100, 0, 70],
+          [169, (69 / 70) * 100, 1],
+          [170, 0, 50],
+          [219, 98, 1],
+          [220, 100, null],
+          [10000, 100, null]
+        ];
+        check(
+          "Progress resets at each rank threshold and reaches 100% at the top rank",
+          rankProgressCases.every(([score, percentage, pointsToNext]) => {
+            const actual = scoring.rankProgressForScore(score);
+            return (
+              Math.abs(actual.percentage - percentage) < Number.EPSILON &&
+              actual.pointsToNext === pointsToNext
+            );
+          })
         );
 
         const bonusRowFailures = [];

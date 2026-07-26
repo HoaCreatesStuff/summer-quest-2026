@@ -37,15 +37,17 @@ best NYC summer yet. ❤️**
 
 ## Rank Copy
 
-🌱 Summer Rookie --- Every adventure starts somewhere.
+🌱 Summer Rookie (0–24 points) --- Every adventure starts somewhere.
 
-🗺️ Neighborhood Explorer (80 points) --- Your summer is officially in full swing.
+🗺️ Neighborhood Explorer (25–59 points) --- Your summer is officially in full swing.
 
-🚇 City Adventurer (160 points) --- You're seeing more of NYC than most locals do.
+🚇 City Adventurer (60–99 points) --- You're seeing more of NYC than most locals do.
 
-🌆 NYC Insider (240 points) --- You've earned serious local bragging rights.
+🌆 Local Insider (100–169 points) --- You've earned serious local bragging rights.
 
-⭐ Summer Legend (300 points) --- You've conquered our New York summer.
+🏆 NYC Champion (170–219 points) --- You've conquered our New York summer.
+
+⭐ Social Legend (220+ points) --- You made this summer legendary by bringing people together.
 
 ------------------------------------------------------------------------
 
