@@ -105,8 +105,8 @@ window.validateBoardConfig = function validateBoardConfig() {
   if (invalidColors.length) {
     console.error("Invalid board colors:", invalidColors);
   }
-  if (order[24] !== "celebrate") {
-    console.error('The final board position must contain the stable quest ID "celebrate".');
+  if (order[24] !== "party-time") {
+    console.error('The final board position must contain the stable quest ID "party-time".');
   }
   if (colors[24] !== "final") {
     console.error('The final board position must use the "final" color.');
@@ -158,7 +158,7 @@ window.validateQuestData = function validateQuestData() {
       }
       bonusIds.add(bonus.id);
 
-      if (questId !== "celebrate" && !Object.prototype.hasOwnProperty.call(quest.bonusMemories, bonus.id)) {
+      if (questId !== "party-time" && !Object.prototype.hasOwnProperty.call(quest.bonusMemories, bonus.id)) {
         console.warn(`[Quest validation] ${questId} bonus has no bonus memory: ${bonus.id}`);
       }
     });

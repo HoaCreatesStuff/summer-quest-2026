@@ -3,7 +3,6 @@ const BRIEFING_STATE_KEY = "nyc-summer-quest-briefing-collapsed";
 const QUEST_DATA_MIGRATION_VERSION = 2;
 const MEDIA_MIGRATION_VERSION = 1;
 const MAX_FRIENDS = 5;
-const BONUS_POINTS = 2;
 const FINAL_QUEST_ID = "party-time";
 const COMPLETION_TIMING = Object.freeze({
   focus: 350,
@@ -193,11 +192,41 @@ let sheetTrigger = null;
 let homeScreenSheetTrigger = null;
 
 const ranks = [
-  { min: 0, max: 29, title: "Summer Rookie", blurb: "Every adventure starts somewhere.", next: 30 },
-  { min: 30, max: 59, title: "Neighborhood Explorer", blurb: "Your summer is officially in full swing.", next: 60 },
-  { min: 60, max: 89, title: "City Adventurer", blurb: "You're seeing more of NYC than most locals do.", next: 90 },
-  { min: 90, max: 119, title: "NYC Insider", blurb: "You've earned serious local bragging rights.", next: 120 },
-  { min: 120, max: Infinity, title: "Summer Legend", blurb: "You've conquered our New York summer.", next: null }
+  {
+    min: 0,
+    max: 79,
+    title: "Summer Rookie",
+    blurb: "Every adventure starts somewhere.",
+    next: 80
+  },
+  {
+    min: 80,
+    max: 159,
+    title: "Neighborhood Explorer",
+    blurb: "Your summer is officially in full swing.",
+    next: 160
+  },
+  {
+    min: 160,
+    max: 239,
+    title: "City Adventurer",
+    blurb: "You're seeing more of NYC than most locals do.",
+    next: 240
+  },
+  {
+    min: 240,
+    max: 299,
+    title: "NYC Insider",
+    blurb: "You've earned serious local bragging rights.",
+    next: 300
+  },
+  {
+    min: 300,
+    max: Infinity,
+    title: "Summer Legend",
+    blurb: "You've conquered our New York summer.",
+    next: null
+  }
 ];
 
 const els = {
@@ -247,9 +276,6 @@ const els = {
   unlockFinalChallenge: document.querySelector("#unlockFinalChallenge"),
   finalGateQuestion: document.querySelector("#finalGateQuestion"),
   finalResults: document.querySelector("#finalResults"),
-  mediaInput: document.querySelector("#mediaInput"),
-  mediaPreview: document.querySelector("#mediaPreview"),
-  
   mediaInput: document.querySelector("#mediaInput"),
   mediaPreview: document.querySelector("#mediaPreview"),
 
@@ -538,6 +564,10 @@ function questIsCompleted(questId) {
   return Boolean(completedSubmission(questId));
 }
 
+function getBonusPoints(quest, bonusId) {
+  return quest.bonuses.find(b => b.id === bonusId)?.points ?? 0;
+}
+
 function questPoints(submission) {
   if (!submission) return 0;
   if (Number.isFinite(submission.earnedPoints)) {
@@ -552,7 +582,12 @@ function questPoints(submission) {
       Math.max(0, Number(submission.friends) || 0)
     ) * 2;
 
-  const bonusPoints = selectedBonusIdsFrom(submission).length * BONUS_POINTS;
+  const quest = window.QUESTS[submission.questId];
+
+  const bonusPoints = selectedBonusIdsFrom(submission).reduce(
+  (total, bonusId) => total + getBonusPoints(quest, bonusId),
+  0
+  );
 
   return basePoints + friendPoints + bonusPoints;
 }
@@ -656,16 +691,16 @@ function renderRewardPreview() {
     : [];
 
   const bonusMaximum = questBonuses.reduce(
-    (total) => total + BONUS_POINTS,
-    0
+  (total, bonus) => total + getBonusPoints(activeQuest, bonus.id),
+  0
   );
 
-  const bonusEarned = questBonuses.reduce(
-    (total, bonus) =>
-      selectedBonusIds.includes(bonus.id)
-        ? total + BONUS_POINTS
-        : total,
-    0
+const bonusEarned = questBonuses.reduce(
+  (total, bonus) =>
+    selectedBonusIds.includes(bonus.id)
+      ? total + getBonusPoints(activeQuest, bonus.id)
+      : total,
+  0
   );
 
   const maximumPoints =
@@ -691,7 +726,7 @@ function renderRewardPreview() {
   if (questBonuses.length > 0) {
     details.push(
       `<span><b>Bonus</b> ${rewardValue(bonusEarned, bonusMaximum)}</span>`
-    );
+   );
   }
 
   els.rewardTitle.textContent = "Rewards";
@@ -1320,7 +1355,7 @@ function renderQuest(quest, announce = false) {
   els.desktopNextQuest.disabled = questIndex === quests.length - 1;
   els.desktopPreviousQuest.hidden = Boolean(isFinalQuest(quest) && existing);
   els.desktopNextQuest.hidden = Boolean(isFinalQuest(quest) && existing);
-  els.questPosition.textContent = `Quest ${questIndex + 1} of ${quests.length}`;
+  els.questPosition.textContent = `${questIndex + 1} / ${quests.length}`;
 
   if (isFinalQuest(quest)) {
     renderFinalQuest(quest, existing, draft);
@@ -1499,7 +1534,7 @@ function closeCropper({ clearInput = false } = {}) {
 
 function openCropper(file) {
   if (!file?.type.startsWith("image/")) return;
-  
+
   closeCropper();
 
   pendingCropFile = file;
@@ -1526,35 +1561,6 @@ function openCropper(file) {
     });
   };
 }
-
-function openCropper(file) {
-  if (!file?.type.startsWith("image/")) return;
-
-  closeCropper();
-
-  pendingCropFile = file;
-  cropSourceUrl = URL.createObjectURL(file);
-  els.cropImage.src = cropSourceUrl;
-  els.cropModal.hidden = false;
-
-  els.cropImage.onload = () => {
-    cropper = new Cropper(els.cropImage, {
-      aspectRatio: 1,
-      viewMode: 1,
-      dragMode: "move",
-      autoCropArea: 1,
-      responsive: true,
-      background: false,
-      guides: false,
-      center: false,
-      movable: true,
-      zoomable: true,
-      scalable: false,
-      rotatable: false,
-      toggleDragModeOnDblclick: false
-    });
-  };
-} // ← here
 
 function cancelCropper() {
   closeCropper({ clearInput: true });
@@ -2065,7 +2071,10 @@ els.form.addEventListener("submit", async (event) => {
   renderBoardActions();
   questHasUnsavedChanges = false;
   renderQuest(activeQuest);
-  els.announcement.textContent = `${activeQuest.title} completed. ${questPoints(nextSubmission)} points earned.`;
+
+  els.announcement.textContent =
+    `${activeQuest.title} completed. ${questPoints(nextSubmission)} points earned.`;
+
   try {
     if (completionStage) {
       await playCompletionCelebration(completionStage);
@@ -2073,6 +2082,16 @@ els.form.addEventListener("submit", async (event) => {
   } finally {
     saveInProgress = false;
     els.saveQuest.disabled = false;
+  }
+
+  if (isNewCompletion && !finalQuest) {
+    window.pendingStoryQuestId = questId;
+
+    closeSheet(false);
+
+    requestAnimationFrame(() => {
+      els.viewBoard.click();
+    });
   }
 });
 

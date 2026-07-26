@@ -57,8 +57,8 @@ window.QUESTS = {
     description: "Grab a bite that's as iconic as the city itself.",
     basePoints: 5,
     bonuses: [
-      { id: "waited-in-line", label: "Wait in line to get food.", points: 1 },
-      { id: "nyc-classic", label: "Order an NYC classic.", points: 1 }
+      { id: "waited-in-line", label: "Wait in line to get food." },
+      { id: "nyc-classic", label: "Order an NYC classic." }
     ],
     story: "You got a proper taste of New York{locationSentence}.",
     reflection: "Some meals are worth the wait. This was one of them.",
@@ -73,9 +73,9 @@ window.QUESTS = {
     icon: "pets",
     title: "Bodega Cat",
     description: "Track down one of New York's legendary bodega cats.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "pet-the-cat", label: "Pet the bodega cat.", points: 3 }
+      { id: "pet-the-cat", label: "Pet the bodega cat." }
     ],
     story: "You met one of New York's fluffiest local celebrities{locationSentence}.",
     reflection: "Every bodega has someone in charge. This one just happened to purr.",
@@ -91,8 +91,8 @@ window.QUESTS = {
     description: "Spot a look you love, or wear one yourself.",
     basePoints: 5,
     bonuses: [
-      { id: "monochromatic-look", label: "Spot a monochromatic outfit.", points: 2 },
-      { id: "self-model", label: "Be the fashion model.", points: 1 }
+      { id: "monochromatic-look", label: "Spot a monochromatic outfit." },
+      { id: "self-model", label: "Be the fashion model." }
     ],
     story: "Wandering through the streets, you found style inspiration{locationSentence}.",
     reflection: "Every corner of New York has its own lookbook.",
@@ -106,7 +106,7 @@ window.QUESTS = {
     category: "community",
     icon: "volunteer_activism",
     title: "Random Kindness",
-    description: "Brighten someone's day with an unexpected act of kindness. Capture anything that reminds you of the day.",
+    description: "Brighten someone's day with an unexpected act of kindness.",
     basePoints: 10,
     bonuses: [],
     story: "You left the city a little kinder than you found it. Not every memorable moment comes with a photo. Some are simply the feeling that, for a brief moment, you made someone's day just a little brighter.",
@@ -121,7 +121,7 @@ window.QUESTS = {
     description: "Take advantage of one of New York's many free events.",
     basePoints: 5,
     bonuses: [
-      { id: "free-keepsake", label: "Bring home a free keepsake.", points: 1 }
+      { id: "free-keepsake", label: "Bring home a free keepsake." }
     ],
     story: "You stumbled upon a free event{locationSentence}.",
     reflection: "A great day out doesn't have to come with a price tag.",
@@ -137,9 +137,9 @@ window.QUESTS = {
     description: "Spend some time wherever the city meets the water.",
     basePoints: 5,
     bonuses: [
-      { id: "beach-day", label: "Spend the day at the beach.", points: 3 },
-      { id: "on-the-water", label: "Do an activity on or in the water.", points: 4 },
-      { id: "nyc-ferry", label: "Ride the NYC Ferry.", points: 2 }
+      { id: "beach-day", label: "Spend the day at the beach." },
+      { id: "on-the-water", label: "Do an activity on or in the water." },
+      { id: "nyc-ferry", label: "Ride the NYC Ferry." }
     ],
     story: "You found a refreshing escape by the water{locationSentence}.",
     reflection: "A little time by the water was exactly what the day needed.",
@@ -157,7 +157,7 @@ window.QUESTS = {
     description: "Find a piece of public art worth stopping for.",
     basePoints: 5,
     bonuses: [
-      { id: "identify-artist", label: "Find out who created it and note it in the caption.", points: 2 }
+      { id: "identify-artist", label: "Find out who created it and note it in the caption." }
     ],
     story: "You found art where others might have walked right past{locationSentence}.",
     reflection: "Even the busiest streets leave room for creativity.",
@@ -173,8 +173,8 @@ window.QUESTS = {
     description: "Romanticize the subway in a black-and-white photo.",
     basePoints: 5,
     bonuses: [],
-    story: "You found beauty in one of New York's most ordinary places{locationSentence}. ",
-    reflection: "Even daily life looks different through the right lens.",
+    story: "You found beauty in one of New York's most ordinary places{locationSentence}. Even daily life looks different through the right lens.",
+    reflection: null,
     bonusMemories: {}
   },
 
@@ -183,9 +183,9 @@ window.QUESTS = {
     icon: "hourglass",
     title: "Time Capsule",
     description: "Visit a museum and learn something new.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "free-museum-day", label: "Visit on a free or pay-what-you-wish day.", points: 2 }
+      { id: "free-museum-day", label: "Visit on a free or pay-what-you-wish day." }
     ],
     story: "Curiosity led you into a world you hadn't explored before{locationSentence}.",
     reflection: "Sometimes the oldest stories feel the most relevant.",
@@ -201,7 +201,7 @@ window.QUESTS = {
     description: "Pet an animal statue around the city.",
     basePoints: 5,
     bonuses: [
-      { id: "older-than-you", label: "Find one older than you are.", points: 1 }
+      { id: "older-than-you", label: "Find one older than you are." }
     ],
     story: "Among the city's chaos, you found one of its most patient residents{locationSentence}.",
     reflection: "How many people have walked past this creature without ever really seeing it?",
@@ -217,7 +217,7 @@ window.QUESTS = {
     description: "Show your support for a street or subway performer.",
     basePoints: 5,
     bonuses: [
-      { id: "dodge-performance", label: "The performance requires you to dodge.", points: 1 }
+      { id: "dodge-performance", label: "The performance required you to dodge." }
     ],
     story: "You looked up from the screen to enjoy a performance that made the city feel alive{locationSentence}.",
     reflection: "Talent doesn't wait for the perfect stage. Some stages just happen to be moving.",
@@ -231,9 +231,9 @@ window.QUESTS = {
     icon: "park",
     title: "Park Picnic",
     description: "Pack a picnic and enjoy some time in one of New York's parks.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "live-performance", label: "Catch a live performance.", points: 2 }
+      { id: "live-performance", label: "Catch a live performance." }
     ],
     story: "You borrowed one of New York's giant backyards for the afternoon{locationSentence}.",
     reflection: "The people-watching was included at no extra charge.",
@@ -247,10 +247,10 @@ window.QUESTS = {
     icon: "wb_twilight",
     title: "Golden Hour",
     description: "Capture the magic of golden hour.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "sunrise", label: "Catch the sunrise instead.", points: 4 },
-      { id: "skyline", label: "Capture the skyline.", points: 2 }
+      { id: "sunrise", label: "Catch the sunrise instead." },
+      { id: "skyline", label: "Capture the skyline." }
     ],
     story: "For a few golden minutes, the city glowed{locationSentence}.",
     reflection: "Good things come to those who wait... and check sunset time.",
@@ -264,11 +264,11 @@ window.QUESTS = {
     category: "experience-nyc",
     icon: "vpn_key",
     title: "Hidden Gems",
-    description: "Seek out a local gem, like a secret garden, speakeasy, or hidden bookstore.",
-    basePoints: 7,
+    description: "Seek out a local gem, like a secret garden, hidden bookstore, speakeasy, or tucked-away café.",
+    basePoints: 5,
     bonuses: [
-      { id: "secret-entry", label: "Enter through a password or hidden entrance.", points: 2 },
-      { id: "quester-recommendation", label: "Visit a fellow quester's recommendation.", points: 2 }
+      { id: "secret-entry", label: "Enter through a password or hidden entrance." },
+      { id: "quester-recommendation", label: "Visit a fellow quester's recommendation." }
     ],
     story: "You discovered a side of New York that likes to stay hidden{locationSentence}.",
     reflection: "One secret down, many more to uncover.",
@@ -283,10 +283,10 @@ window.QUESTS = {
     icon: "gallery_thumbnail",
     title: "Art Walk",
     description: "Visit an art space and find a piece that speaks to you.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "meet-artist", label: "Meet the artist.", points: 3 },
-      { id: "interactive-art", label: "Experience interactive or digital art.", points: 1 }
+      { id: "meet-artist", label: "Meet the artist." },
+      { id: "interactive-art", label: "Experience interactive or digital art." }
     ],
     story: "One piece of art stopped you in your tracks{locationSentence}.",
     reflection: "Eventually, you left the space, but the impression stayed.",
@@ -301,9 +301,9 @@ window.QUESTS = {
     icon: "fitness_center",
     title: "Get Sweaty",
     description: "Do something that gets your heart pumping.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "new-fitness-activity", label: "Try something brand new.", points: 2 }
+      { id: "new-fitness-activity", label: "Try something brand new." }
     ],
     story: "You put on your best athletic look and got your heart pumping{locationSentence}.",
     reflection: "It was a lot of sweat, minimal muscle gain, and just a sprinkle of pain.",
@@ -316,10 +316,10 @@ window.QUESTS = {
     category: "community",
     icon: "campaign",
     title: "NYC Spirit",
-    description: "Celebrate NYC at a local game, block party, or parade.",
-    basePoints: 10,
+    description: "Celebrate NYC at a local game, block party, parade, or community celebration.",
+    basePoints: 5,
     bonuses: [
-      { id: "ny-sports-team", label: "Cheer for a New York sports team.", points: 3 }
+      { id: "ny-sports-team", label: "Cheer for a New York sports team." }
     ],
     story: "You joined a seasonal ritual that brought New Yorkers together{locationSentence}.",
     reflection: "For a little while, you weren't watching New York. You were part of it.",
@@ -335,11 +335,11 @@ window.QUESTS = {
     description: "Round up at least three dogs for a group photo.",
     basePoints: 5,
     bonuses: [
-      { id: "different-breeds", label: "Find three different dog breeds.", points: 2 },
-      { id: "dog-outfit", label: "Find a dog wearing an adorable outfit.", points: 1 }
+      { id: "different-breeds", label: "Find three different dog breeds." },
+      { id: "dog-outfit", label: "Find a dog wearing an adorable outfit." }
     ],
-    story: "You met some very good dogs while exploring the streets of NYC{locationSentence}.",
-    reflection: "Somehow, they happily live in tiny human shoeboxes and still wake up excited every day.",
+    story: "You met some very good dogs while exploring the streets of NYC{locationSentence}. Somehow, they happily live in tiny human shoeboxes and still wake up excited every day.",
+    reflection: null,
     bonusMemories: {
       "different-breeds": "They all had different looks, and even more different personalities.",
       "dog-outfit": "One especially well-dressed pup completely stole the show."
@@ -351,10 +351,10 @@ window.QUESTS = {
     icon: "theater_comedy",
     title: "Live Events",
     description: "Catch a live performance or event.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "audience-participation", label: "Join in the fun, instead of just watching.", points: 2 },
-      { id: "theater", label: "See a show in a theater.", points: 1 }
+      { id: "audience-participation", label: "Join in the fun." },
+      { id: "theater", label: "Attend a performance in a theater." }
     ],
     story: "You traded everyday life for a live performance{locationSentence}.",
     reflection: "No recording quite captures the joy of being present in a room full of people.",
@@ -369,9 +369,9 @@ window.QUESTS = {
     icon: "movie",
     title: "Cinema Moment",
     description: "Recreate a scene from your favorite movie or TV show.",
-    basePoints: 10,
+    basePoints: 5,
     bonuses: [
-      { id: "new-york-scene", label: "Recreate a New York scene.", points: 1 }
+      { id: "new-york-scene", label: "Recreate a New York scene." }
     ],
     story: "You brought a movie scene to life{locationSentence}.",
     reflection: "Your acting skills deserved an Oscar. Or a Razzie. It's open for debate.",
@@ -385,12 +385,12 @@ window.QUESTS = {
     icon: "map",
     title: "Off the Map",
     description: "Venture somewhere completely new to you. Even if it's New Jersey.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "beyond-usual-bubble", label: "Escape the usual Manhattan–Brooklyn–Queens bubble.", points: 3 }
+      { id: "beyond-usual-bubble", label: "Escape the usual Manhattan–Brooklyn–Queens bubble." }
     ],
-    story: "You wandered somewhere your routine never would have taken you{locationSentence}.",
-    reflection: "Sometimes the biggest discoveries begin with a slightly different turn.",
+    story: "You wandered somewhere your routine never would have taken you{locationSentence}. Sometimes the biggest discoveries begin with a slightly different turn.",
+    reflection: null,
     bonusMemories: {
       "beyond-usual-bubble": "You ventured beyond your usual bubble, wondering if you'd accidentally crossed state lines. Instead, you found more greenery than you were used to."
     }
@@ -401,9 +401,9 @@ window.QUESTS = {
     icon: "interests",
     title: "DIY Craft",
     description: "Make something with your hands. Beautiful, weird, or both.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "first-time-craft", label: "Make something you've never made before.", points: 2 }
+      { id: "first-time-craft", label: "Make something you've never made before." }
     ],
     story: "You turned a simple idea into something you could actually hold{locationSentence}.",
     reflection: "Perfection was never the point, creation was.",
@@ -431,7 +431,7 @@ window.QUESTS = {
     description: "Wander through a farmers market, street fair, or open-air market.",
     basePoints: 5,
     bonuses: [
-      { id: "local-vendor-purchase", label: "Buy something from a local vendor.", points: 1 }
+      { id: "local-vendor-purchase", label: "Buy something from a local vendor." }
     ],
     story: "You wandered through a market full of local flavors and handmade goods{locationSentence}.",
     reflection: "Some people were sharpening their negotiation skills, others were hunting for vintage treasures. You were simply enjoying the bustling energy.",
@@ -443,17 +443,21 @@ window.QUESTS = {
   "party-time": {
     category: "community",
     icon: "celebration",
-    title: "Party Time",
+    title: "Party Time!",
     description: "Take a selfie with the birthday girls. If you couldn't make it, a selfie with our photo counts too!",
     basePoints: 5,
     bonuses: [
-      { id: "attended-birthday-party", label: "Attend the birthday party.", points: 5 }
+      { id: "attended-birthday-party", label: "Attend the birthday party." }
     ],
     story: "As Summer Quest came to an end, you realized it was never just about the birthdays. It was about stepping outside your comfort zone, making new memories, and experiencing the city together during its most glorious season.\n\nThank you for being a part of our summer. — Hoa & Erika",
     reflection: null,
     bonusMemories: {},
     final: true,
     triviaQuestions: [
+      {
+        prompt: "How did the birthday girls meet?",
+        acceptedAnswers: ["reddit", "online"]
+      },
       {
         prompt: "How many days apart are the girls' birthdays?",
         acceptedAnswers: ["4", "four", "735"]

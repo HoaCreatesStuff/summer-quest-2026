@@ -48,7 +48,12 @@
   function completedEntries() {
     return orderedQuests()
       .map(quest => ({ quest, submission: completedSubmission(quest.id) }))
-      .filter(entry => Boolean(entry.submission));
+      .filter(entry => Boolean(entry.submission))
+      .sort((left, right) => {
+        const leftTime = new Date(left.submission.completedAt || 0).getTime();
+        const rightTime = new Date(right.submission.completedAt || 0).getTime();
+        return leftTime - rightTime;
+      });
   }
 
   function localDateKey(value) {
@@ -83,6 +88,7 @@
 
   async function renderStory() {
     const entries = completedEntries();
+    const newestQuestId = entries.at(-1)?.quest.id;
     const nextUrls = new Set();
     await Promise.all(entries.map(async (entry) => {
       entry.mediaSource = await mediaSourceFor(entry.submission, nextUrls);
@@ -112,9 +118,29 @@
       storyTimeline.innerHTML = groups.map((group, groupIndex) => `
         <section id="storyDate-${groupIndex}" class="story-date-group" aria-labelledby="storyDateTitle-${groupIndex}">
           <header class="story-date-heading">
-            <span class="story-date-dot" aria-hidden="true"></span>
-            <h2 id="storyDateTitle-${groupIndex}">${formattedDate(group.date)}</h2>
-          </header>
+  <span class="story-date-dot" aria-hidden="true"></span>
+
+  <h2 id="storyDateTitle-${groupIndex}">
+    ${formattedDate(group.date)}
+  </h2>
+
+  <button
+    class="story-next-date"
+    type="button"
+    data-next-target="${
+      groupIndex === groups.length - 1
+        ? "summerGlance"
+        : `storyDate-${groupIndex + 1}`
+    }"
+    aria-label="${
+      groupIndex === groups.length - 1
+        ? "Jump to Summer at a Glance"
+        : "Jump to next date"
+    }"
+  >
+    ↓
+  </button>
+</header>
           <div class="story-date-entries">
             ${group.entries.map(entry => {
               const location = entry.quest.story.includes("{locationSentence}")
@@ -125,7 +151,14 @@
               return `
                 <article class="story-entry" id="story-${entry.quest.id}" data-quest-id="${entry.quest.id}">
                   <header class="story-entry-header">
-                    <h3>${escapeStoryText(entry.quest.title)}</h3>
+                    <h3>
+  ${escapeStoryText(entry.quest.title)}
+  ${
+    entry.quest.id === newestQuestId
+      ? '<span class="story-new-pill">NEW</span>'
+      : ""
+  }
+                    </h3>
                     <p>
                       ${location ? `<span>📍 ${escapeStoryText(location)}</span>` : ""}
                       <span>👥 ${friendsLabel(entry.submission.friends)}</span>
@@ -141,7 +174,6 @@
                 </article>`;
             }).join("")}
           </div>
-          <button class="story-next-date" type="button" data-next-target="${groupIndex === groups.length - 1 ? "summerGlance" : `storyDate-${groupIndex + 1}`}" aria-label="${groupIndex === groups.length - 1 ? "Jump to Summer at a Glance" : "Jump to next date"}">↓</button>
         </section>`).join("");
     }
 
@@ -748,32 +780,29 @@
 
   async function navigateTo(page) {
     if (!pageElements.some(element => element.dataset.page === page)) return;
-    if (currentPage === "story" && page !== "story") revokeMediaUrls(storyMediaUrls);
-    if (currentPage === "keepsake" && page !== "keepsake") revokeMediaUrls(keepsakeMediaUrls);
+
+    if (currentPage === "story" && page !== "story") {
+      revokeMediaUrls(storyMediaUrls);
+    }
+    if (currentPage === "keepsake" && page !== "keepsake") {
+      revokeMediaUrls(keepsakeMediaUrls);
+    }
+
     if (page === "keepsake") {
-      keepsakeReturnPage = currentPage === "keepsake" ? keepsakeReturnPage : currentPage;
+      keepsakeReturnPage = currentPage === "keepsake"
+        ? keepsakeReturnPage
+        : currentPage;
       await renderKeepsake();
     }
+
     if (page === "story") {
       await renderStory();
+    }
 
-      const targetQuestId = window.pendingStoryQuestId;
-
-      if (targetQuestId) {
-        requestAnimationFrame(() => {
-          document
-            .getElementById(`story-${targetQuestId}`)
-            ?.scrollIntoView({
-              behavior: "smooth",
-              block: "center"
-        });
-
-      window.pendingStoryQuestId = null;
+    pageElements.forEach(element => {
+      element.hidden = element.dataset.page !== page;
     });
-  }
-}
-    
-    pageElements.forEach(element => { element.hidden = element.dataset.page !== page; });
+
     currentPage = page;
     document.body.dataset.page = page;
     document.title = page === "story"
@@ -781,7 +810,24 @@
       : page === "keepsake"
         ? "Create Memory Keepsake — NYC Summer Quest"
         : "NYC Summer Quest";
+
     window.scrollTo({ top: 0, behavior: "auto" });
+
+    if (page === "story" && window.pendingStoryQuestId) {
+      const targetQuestId = window.pendingStoryQuestId;
+      window.pendingStoryQuestId = null;
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          document
+            .getElementById(`story-${targetQuestId}`)
+            ?.scrollIntoView({
+              behavior: "smooth",
+              block: "center"
+            });
+        });
+      });
+    }
   }
 
   const zoomState = { scale: 1, x: 0, y: 0, pointers: new Map(), start: null, pinch: null, moved: false };
