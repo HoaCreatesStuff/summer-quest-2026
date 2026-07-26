@@ -1,4 +1,4 @@
-/* After changing this file, update the style.css?v= timestamp in index.html. */
+/* After changing this file, bump the build in version.js and index.html. */
 :root {
   --paper: #f7f2e9;
   --paper-2: #fffaf2;
@@ -359,6 +359,32 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   line-height: 1.55;
 }
 .briefing-callout p + p { margin-top: 8px; }
+.settings-about {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .78rem;
+}
+.settings-about summary {
+  width: fit-content;
+  min-height: 44px;
+  display: list-item;
+  line-height: 44px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.settings-about summary:focus-visible {
+  outline: 3px solid rgba(47,143,140,.36);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.settings-about-content {
+  padding: 2px 0 4px;
+}
+.settings-about-content p {
+  margin: 6px 0 0;
+}
 
 .board-section { margin-top: 24px; }
 .section-heading {
@@ -2667,4 +2693,64 @@ body.keepsake-preview-open { overflow: hidden; }
 .crop-stage .cropper-container {
   width: 100% !important;
   height: 100% !important;
+}
+
+.pwa-update-notice {
+  position: fixed;
+  z-index: 90;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  width: min(calc(100% - 32px), 560px);
+  min-height: 64px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 10px 10px 18px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 18px;
+  background: var(--ink);
+  color: var(--paper-2);
+  box-shadow: 0 14px 38px rgba(20,18,15,.28);
+}
+
+.pwa-update-notice[hidden] {
+  display: none;
+}
+
+.pwa-update-notice p {
+  flex: 1;
+  margin: 0;
+  font-size: .84rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.pwa-update-notice .secondary-button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 112px;
+  min-height: 44px;
+  height: 44px;
+  margin: 0;
+  border-color: transparent;
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+@media (max-width: 480px) {
+  .pwa-update-notice {
+    align-items: stretch;
+    gap: 8px;
+    padding-left: 14px;
+  }
+
+  .pwa-update-notice p {
+    align-self: center;
+  }
+
+  .pwa-update-notice .secondary-button {
+    min-width: 100px;
+    padding: 0 14px;
+  }
 }

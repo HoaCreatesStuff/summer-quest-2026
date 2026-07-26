@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Summer Quest PWA Update Validation</title>
+</head>
+<body>
+  <h1>Summer Quest PWA update validation</h1>
+  <pre id="result">Running…</pre>
+
+  <script src="../version.js"></script>
+  <script>
+    (async () => {
+      const result = document.querySelector("#result");
+      const checks = [];
+      const buildVersion = globalThis.SUMMER_QUEST_BUILD?.version;
+      const testStorageKey = "summer-quest-pwa-validation";
+      const testDatabaseName = "summer-quest-pwa-validation";
+      const oldCacheName = "summer-quest-app-previous-test";
+      const unrelatedCacheName = "unrelated-cache-validation";
+      const expectedCacheName = `summer-quest-app-${buildVersion}`;
+
+      function check(name, condition, details = "") {
+        checks.push({ name, passed: Boolean(condition), details });
+      }
+
+      function waitForWorkerState(worker, state) {
+        if (!worker || worker.state === state) return Promise.resolve();
+
+        return new Promise((resolve, reject) => {
+          const timeout = window.setTimeout(() => {
+            reject(new Error(`Worker did not reach ${state}`));
+          }, 10000);
+
+          worker.addEventListener("statechange", () => {
+            if (worker.state !== state) return;
+            window.clearTimeout(timeout);
+            resolve();
+          });
+        });
+      }
+
+      function openTestDatabase() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(testDatabaseName, 1);
+          request.onupgradeneeded = () => {
+            request.result.createObjectStore("sentinels");
+          };
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result);
+        });
+      }
+
+      function writeDatabaseSentinel(database) {
+        return new Promise((resolve, reject) => {
+          const transaction = database.transaction("sentinels", "readwrite");
+          transaction.objectStore("sentinels").put("preserved", "progress");
+          transaction.onerror = () => reject(transaction.error);
+          transaction.oncomplete = resolve;
+        });
+      }
+
+      function readDatabaseSentinel(database) {
+        return new Promise((resolve, reject) => {
+          const transaction = database.transaction("sentinels", "readonly");
+          const request = transaction.objectStore("sentinels").get("progress");
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result);
+        });
+      }
+
+      function deleteTestDatabase() {
+        return new Promise(resolve => {
+          const request = indexedDB.deleteDatabase(testDatabaseName);
+          request.onerror = resolve;
+          request.onsuccess = resolve;
+          request.onblocked = resolve;
+        });
+      }
+
+      function waitForController() {
+        if (navigator.serviceWorker.controller) {
+          return Promise.resolve(navigator.serviceWorker.controller);
+        }
+
+        return new Promise((resolve, reject) => {
+          const timeout = window.setTimeout(() => {
+            reject(new Error("Service worker did not claim this page"));
+          }, 10000);
+
+          navigator.serviceWorker.addEventListener("controllerchange", () => {
+            window.clearTimeout(timeout);
+            resolve(navigator.serviceWorker.controller);
+          }, { once: true });
+        });
+      }
+
+      function requestWorkerVersion(controller) {
+        return new Promise((resolve, reject) => {
+          const timeout = window.setTimeout(() => {
+            reject(new Error("Worker version response timed out"));
+          }, 5000);
+
+          function handleMessage(event) {
+            if (event.data?.type !== "SUMMER_QUEST_SW_VERSION") return;
+            window.clearTimeout(timeout);
+            navigator.serviceWorker.removeEventListener("message", handleMessage);
+            resolve(event.data.version);
+          }
+
+          navigator.serviceWorker.addEventListener("message", handleMessage);
+          controller.postMessage({ type: "SUMMER_QUEST_GET_VERSION" });
+        });
+      }
+
+      try {
+        const [indexSource, workerSource, updaterSource, manifest] =
+          await Promise.all([
+            fetch("../index.html", { cache: "no-store" }).then(response => response.text()),
+            fetch("../sw.js", { cache: "no-store" }).then(response => response.text()),
+            fetch("../data/pwa.js", { cache: "no-store" }).then(response => response.text()),
+            fetch("../manifest.json", { cache: "no-store" }).then(response => response.json())
+          ]);
+
+        const indexDocument = new DOMParser().parseFromString(
+          indexSource,
+          "text/html"
+        );
+        const applicationVersion = indexDocument
+          .querySelector('meta[name="application-version"]')
+          ?.getAttribute("content");
+        const localVersionedAssets = Array.from(
+          indexDocument.querySelectorAll(
+            'link[rel="stylesheet"][href^="style.css"], link[rel="manifest"], script[src^="version.js"], script[src^="data/"]'
+          )
+        ).map(element => element.getAttribute("href") || element.getAttribute("src"));
+
+        check(
+          "A public build version is defined",
+          /^\d{4}\.\d{2}\.\d{2}\.\d+$/.test(buildVersion || ""),
+          buildVersion
+        );
+        check(
+          "HTML, manifest start URL, and local asset URLs use the same build",
+          applicationVersion === buildVersion &&
+            manifest.start_url.includes(`build=${buildVersion}`) &&
+            localVersionedAssets.every(url => url.includes(`v=${buildVersion}`)),
+          { applicationVersion, startUrl: manifest.start_url, localVersionedAssets }
+        );
+        check(
+          "Settings & About displays the build version",
+          indexDocument.querySelector("[data-build-version]")?.textContent.trim() ===
+            buildVersion
+        );
+        check(
+          "Update notice uses the release copy and exposes a Restart action",
+          indexDocument.querySelector("#pwaUpdateNotice")?.textContent.includes(
+            "A new version is available. Restart to update."
+          ) &&
+            indexDocument.querySelector("#pwaUpdateButton")?.textContent.trim() ===
+              "Restart"
+        );
+        check(
+          "Worker uses versioned caches and removes only obsolete app caches",
+          workerSource.includes('const CACHE_PREFIX = "summer-quest-app-"') &&
+            workerSource.includes("name.startsWith(CACHE_PREFIX)") &&
+            workerSource.includes("name !== CACHE_NAME")
+        );
+        check(
+          "Worker activates safely with clients.claim and opt-in skipWaiting",
+          workerSource.includes("self.clients.claim()") &&
+            workerSource.includes('SUMMER_QUEST_SKIP_WAITING') &&
+            workerSource.includes("self.skipWaiting()")
+        );
+        check(
+          "Navigation and code use a network-first strategy",
+          workerSource.includes('request.mode === "navigate"') &&
+            workerSource.includes('new Set(["script", "style", "manifest"])') &&
+            workerSource.includes("networkFirst(request")
+        );
+        check(
+          "Registration bypasses the HTTP cache and checks automatically",
+          updaterSource.includes('updateViaCache: "none"') &&
+            updaterSource.includes("encodeURIComponent(buildVersion)") &&
+            updaterSource.includes("registration.update()") &&
+            updaterSource.includes('"updatefound"') &&
+            updaterSource.includes('"visibilitychange"')
+        );
+        check(
+          "Update flow waits for player action before reloading",
+          updaterSource.includes("registration.waiting.postMessage") &&
+            updaterSource.includes('"controllerchange"') &&
+            updaterSource.includes("if (!restartRequested) return")
+        );
+        check(
+          "PWA updater never clears player storage",
+          !workerSource.includes("localStorage") &&
+            !workerSource.includes("indexedDB") &&
+            !updaterSource.includes("localStorage") &&
+            !updaterSource.includes("indexedDB")
+        );
+
+        if (!("serviceWorker" in navigator)) {
+          check(
+            "Browser supports the service-worker verification",
+            false,
+            "Service workers unavailable"
+          );
+        } else {
+          localStorage.setItem(testStorageKey, "preserved");
+          const database = await openTestDatabase();
+          await writeDatabaseSentinel(database);
+          database.close();
+
+          const oldCache = await caches.open(oldCacheName);
+          await oldCache.put(
+            new Request("../tests/old-cache-sentinel"),
+            new Response("old")
+          );
+          const unrelatedCache = await caches.open(unrelatedCacheName);
+          await unrelatedCache.put(
+            new Request("../tests/unrelated-cache-sentinel"),
+            new Response("unrelated")
+          );
+
+          const registration = await navigator.serviceWorker.register(
+            `../sw.js?v=${encodeURIComponent(buildVersion)}`,
+            {
+              scope: "../",
+              updateViaCache: "none"
+            }
+          );
+          const worker =
+            registration.installing ||
+            registration.waiting ||
+            registration.active;
+          await waitForWorkerState(worker, "activated");
+          const controller = await waitForController();
+          const workerVersion = await requestWorkerVersion(controller);
+          const cacheNames = await caches.keys();
+          const preservedDatabase = await openTestDatabase();
+          const databaseSentinel = await readDatabaseSentinel(preservedDatabase);
+          preservedDatabase.close();
+
+          check(
+            "Installed worker reports the same build as the page",
+            workerVersion === buildVersion,
+            { workerVersion, buildVersion }
+          );
+          check(
+            "Activation creates the current cache and removes the old app cache",
+            cacheNames.includes(expectedCacheName) &&
+              !cacheNames.includes(oldCacheName),
+            cacheNames
+          );
+          check(
+            "Activation preserves unrelated origin caches",
+            cacheNames.includes(unrelatedCacheName),
+            cacheNames
+          );
+          check(
+            "Activation preserves localStorage progress",
+            localStorage.getItem(testStorageKey) === "preserved"
+          );
+          check(
+            "Activation preserves IndexedDB progress",
+            databaseSentinel === "preserved",
+            databaseSentinel
+          );
+
+          localStorage.removeItem(testStorageKey);
+          await caches.delete(unrelatedCacheName);
+          await deleteTestDatabase();
+        }
+
+        const failed = checks.filter(item => !item.passed);
+        result.textContent = JSON.stringify({
+          status: failed.length === 0 ? "PASS" : "FAIL",
+          passed: checks.length - failed.length,
+          failed: failed.length,
+          checks
+        }, null, 2);
+      } catch (error) {
+        result.textContent = JSON.stringify({
+          status: "FAIL",
+          name: error.name,
+          message: error.message,
+          checks
+        }, null, 2);
+      }
+    })();
+  </script>
+</body>
+</html>
