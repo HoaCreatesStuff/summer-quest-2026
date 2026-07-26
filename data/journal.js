@@ -71,7 +71,7 @@
   }
 
   function friendsLabel(value) {
-    const count = Math.max(0, Math.trunc(Number(value) || 0));
+    const count = normalizeFriendCount(value);
     if (count === 0) return "Solo";
     return count === 1 ? "+1 friend" : `+${count} friends`;
   }
@@ -169,7 +169,7 @@
   ? `<p class="story-generated-copy">${generatedStory}</p>`
   : ""}
                   ${caption
-                    ? `<p class="story-caption">“${escapeStoryText(caption)}”</p>`
+                    ? `<p class="story-caption">${escapeStoryText(caption)}</p>`
   : ""}
                 </article>`;
             }).join("")}
@@ -179,7 +179,10 @@
 
     const totals = getTotals();
     const rank = currentRank(totals.score);
-    const friends = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.submission.friends) || 0), 0);
+    const friends = entries.reduce(
+      (sum, entry) => sum + normalizeFriendCount(entry.submission.friends),
+      0
+    );
     const glanceItems = [
       ["Completed Quests", totals.completed],
       ["Current Rank", rank.title],
@@ -446,7 +449,7 @@
     context.font = '700 42px Montserrat, sans-serif';
     context.fillText(keepsakeNameInput.value.trim(), width - margin, 110);
     context.fillStyle = "#272522";
-    context.font = '400 28px "Libre Baskerville", serif';
+    context.font = '400 30px "Libre Baskerville", serif';
     context.fillText(rank.title, width - margin, 166);
     context.textAlign = "left";
 
@@ -493,7 +496,7 @@
 
     context.fillRect(x, y, tileSize, tileSize);
 
-    if (iconImages[index]) {
+        if (iconImages[index]) {
       const iconSize = tileSize * .52;
 
       context.drawImage(
@@ -507,20 +510,18 @@
   }
 
   context.restore();
-
-  context.strokeStyle = isFinalQuest(quest)
-    ? "rgba(157,112,29,.58)"
-    : "rgba(39,37,34,.12)";
-
-  context.lineWidth = 3;
-  roundedRect(context, x, y, tileSize, tileSize, 26);
-  context.stroke();
 });
 
-    return new Promise((resolve, reject) => {
-      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("PNG generation failed")), "image/png");
-    });
-  }
+return new Promise((resolve, reject) => {
+  canvas.toBlob(
+    blob =>
+      blob
+        ? resolve(blob)
+        : reject(new Error("PNG generation failed")),
+    "image/png"
+  );
+});
+}
 
   function setKeepsakeActionState(isPreparing) {
     saveKeepsakeBtn.disabled = isPreparing || !validKeepsakeName();
@@ -689,7 +690,13 @@
       ["Completed Quests", `${totals.completed}`],
       ["Current Rank", rank.title],
       ["Points Earned", `${totals.score}`],
-      ["Friends Joined", `${entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.submission.friends) || 0), 0)}`]
+      [
+        "Friends Joined",
+        `${entries.reduce(
+          (sum, entry) => sum + normalizeFriendCount(entry.submission.friends),
+          0
+        )}`
+      ]
     ];
     const columnWidth = contentWidth / 2;
     glance.forEach(([label, value], index) => {

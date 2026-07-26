@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Summer Quest release-critical validation</title>
+</head>
+<body>
+  <h1>Summer Quest release-critical validation</h1>
+  <pre id="result">Running…</pre>
+  <iframe id="appFrame" title="Summer Quest test app" hidden></iframe>
+
+  <script>
+    (async () => {
+      const result = document.querySelector("#result");
+      const frame = document.querySelector("#appFrame");
+      const checks = [];
+
+      const waitFor = async (predicate, message) => {
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          if (await predicate()) return;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error(message);
+      };
+
+      const check = (name, condition, details = "") => {
+        checks.push({ name, passed: Boolean(condition), details });
+      };
+
+      const sameJson = (left, right) =>
+        JSON.stringify(left) === JSON.stringify(right);
+
+      try {
+        const loaded = new Promise(resolve => {
+          frame.addEventListener("load", resolve, { once: true });
+        });
+        frame.src = "../index.html?release-critical-validation=1";
+        await loaded;
+        await waitFor(
+          () =>
+            frame.contentWindow?.SummerQuestTestHooks &&
+            frame.contentDocument?.querySelectorAll("#questGrid [data-quest-id]").length === 25,
+          "Timed out waiting for the test app to initialize."
+        );
+
+        const app = frame.contentWindow;
+        const documentUnderTest = frame.contentDocument;
+        const scoring = app.SummerQuestTestHooks.scoring;
+        const migrations = app.SummerQuestTestHooks.migrations;
+
+        const friendCases = [
+          [undefined, 0],
+          [null, 0],
+          ["", 0],
+          ["3.9", 3],
+          [-4, 0],
+          [0, 0],
+          [5, 5],
+          [99, 5],
+          [Infinity, 0],
+          [NaN, 0],
+          [{}, 0]
+        ];
+        check(
+          "Friend normalization handles malformed, fractional, negative, zero, and over-limit values",
+          friendCases.every(([input, expected]) =>
+            scoring.normalizeFriendCount(input) === expected
+          )
+        );
+        check(
+          "Friend point values and maximum reward come from one configuration",
+          scoring.friendPointsFor(3) === 6 &&
+            scoring.friendPointsFor(99) === 10 &&
+            scoring.maxFriendReward ===
+              scoring.maxFriends * scoring.pointsPerFriend
+        );
+
+        const scoringFailures = [];
+        Object.entries(app.QUESTS).forEach(([questId, quest]) => {
+          const selectedBonusIds = quest.bonuses.map(bonus => bonus.id);
+          const expected =
+            quest.basePoints +
+            quest.bonuses.reduce((sum, bonus) => sum + bonus.points, 0) +
+            (quest.final ? 0 : scoring.friendPointsFor(3));
+          const actual = scoring.questPoints(
+            {
+              questId,
+              friends: 3,
+              selectedBonusIds,
+              earnedPoints: 99999,
+              basePoints: 99999
+            },
+            questId
+          );
+          if (actual !== expected) {
+            scoringFailures.push({ questId, expected, actual });
+          }
+        });
+        check(
+          "Every quest scores from canonical base and bonus values",
+          scoringFailures.length === 0,
+          scoringFailures
+        );
+
+        const recordsByFormat = Object.entries(app.QUESTS).map(([questId, quest]) => ({
+          questId,
+          oldRecord: {
+            questId,
+            friends: "2",
+            selectedBonuses: quest.bonuses.map(bonus => ({
+              id: bonus.id,
+              points: 999
+            })),
+            earnedPoints: 1,
+            basePoints: 1
+          },
+          currentRecord: {
+            questId,
+            friends: 2,
+            selectedBonusIds: quest.bonuses.map(bonus => bonus.id)
+          }
+        }));
+        const oldTotal = recordsByFormat.reduce(
+          (total, record) =>
+            total + scoring.questPoints(record.oldRecord, record.questId),
+          0
+        );
+        const currentTotal = recordsByFormat.reduce(
+          (total, record) =>
+            total + scoring.questPoints(record.currentRecord, record.questId),
+          0
+        );
+        check(
+          "Equivalent legacy and current records produce identical totals",
+          oldTotal === currentTotal
+        );
+        const currentRecord = recordsByFormat.find(
+          record => record.questId === "street-style"
+        ).currentRecord;
+        check(
+          "Unknown stored bonus IDs cannot add points",
+          scoring.questPoints({
+            ...currentRecord,
+            selectedBonusIds: [...currentRecord.selectedBonusIds, "not-canonical"]
+          }) === scoring.questPoints(currentRecord)
+        );
+
+        ["22", "25", "celebrate"].forEach((legacyId) => {
+          const legacyRecord = {
+            questId: legacyId,
+            completed: true,
+            mediaId: `media-${legacyId}`,
+            mediaType: "image/jpeg",
+            friends: "8.7",
+            location: `Location ${legacyId}`,
+            caption: `Caption ${legacyId}`,
+            selectedBonuses: [{ id: "attended-birthday-party" }],
+            completedAt: "2026-07-01T00:00:00.000Z",
+            earnedPoints: 500,
+            basePoints: 500
+          };
+          const migrated = migrations.migrateSavedState({
+            submissions: { [legacyId]: legacyRecord },
+            drafts: { [legacyId]: legacyRecord },
+            questDataMigrationVersion: 2
+          });
+          ["submissions", "drafts"].forEach((collectionName) => {
+            const record = migrated[collectionName]["party-time"];
+            check(
+              `${collectionName}: legacy Final Quest ID ${legacyId} maps to party-time`,
+              record?.questId === "party-time" &&
+                record.mediaId === legacyRecord.mediaId &&
+                record.location === legacyRecord.location &&
+                record.caption === legacyRecord.caption &&
+                record.completedAt === legacyRecord.completedAt &&
+                record.friends === 5 &&
+                sameJson(record.selectedBonusIds, ["attended-birthday-party"])
+            );
+            check(
+              `${collectionName}: obsolete point snapshots are discarded for ${legacyId}`,
+              record &&
+                !Object.prototype.hasOwnProperty.call(record, "earnedPoints") &&
+                !Object.prototype.hasOwnProperty.call(record, "basePoints")
+            );
+          });
+        });
+
+        const collisionState = migrations.migrateSavedState({
+          submissions: {
+            "22": { caption: "legacy-22", mediaId: "legacy-22" },
+            "25": { caption: "legacy-25", mediaId: "legacy-25" },
+            celebrate: { caption: "legacy-celebrate", mediaId: "legacy-celebrate" },
+            "party-time": {
+              questId: "party-time",
+              completed: true,
+              caption: "canonical-current",
+              location: "Current location",
+              mediaId: "canonical-media",
+              friends: 0,
+              selectedBonusIds: ["attended-birthday-party"],
+              completedAt: "2026-07-20T00:00:00.000Z"
+            }
+          },
+          drafts: {
+            "22": { caption: "legacy-draft-22" },
+            "25": { caption: "legacy-draft-25" },
+            celebrate: { caption: "legacy-draft-celebrate" },
+            "party-time": {
+              questId: "party-time",
+              caption: "canonical-current-draft",
+              finalUnlocked: true
+            }
+          },
+          questDataMigration: {
+            unmapped: {
+              submissions: {
+                retained: { caption: "previously-unmapped", mediaId: "retained-media" }
+              },
+              drafts: {}
+            }
+          }
+        });
+        check(
+          "Final Quest collisions prefer the current submission and draft",
+          collisionState.submissions["party-time"].caption === "canonical-current" &&
+            collisionState.submissions["party-time"].mediaId === "canonical-media" &&
+            collisionState.drafts["party-time"].caption === "canonical-current-draft" &&
+            collisionState.drafts["party-time"].finalUnlocked === true
+        );
+        check(
+          "Collision and prior unmapped records remain recoverable",
+          ["22", "25", "celebrate"].every(legacyId =>
+            collisionState.questDataMigration.unmapped.submissions[legacyId]
+          ) &&
+            ["22", "25", "celebrate"].every(legacyId =>
+              collisionState.questDataMigration.unmapped.drafts[legacyId]
+            ) &&
+            collisionState.questDataMigration.unmapped.submissions.retained?.mediaId ===
+              "retained-media"
+        );
+
+        const rankCases = [
+          [0, "Summer Rookie"],
+          [79, "Summer Rookie"],
+          [80, "Neighborhood Explorer"],
+          [159, "Neighborhood Explorer"],
+          [160, "City Adventurer"],
+          [239, "City Adventurer"],
+          [240, "NYC Insider"],
+          [299, "NYC Insider"],
+          [300, "Summer Legend"]
+        ];
+        check(
+          "Rank boundaries match the canonical thresholds",
+          rankCases.every(([score, title]) =>
+            scoring.rankForScore(score).title === title
+          )
+        );
+
+        const bonusRowFailures = [];
+        for (const questId of app.BOARD_ORDER) {
+          const quest = app.QUESTS[questId];
+          if (quest.final || quest.bonuses.length === 0) continue;
+          documentUnderTest
+            .querySelector(`#questGrid [data-quest-id="${questId}"]`)
+            .click();
+          const rows = Array.from(
+            documentUnderTest.querySelectorAll("#bonusField .bonus-option")
+          );
+          if (rows.length !== quest.bonuses.length) {
+            bonusRowFailures.push(`${questId}: row count`);
+            continue;
+          }
+          quest.bonuses.forEach((bonus, index) => {
+            const expectedPoints = `+${bonus.points} ${bonus.points === 1 ? "pt" : "pts"}`;
+            const pointText = rows[index]
+              .querySelector(".bonus-point-value")
+              ?.textContent.trim();
+            const accessibleText = rows[index].textContent.replace(/\s+/g, " ").trim();
+            if (
+              pointText !== expectedPoints ||
+              !accessibleText.includes(bonus.label) ||
+              !accessibleText.includes(expectedPoints)
+            ) {
+              bonusRowFailures.push(`${questId}:${bonus.id}`);
+            }
+          });
+        }
+        check(
+          "Every visible bonus row shows its canonical accessible point value",
+          bonusRowFailures.length === 0,
+          bonusRowFailures
+        );
+        check(
+          "Friend scoring instructions render from the shared configuration",
+          documentUnderTest.querySelector("[data-points-per-friend]")?.textContent ===
+            String(scoring.pointsPerFriend) &&
+            documentUnderTest.querySelector("[data-max-friends]")?.textContent ===
+              String(scoring.maxFriends)
+        );
+
+        const originalQuests = app.QUESTS;
+        const originalIllustrations = app.QUEST_ILLUSTRATIONS;
+        const originalConsoleError = app.console.error;
+        const validationFailures = [];
+
+        const expectValidationFailure = (name, mutate, expectedMessage) => {
+          const errors = [];
+          app.QUESTS = JSON.parse(JSON.stringify(originalQuests));
+          app.QUEST_ILLUSTRATIONS = {
+            ...originalIllustrations
+          };
+          app.console.error = (...parts) => {
+            errors.push(parts.map(String).join(" "));
+          };
+          mutate(app.QUESTS, app.QUEST_ILLUSTRATIONS);
+          const validationResult = app.validateQuestData();
+          if (
+            validationResult !== false ||
+            !errors.some(message => message.includes(expectedMessage))
+          ) {
+            validationFailures.push({ name, errors });
+          }
+        };
+
+        check(
+          "Canonical quest data passes startup validation",
+          app.validateQuestData() === true
+        );
+        expectValidationFailure(
+          "negative base points",
+          quests => { quests["ny-eats"].basePoints = -1; },
+          "basePoints"
+        );
+        expectValidationFailure(
+          "duplicate bonus ID",
+          quests => {
+            quests["ny-eats"].bonuses[1].id =
+              quests["ny-eats"].bonuses[0].id;
+          },
+          "duplicate bonus ID"
+        );
+        expectValidationFailure(
+          "invalid bonus points",
+          quests => { quests["bodega-cat"].bonuses[0].points = Infinity; },
+          "points must be a finite non-negative number"
+        );
+        expectValidationFailure(
+          "missing bonus memory",
+          quests => { delete quests["bodega-cat"].bonusMemories["pet-the-cat"]; },
+          "bonus has no bonus memory"
+        );
+        expectValidationFailure(
+          "invalid story",
+          quests => { quests["ny-eats"].story = []; },
+          "story must be a non-empty string"
+        );
+        expectValidationFailure(
+          "missing illustration",
+          (quests, illustrations) => { delete illustrations["ny-eats"]; },
+          "missing an illustration mapping"
+        );
+        expectValidationFailure(
+          "missing Final Quest answers",
+          quests => {
+            quests["party-time"].triviaQuestions[0].acceptedAnswers = [];
+          },
+          "acceptedAnswers"
+        );
+        expectValidationFailure(
+          "missing Final Quest trivia",
+          quests => { quests["party-time"].triviaQuestions = []; },
+          "triviaQuestions"
+        );
+
+        app.console.error = originalConsoleError;
+        app.QUESTS = originalQuests;
+        app.QUEST_ILLUSTRATIONS = originalIllustrations;
+        check(
+          "Malformed quest data produces clear validation failures",
+          validationFailures.length === 0,
+          validationFailures
+        );
+
+        const failed = checks.filter(item => !item.passed);
+        result.textContent = JSON.stringify({
+          status: failed.length === 0 ? "PASS" : "FAIL",
+          passed: checks.length - failed.length,
+          failed: failed.length,
+          checks
+        }, null, 2);
+      } catch (error) {
+        result.textContent = JSON.stringify({
+          status: "FAIL",
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+          checks
+        }, null, 2);
+      }
+    })();
+  </script>
+</body>
+</html>

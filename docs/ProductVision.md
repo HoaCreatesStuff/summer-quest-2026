@@ -92,7 +92,7 @@ Avoid:
 ## Included
 
 -   25 challenge board
--   Two-column mobile layout
+-   5×5 mobile board
 -   Progress tracking
 -   Rank progression
 -   Bottom-sheet quest details
@@ -101,6 +101,8 @@ Avoid:
 -   Friend bonus scoring
 -   Local browser storage
 -   Mission Briefing
+-   Summer Journal and story PDF
+-   Memory keepsake save/share
 -   Responsive design
 
 ------------------------------------------------------------------------
@@ -111,7 +113,6 @@ Avoid:
 -   Login
 -   Cloud sync
 -   Leaderboards
--   Shared album
 -   Notifications
 -   Admin dashboard
 -   Quest unlocking logic beyond the final quest
@@ -121,27 +122,28 @@ Avoid:
 
 # Game Mechanics
 
-Each completed quest:
-
--   Base reward: **5 points**
+Each completed quest earns the base points and optional bonus points configured
+for that quest in `data/quests.js`.
 
 Friend bonus:
 
--   **+2 points** for every friend who joins that adventure.
+-   **+2 points** for every friend who joins a non-Final adventure, up to
+    **5 friends**.
 
 Ranks update automatically based on total score.
 
-The final quest is completed together at the birthday celebration.
+The `party-time` Final Quest is unlocked by its trivia gate and then completed
+by saving its memory. The trivia answer does not score independently.
 
 ------------------------------------------------------------------------
 
 # Current Rank Progression
 
-1.  🌱 Summer Rookie
-2.  🗺️ Neighborhood Explorer
-3.  🚇 City Adventurer
-4.  🌆 NYC Insider
-5.  ⭐ Summer Legend
+1.  🌱 Summer Rookie --- 0–79 points
+2.  🗺️ Neighborhood Explorer --- 80–159 points
+3.  🚇 City Adventurer --- 160–239 points
+4.  🌆 NYC Insider --- 240–299 points
+5.  ⭐ Summer Legend --- 300+ points
 
 ------------------------------------------------------------------------
 
@@ -178,6 +180,8 @@ A successful MVP should allow someone to:
 5.  Earn points automatically.
 6.  Watch their rank progress.
 7.  Return later and see everything preserved.
+8.  Review completed memories in the Summer Journal.
+9.  Save or share a personalized memory keepsake.
 
 No onboarding or explanation should be required.
 

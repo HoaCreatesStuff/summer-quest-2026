@@ -23,9 +23,9 @@
   <title>NYC Summer Quest</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&amp;family=Montserrat:wght@300;400;500;600&amp;family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&amp;family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Montserrat:wght@300;400;500;600&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
   <!-- Keep this timestamp in sync with changes to style.css. -->
-  <link rel="stylesheet" href="style.css?v=1785020011" />
+  <link rel="stylesheet" href="style.css?v=1785053291" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css"/>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./assets/favicon/favicon.ico" sizes="any">
@@ -63,7 +63,7 @@
       </div>
       <div class="progress-meta">
         <span id="completedCount">0 / 25 completed</span>
-        <span id="nextRankText">30 pts to next rank</span>
+        <span id="nextRankText">80 pts to next rank</span>
       </div>
     </section>
 
@@ -81,7 +81,7 @@
             <li><span class="material-symbols-outlined" aria-hidden="true">explore</span><span>Complete <strong>as many adventures as you’d like</strong> before the birthday party.</span></li>
             <li><span class="material-symbols-outlined" aria-hidden="true">photo_camera</span><span>Upload <strong>one photo or selfie</strong> for each challenge. You’ll crop it into a square before saving.</span></li>
             <li><span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span><span><strong>Fresh memories only</strong>! Every challenge should be completed specifically for this Summer Quest <em>(no digging through your camera roll).</em></span></li>
-            <li><span class="material-symbols-outlined" aria-hidden="true">groups</span><span>Team up for adventures to earn <strong>2 bonus points</strong> for every fellow quester who joins you <strong>(5 max)</strong>.</span></li>
+            <li><span class="material-symbols-outlined" aria-hidden="true">groups</span><span>Team up for adventures to earn <strong><span data-points-per-friend>2</span> bonus points</strong> for every fellow quester who joins you <strong>(<span data-max-friends>5</span> max)</strong>.</span></li>
             <li>
   <span class="material-symbols-outlined" aria-hidden="true">forum</span>
   <span>
@@ -270,7 +270,7 @@
 
       <div id="standardQuestFields" class="quest-form-fields">
       <label class="upload-box">
-        <input id="mediaInput" type="file" accept="image/*,video/*" />
+        <input id="mediaInput" type="file" accept="image/*,video/*" aria-label="Choose a photo or video" />
         <span class="upload-title">Capture the Moment</span>
         <span class="upload-help">Take a photo or choose one from your phone.</span>
       </label>
@@ -278,14 +278,14 @@
       <div id="mediaPreview" class="media-preview" hidden></div>
 
       <div id="questDetailsRow" class="form-row">
-        <label id="friendsField" class="field">
-          <span>How many friends joined you?</span>
-          <div class="counter">
-            <button id="decrementFriends" type="button">−</button>
-            <output id="friendCount">0</output>
-            <button id="incrementFriends" type="button">+</button>
+        <fieldset id="friendsField" class="field friends-field">
+          <legend>How many friends joined you?</legend>
+          <div class="counter" role="group" aria-label="Friends joined">
+            <button id="decrementFriends" type="button" aria-label="Decrease friend count">−</button>
+            <output id="friendCount" aria-label="Friends joined" aria-live="polite" aria-atomic="true">0</output>
+            <button id="incrementFriends" type="button" aria-label="Increase friend count">+</button>
           </div>
-        </label>
+        </fieldset>
 
         <label class="field">
           <span>Location</span>
@@ -301,8 +301,20 @@
       <div id="bonusField" class="bonus-field" hidden></div>
 
       <div class="reward-preview" aria-live="polite">
-        <span id="rewardTitle" class="reward-title">Rewards</span>
-        <div id="rewardRows" class="reward-rows"></div>
+        <button
+          id="rewardDisclosure"
+          class="reward-disclosure"
+          type="button"
+          aria-expanded="false"
+          aria-controls="rewardDetails"
+        >
+          <span id="rewardTitle" class="reward-title">Rewards</span>
+          <span class="reward-total-wrap">
+            <span id="rewardTotal" class="reward-total-line"></span>
+            <span class="reward-chevron material-symbols-outlined" aria-hidden="true">expand_more</span>
+          </span>
+        </button>
+        <div id="rewardDetails" class="reward-detail-line"></div>
       </div>
       </div>
 
@@ -396,7 +408,28 @@
         </div>
       </div>
     </section>
-  </div>
+</div>
+
+<!-- Remove-memory confirmation dialog -->
+<div id="removeMemoryModal" class="crop-modal confirmation-modal" hidden>
+  <section
+    class="crop-dialog confirmation-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="removeMemoryTitle"
+    aria-describedby="removeMemoryDescription"
+  >
+    <h2 id="removeMemoryTitle">Remove this memory?</h2>
+    <p id="removeMemoryDescription">
+      This will remove your saved memory and photo from this quest. This cannot be undone.
+    </p>
+    <p id="removeMemoryError" class="field-error confirmation-error" role="alert" hidden></p>
+    <div class="confirmation-actions">
+      <button id="keepMemory" class="secondary-button" type="button">Keep Memory</button>
+      <button id="confirmRemoveMemory" class="primary-button" type="button">Remove Memory</button>
+    </div>
+  </section>
+</div>
 
 <!-- Photo crop modal -->
 <div id="cropModal" class="crop-modal" hidden>
@@ -452,11 +485,11 @@
   </section>
 </div>
 
-  <script src="data/quests.js?v=illustrations-v2"></script>
-  <script src="data/boardConfig.js?v=semantic-board-colors-v1"></script>
-  <script src="data/mediaStorage.js?v=indexeddb-v1"></script>
+  <script src="data/quests.js?v=qa-cleanup-v1"></script>
+  <script src="data/boardConfig.js?v=release-critical-v1"></script>
+  <script src="data/mediaStorage.js?v=qa-cleanup-v1"></script>
   <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"></script>
-  <script src="data/app.js?v=journal-fix-v2"></script>
-  <script src="data/journal.js?v=journal-fix-v2"></script>
+  <script src="data/app.js?v=qa-cleanup-v1"></script>
+  <script src="data/journal.js?v=release-critical-v2"></script>
 </body>
 </html>

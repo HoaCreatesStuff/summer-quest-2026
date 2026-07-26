@@ -108,10 +108,37 @@
 
         frame.contentDocument.querySelector('[data-quest-id="ny-eats"]').click();
         frame.contentDocument.querySelector("#removeQuest").click();
-        await waitFor(async () => {
+        await waitFor(
+          () => !frame.contentDocument.querySelector("#removeMemoryModal").hidden,
+          "Timed out waiting for the removal confirmation."
+        );
+        const beforeCancellation = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        const blobBeforeCancellation = await store.get(firstIds[0]);
+        frame.contentDocument.querySelector("#keepMemory").click();
+        const afterCancellation = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        const blobAfterCancellation = await store.get(firstIds[0]);
+
+        frame.contentDocument.querySelector("#removeQuest").click();
+        frame.contentDocument.querySelector("#confirmRemoveMemory").click();
+        const removalProcessingState =
+          frame.contentDocument.querySelector("#confirmRemoveMemory").disabled &&
+          frame.contentDocument.querySelector("#confirmRemoveMemory").textContent.trim() ===
+            "Removing…";
+        try {
+          await waitFor(async () => {
+            const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+            return !saved.submissions?.["ny-eats"] && !(await store.get(firstIds[0]));
+          }, "Timed out waiting for submission media removal.");
+        } catch (error) {
           const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-          return !saved.submissions?.["ny-eats"] && !(await store.get(firstIds[0]));
-        }, "Timed out waiting for submission media removal.");
+          const storedBlob = await store.get(firstIds[0]);
+          const dialogError = frame.contentDocument
+            .querySelector("#removeMemoryError")?.textContent.trim();
+          throw new Error(
+            `${error.message} Metadata present: ${Boolean(saved.submissions?.["ny-eats"])}. ` +
+            `Blob present: ${Boolean(storedBlob)}. Dialog error: ${dialogError || "none"}.`
+          );
+        }
         const removedSubmissionBlob = await store.get(firstIds[0]);
 
         frame.contentWindow.confirm = () => true;
@@ -135,6 +162,12 @@
           base64RemovedFromLocalStorage: !serializedState.includes("data:image"),
           migrationRanOnce: firstIds.every((mediaId, index) => mediaId === secondIds[index]),
           migratedBlobTypes: migratedBlobs.map(blob => blob?.type),
+          removalRequiresConfirmation:
+            Boolean(beforeCancellation.submissions?.["ny-eats"]) &&
+            Boolean(afterCancellation.submissions?.["ny-eats"]) &&
+            blobBeforeCancellation instanceof Blob &&
+            blobAfterCancellation instanceof Blob,
+          removalShowsProcessingState: removalProcessingState,
           removingSubmissionDeletedBlob: removedSubmissionBlob === null,
           resetClearedDraftBlob: removedDraftBlob === null
         }, null, 2);

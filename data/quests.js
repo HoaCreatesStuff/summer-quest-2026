@@ -6,18 +6,15 @@
 window.QUEST_CATEGORIES = {
   "experience-nyc": {
     label: "Experience NYC",
-    className: "category-experience",
-    colorVar: "--category-experience"
+    className: "category-experience"
   },
   community: {
     label: "Community",
-    className: "category-community",
-    colorVar: "--category-community"
+    className: "category-community"
   },
   challenges: {
     label: "Challenges",
-    className: "category-challenges",
-    colorVar: "--category-challenges"
+    className: "category-challenges"
   }
 };
 

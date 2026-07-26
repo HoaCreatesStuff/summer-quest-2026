@@ -5,7 +5,7 @@
 -   [ ] Landing page
 -   [ ] Progress card
 -   [ ] Mission Briefing
--   [ ] 2-column quest board
+-   [x] 5×5 quest board
 -   [ ] Bottom sheet
 -   [ ] Local storage
 -   [ ] Photo upload
@@ -23,7 +23,6 @@
 ## Sprint 3 --- Cloud
 
 -   [ ] Supabase
--   [ ] Shared album
 -   [ ] Cloud sync
 -   [ ] Image optimization
 

@@ -237,7 +237,7 @@ Category color should communicate quest type before the user reads the title.
 ## Layout
 
 - Mobile-first
-- 2-column quest grid
+- 5×5 quest grid
 - Large touch targets
 - Generous whitespace
 - Strong visual hierarchy

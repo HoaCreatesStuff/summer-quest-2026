@@ -4,18 +4,20 @@ Open `index.html` in a browser.
 
 ## Included
 - Libre Baskerville + Montserrat
-- 2-column mobile quest board
+- 5×5 mobile quest board
 - Bottom-sheet quest details
-- Photo/video selection
-- Friend-count scoring: 5 points + 2 per friend
+- Square photo cropping and video selection
+- Variable quest base points and per-quest bonuses from `data/quests.js`
+- Friend scoring: 2 points per friend, up to 5 friends, on non-Final quests
 - Rank progression
 - Browser persistence with localStorage metadata and IndexedDB media
 - Editable/removable submissions
-- Two-stage Final Quest with Mission Code and independently scored trivia
+- Summer Journal, story PDF, and memory keepsake
+- Final Quest trivia gate followed by the `party-time` quest
 
 ## Local media storage
-Uploaded images are resized to a maximum 1400 px edge, encoded as JPEG at
-approximately 0.75 quality, and stored as Blobs in the
+Uploaded photos are cropped to 1200×1200 and encoded once as JPEG at
+approximately 0.75 quality. Photos and videos are stored as Blobs in the
 `nyc-summer-quest-media` IndexedDB database. localStorage contains only quest
 metadata and media IDs. Everything remains on the user's device; a future cloud
 version can replace this layer with managed object storage.
@@ -30,6 +32,9 @@ version can replace this layer with managed object storage.
 - `data/journal.js`
 - `tests/media-storage-validation.html`
 - `tests/legacy-migration-validation.html`
+- `tests/release-critical-validation.html`
+- `tests/interaction-accessibility-validation.html`
 
-`data/challenges.js` and `data/storyTemplates.js` are retained only as deprecated
-backups and are not loaded by the app.
+`data/quests.js` is the canonical source for quest content, base points,
+bonuses, stories, and Final Quest configuration. `data/boardConfig.js` owns the
+5×5 board order and fixed board-square colors.

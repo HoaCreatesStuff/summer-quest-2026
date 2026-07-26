@@ -1,9 +1,14 @@
 const STORAGE_KEY = "nyc-summer-quest-mvp-v1";
 const BRIEFING_STATE_KEY = "nyc-summer-quest-briefing-collapsed";
-const QUEST_DATA_MIGRATION_VERSION = 2;
+const QUEST_DATA_MIGRATION_VERSION = 3;
 const MEDIA_MIGRATION_VERSION = 1;
-const MAX_FRIENDS = 5;
 const FINAL_QUEST_ID = "party-time";
+const FRIEND_SCORING = Object.freeze({
+  pointsPerFriend: 2,
+  maxFriends: 5
+});
+const MAX_FRIEND_REWARD =
+  FRIEND_SCORING.pointsPerFriend * FRIEND_SCORING.maxFriends;
 const COMPLETION_TIMING = Object.freeze({
   focus: 350,
   stamp: 200,
@@ -39,6 +44,20 @@ function isFinalQuest(questOrId) {
   return questId === FINAL_QUEST_ID;
 }
 
+function normalizeFriendCount(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.min(
+    FRIEND_SCORING.maxFriends,
+    Math.max(0, Math.trunc(numericValue))
+  );
+}
+
+function friendPointsFor(value) {
+  return normalizeFriendCount(value) * FRIEND_SCORING.pointsPerFriend;
+}
+
 const LEGACY_QUEST_ID_MAP = {
   1: "golden-hour",
   3: "street-style",
@@ -56,10 +75,11 @@ const LEGACY_QUEST_ID_MAP = {
   19: "hidden-gems",
   20: "cinema-moment",
   21: "park-picnic",
-  22: "celebrate",
+  22: FINAL_QUEST_ID,
   23: "animal-statue",
   24: "human-pyramid",
-  25: "celebrate"
+  25: FINAL_QUEST_ID,
+  celebrate: FINAL_QUEST_ID
 };
 
 const LEGACY_BONUS_ID_MAP = {
@@ -96,13 +116,24 @@ function selectedBonusIdsFrom(record) {
     .map((bonusId) => LEGACY_BONUS_ID_MAP[bonusId] || bonusId))];
 }
 
+function canonicalSelectedBonusIds(quest, record) {
+  const validBonusIds = new Set((quest?.bonuses || []).map((bonus) => bonus.id));
+  return selectedBonusIdsFrom(record).filter((bonusId) => validBonusIds.has(bonusId));
+}
+
+function savedRecordPriority(savedId) {
+  if (savedId === FINAL_QUEST_ID) return 0;
+  if (savedId === "25") return 1;
+  if (savedId === "22") return 2;
+  if (savedId === "celebrate") return 3;
+  return 4;
+}
+
 function migrateSavedCollection(collection, collectionName, migration) {
   const migrated = {};
-  const entries = Object.entries(collection || {}).sort(([left], [right]) => {
-    if (left === "25") return -1;
-    if (right === "25") return 1;
-    return 0;
-  });
+  const entries = Object.entries(collection || {}).sort(
+    ([left], [right]) => savedRecordPriority(left) - savedRecordPriority(right)
+  );
 
   entries.forEach(([savedId, record]) => {
     if (!record || typeof record !== "object") return;
@@ -129,9 +160,12 @@ function migrateSavedCollection(collection, collectionName, migration) {
     migrated[questId] = {
       ...record,
       questId,
+      friends: normalizeFriendCount(record.friends),
       selectedBonusIds
     };
     delete migrated[questId].selectedBonuses;
+    delete migrated[questId].earnedPoints;
+    delete migrated[questId].basePoints;
   });
 
   return migrated;
@@ -142,8 +176,12 @@ function migrateSavedState(savedState) {
     version: QUEST_DATA_MIGRATION_VERSION,
     completedAt: new Date().toISOString(),
     unmapped: {
-      submissions: {},
-      drafts: {}
+      submissions: {
+        ...(savedState.questDataMigration?.unmapped?.submissions || {})
+      },
+      drafts: {
+        ...(savedState.questDataMigration?.unmapped?.drafts || {})
+      }
     }
   };
 
@@ -176,20 +214,22 @@ Object.values(state.submissions).forEach((submission) => {
 });
 let activeQuest = null;
 let activeMediaId = null;
-let activeMediaBlob = null;
 let activeMediaType = null;
 let activePreviewUrl = "";
 let mediaPreviewRequest = 0;
 let cropper = null;
 let cropSourceUrl = "";
 let pendingCropFile = null;
+let cropTrigger = null;
 let friendCount = 0;
 let selectedBonusIds = [];
 let finalScoreResizeObserver = null;
 let saveInProgress = false;
+let removeInProgress = false;
 let questHasUnsavedChanges = false;
 let sheetTrigger = null;
 let homeScreenSheetTrigger = null;
+let removeDialogTrigger = null;
 
 const ranks = [
   {
@@ -230,6 +270,7 @@ const ranks = [
 ];
 
 const els = {
+  appPages: document.querySelectorAll(".app-page"),
   grid: document.querySelector("#questGrid"),
   score: document.querySelector("#score"),
   rankTitle: document.querySelector("#rankTitle"),
@@ -294,10 +335,16 @@ const els = {
   incrementFriends: document.querySelector("#incrementFriends"),
   decrementFriends: document.querySelector("#decrementFriends"),
   rewardTitle: document.querySelector("#rewardTitle"),
-  rewardRows: document.querySelector("#rewardRows"),
+  rewardDisclosure: document.querySelector("#rewardDisclosure"),
+  rewardTotal: document.querySelector("#rewardTotal"),
+  rewardDetails: document.querySelector("#rewardDetails"),
   rewardPreview: document.querySelector(".reward-preview"),
   saveQuest: document.querySelector("#saveQuest"),
   remove: document.querySelector("#removeQuest"),
+  removeMemoryModal: document.querySelector("#removeMemoryModal"),
+  keepMemory: document.querySelector("#keepMemory"),
+  confirmRemoveMemory: document.querySelector("#confirmRemoveMemory"),
+  removeMemoryError: document.querySelector("#removeMemoryError"),
   viewBoard: document.querySelector("#viewBoardBtn"),
   saveBoard: document.querySelector("#saveBoardBtn"),
   resetBoard: document.querySelector("#resetBoard"),
@@ -330,11 +377,23 @@ function delayUntil(startedAt, elapsedMilliseconds) {
   return delay(elapsedMilliseconds - (performance.now() - startedAt));
 }
 
+function syncQuestModalInert() {
+  const topModalIsOpen =
+    !els.cropModal.hidden ||
+    !els.removeMemoryModal.hidden;
+  const completionIsLocked =
+    els.modalWrapper.hasAttribute("data-completion-locked");
+  els.modalWrapper.toggleAttribute("inert", topModalIsOpen || completionIsLocked);
+  els.appPages.forEach((page) => {
+    page.toggleAttribute("inert", topModalIsOpen);
+  });
+}
+
 function setCompletionInteractionLock(locked) {
-  els.modalWrapper.toggleAttribute("inert", locked);
   els.modalWrapper.toggleAttribute("data-completion-locked", locked);
   els.sheet.classList.toggle("is-completing", locked);
   els.sheet.setAttribute("aria-busy", String(locked));
+  syncQuestModalInert();
 }
 
 function clearCompletionStage() {
@@ -343,8 +402,8 @@ function clearCompletionStage() {
     "is-completion-stamp-visible",
     "is-completion-restoring"
   );
-  els.modalWrapper.removeAttribute("inert");
   els.modalWrapper.removeAttribute("data-completion-locked");
+  syncQuestModalInert();
   els.sheet.removeAttribute("aria-busy");
   const context = els.stampParticles.getContext("2d");
   context?.clearRect(0, 0, els.stampParticles.width, els.stampParticles.height);
@@ -544,9 +603,6 @@ function mediaErrorMessage(error, action = "save") {
   if (action === "reset") {
     return "We couldn't fully reset photos stored on this device. Close other Summer Quest tabs and try again.";
   }
-  if (action === "remove") {
-    return "The memory was removed, but its photo could not be fully cleared from device storage. We'll try again next time.";
-  }
   return "We couldn't save this photo on your device. Free up some browser storage and try again.";
 }
 
@@ -565,59 +621,52 @@ function questIsCompleted(questId) {
 }
 
 function getBonusPoints(quest, bonusId) {
-  return quest.bonuses.find(b => b.id === bonusId)?.points ?? 0;
+  return quest?.bonuses?.find(bonus => bonus.id === bonusId)?.points ?? 0;
 }
 
-function questPoints(submission) {
+function questPoints(submission, questId = submission?.questId) {
   if (!submission) return 0;
-  if (Number.isFinite(submission.earnedPoints)) {
-    return submission.earnedPoints;
-  }
+  const quest = window.QUESTS[questId];
+  if (!quest) return 0;
 
-  const basePoints = submission.basePoints ?? 5;
-
-  const friendPoints =
-    Math.min(
-      MAX_FRIENDS,
-      Math.max(0, Number(submission.friends) || 0)
-    ) * 2;
-
-  const quest = window.QUESTS[submission.questId];
-
-  const bonusPoints = selectedBonusIdsFrom(submission).reduce(
-  (total, bonusId) => total + getBonusPoints(quest, bonusId),
-  0
+  const bonusPoints = canonicalSelectedBonusIds(quest, submission).reduce(
+    (total, bonusId) => total + getBonusPoints(quest, bonusId),
+    0
   );
 
-  return basePoints + friendPoints + bonusPoints;
+  return (
+    quest.basePoints +
+    (isFinalQuest(questId) ? 0 : friendPointsFor(submission.friends)) +
+    bonusPoints
+  );
 }
 
 function getTotals() {
   const submissions = window.BOARD_ORDER
-    .map((questId) => state.submissions[questId])
-    .filter((submission) => submission?.completed === true);
+    .map((questId) => ({
+      questId,
+      quest: window.QUESTS[questId],
+      submission: state.submissions[questId]
+    }))
+    .filter(({ submission }) => submission?.completed === true);
 
   return {
     score: submissions.reduce(
-      (total, submission) => total + questPoints(submission),
+      (total, { questId, submission }) => total + questPoints(submission, questId),
       0
     ),
 
     completed: submissions.length,
 
-    friendPoints: submissions.reduce((total, submission) => {
-      const friends = Math.min(
-        MAX_FRIENDS,
-        Math.max(0, Number(submission.friends) || 0)
-      );
-
-      return total + friends * 2;
-    }, 0),
+    friendPoints: submissions.reduce(
+      (total, { questId, submission }) =>
+        total + (isFinalQuest(questId) ? 0 : friendPointsFor(submission.friends)),
+      0
+    ),
 
     bonusCount: submissions.reduce(
-      (total, submission) =>
-        total +
-        selectedBonusIdsFrom(submission).length,
+      (total, { quest, submission }) =>
+        total + canonicalSelectedBonusIds(quest, submission).length,
       0
     )
   };
@@ -629,11 +678,6 @@ function currentRank(score) {
 
 function finalQuestCompleted() {
   return questIsCompleted(FINAL_QUEST_ID);
-}
-
-function renderBoardActions() {
-  els.viewBoard.disabled = false;
-  els.saveBoard.disabled = false;
 }
 
 function renderProgress() {
@@ -655,6 +699,15 @@ function renderProgress() {
   }
 }
 
+function renderScoringRulesCopy() {
+  document.querySelectorAll("[data-points-per-friend]").forEach((element) => {
+    element.textContent = FRIEND_SCORING.pointsPerFriend;
+  });
+  document.querySelectorAll("[data-max-friends]").forEach((element) => {
+    element.textContent = FRIEND_SCORING.maxFriends;
+  });
+}
+
 function rewardValue(earned, maximum, total = false) {
   return `
     <span class="${total ? "reward-total-earned" : "reward-earned"}">${earned}</span>
@@ -668,23 +721,14 @@ function renderRewardPreview() {
   const savedSubmission = completedSubmission(activeQuest.id);
   const includesFriends = !isFinalQuest(activeQuest);
 
-  const baseMaximum =
-    savedSubmission?.basePoints ??
-    activeQuest.basePoints ??
-    5;
+  const baseMaximum = activeQuest.basePoints;
 
   const basePoints =
     savedSubmission || activeMediaId
       ? baseMaximum
       : 0;
 
-  const friendPoints =
-    includesFriends
-      ? Math.min(
-        MAX_FRIENDS,
-        Math.max(0, friendCount)
-      ) * 2
-      : 0;
+  const friendPoints = includesFriends ? friendPointsFor(friendCount) : 0;
 
   const questBonuses = Array.isArray(activeQuest.bonuses)
     ? activeQuest.bonuses
@@ -705,7 +749,7 @@ const bonusEarned = questBonuses.reduce(
 
   const maximumPoints =
     baseMaximum +
-    (includesFriends ? MAX_FRIENDS * 2 : 0) +
+    (includesFriends ? MAX_FRIEND_REWARD : 0) +
     bonusMaximum;
 
   const currentPoints =
@@ -719,7 +763,7 @@ const bonusEarned = questBonuses.reduce(
 
   if (includesFriends) {
     details.push(
-      `<span><b>Friends</b> ${rewardValue(friendPoints, MAX_FRIENDS * 2)}</span>`
+      `<span><b>Friends</b> ${rewardValue(friendPoints, MAX_FRIEND_REWARD)}</span>`
     );
   }
 
@@ -731,21 +775,15 @@ const bonusEarned = questBonuses.reduce(
 
   els.rewardTitle.textContent = "Rewards";
 
-  els.rewardRows.innerHTML = `
-    <div class="reward-total-line">
-      ${rewardValue(currentPoints, maximumPoints, true)}
-    </div>
-
-    <div class="reward-detail-line">
-      ${details.join('<span class="reward-separator">•</span>')}
-    </div>
-  `;
+  els.rewardTotal.innerHTML = rewardValue(currentPoints, maximumPoints, true);
+  els.rewardDetails.innerHTML =
+    details.join('<span class="reward-separator">•</span>');
 }
 
 function renderFriendControls() {
   els.friendCount.textContent = friendCount;
   els.decrementFriends.disabled = friendCount <= 0;
-  els.incrementFriends.disabled = friendCount >= MAX_FRIENDS;
+  els.incrementFriends.disabled = friendCount >= FRIEND_SCORING.maxFriends;
   renderRewardPreview();
 }
 
@@ -773,6 +811,7 @@ function renderBonusOptions() {
       <span class="bonus-option-content">
           <span class="bonus-pill">BONUS</span>
           <span class="bonus-option-label">${bonus.label}</span>
+          <span class="bonus-point-value">+${bonus.points} ${bonus.points === 1 ? "pt" : "pts"}</span>
       </span>
     </label>
   `).join("");
@@ -823,12 +862,6 @@ function renderStoryMarkup(template, values = {}) {
   return Array.from(source.content.childNodes).map(serializeAllowedMarkup).join("").trim();
 }
 
-function storyTextContent(markup) {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = markup;
-  return wrapper.textContent.trim().replace(/\s+/g, " ").toLocaleLowerCase();
-}
-
 function completedStandardQuestEntries() {
   return orderedQuests()
     .filter((quest) => !isFinalQuest(quest))
@@ -871,72 +904,6 @@ function storyIconName(story) {
   return storyIcons[story.kind] || "";
 }
 
-function buildSummerStory() {
-  const completedEntries = completedStandardQuestEntries();
-
-  const questStories = completedEntries
-    .map(questStoryCandidate)
-    .filter(Boolean);
-
-  const totalFriendJoins = completedEntries.reduce(
-    (total, { submission }) => {
-      const count = Number(submission.friends);
-
-      return total + (
-        Number.isFinite(count)
-          ? Math.max(0, Math.trunc(count))
-          : 0
-      );
-    },
-    0
-  );
-
-  const bonusCount = completedEntries.filter(
-    ({ submission }) => selectedBonusIdsFrom(submission).length > 0
-  ).length;
-
-  const aggregateStories = [];
-
-  if (totalFriendJoins > 0) {
-    const friendTemplate = totalFriendJoins === 1
-      ? "<strong>{friendCount}</strong> person joined your adventures across NYC."
-      : "<strong>{friendCount}</strong> people joined your adventures across NYC.";
-
-    const html = renderStoryMarkup(friendTemplate, {
-      friendCount: totalFriendJoins
-    });
-
-    if (html) {
-      aggregateStories.push({
-        html,
-        kind: "friends"
-      });
-    }
-  }
-
-  if (bonusCount > 0) {
-    const bonusTemplate = bonusCount === 1
-      ? "You went above and beyond for <strong>{bonusCount}</strong> quest."
-      : "You went above and beyond for <strong>{bonusCount}</strong> quests.";
-
-    const html = renderStoryMarkup(bonusTemplate, {
-      bonusCount
-    });
-
-    if (html) {
-      aggregateStories.push({
-        html,
-        kind: "bonuses"
-      });
-    }
-  }
-
-  return [
-    ...questStories,
-    ...aggregateStories
-  ];
-}
-
 function buildFinalSummary() {
   const completedEntries = completedStandardQuestEntries();
 
@@ -945,16 +912,13 @@ function buildFinalSummary() {
 
   const friendCount = completedEntries.reduce(
     (total, { submission }) =>
-      total + Math.max(0, Math.trunc(Number(submission.friends) || 0)),
+      total + normalizeFriendCount(submission.friends),
     0
   );
 
   const bonusCount = completedEntries.reduce(
-    (total, { submission }) =>
-      total +
-      (
-        selectedBonusIdsFrom(submission).length
-      ),
+    (total, { quest, submission }) =>
+      total + canonicalSelectedBonusIds(quest, submission).length,
     0
   );
 
@@ -1312,7 +1276,7 @@ function draftDiffersFromSavedMemory(draft, saved) {
 
   return (
     (draft.mediaId || "") !== (saved.mediaId || "") ||
-    Number(draft.friends || 0) !== Number(saved.friends || 0) ||
+    normalizeFriendCount(draft.friends) !== normalizeFriendCount(saved.friends) ||
     String(draft.location || "").trim() !== String(saved.location || "").trim() ||
     String(draft.caption || "").trim() !== String(saved.caption || "").trim() ||
     JSON.stringify(draftBonuses) !== JSON.stringify(savedBonuses)
@@ -1331,9 +1295,8 @@ function renderQuest(quest, announce = false) {
   );
   
   activeMediaId = draft?.mediaId || null;
-  activeMediaBlob = null;
   activeMediaType = draft?.mediaType || null;
-  friendCount = Math.min(MAX_FRIENDS, Math.max(0, draft?.friends || 0));
+  friendCount = normalizeFriendCount(draft?.friends);
   selectedBonusIds = selectedBonusIdsFrom(draft);
   const meta = window.QUEST_CATEGORIES[quest.category];
   const quests = orderedQuests();
@@ -1468,7 +1431,53 @@ function closeHomeScreenHelp() {
   focusTarget?.focus({ preventScroll: true });
 }
 
+function closeRemoveConfirmation({ restoreFocus = true } = {}) {
+  if (removeInProgress) return;
+  const wasOpen = !els.removeMemoryModal.hidden;
+  const focusTarget = removeDialogTrigger;
+  removeDialogTrigger = null;
+  els.removeMemoryModal.hidden = true;
+  els.removeMemoryError.hidden = true;
+  els.removeMemoryError.textContent = "";
+  document.body.classList.remove("confirmation-open");
+  syncQuestModalInert();
+
+  if (wasOpen && restoreFocus && focusTarget?.isConnected) {
+    requestAnimationFrame(() => focusTarget.focus({ preventScroll: true }));
+  }
+}
+
+function openRemoveConfirmation() {
+  if (!activeQuest || saveInProgress || removeInProgress) return;
+  removeDialogTrigger = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : els.remove;
+  els.removeMemoryError.hidden = true;
+  els.removeMemoryError.textContent = "";
+  els.confirmRemoveMemory.disabled = false;
+  els.confirmRemoveMemory.textContent = "Remove Memory";
+  els.keepMemory.disabled = false;
+  els.removeMemoryModal.hidden = false;
+  document.body.classList.add("confirmation-open");
+  syncQuestModalInert();
+  requestAnimationFrame(() => els.keepMemory.focus({ preventScroll: true }));
+}
+
 function activeModalContext() {
+  if (!els.removeMemoryModal.hidden) {
+    return {
+      wrapper: els.removeMemoryModal,
+      close: closeRemoveConfirmation,
+      isQuest: false
+    };
+  }
+  if (!els.cropModal.hidden) {
+    return {
+      wrapper: els.cropModal,
+      close: cancelCropper,
+      isQuest: false
+    };
+  }
   if (!els.homeScreenSheet.hidden) {
     return {
       wrapper: els.homeScreenModalWrapper,
@@ -1513,7 +1522,14 @@ function navigateQuest(offset) {
   }, 130);
 }
 
-function closeCropper({ clearInput = false } = {}) {
+function closeCropper({
+  clearInput = false,
+  restoreFocus = true
+} = {}) {
+  const wasOpen = !els.cropModal.hidden;
+  const focusTarget = cropTrigger;
+  cropTrigger = null;
+
   cropper?.destroy();
   cropper = null;
 
@@ -1526,22 +1542,30 @@ function closeCropper({ clearInput = false } = {}) {
   els.cropImage.removeAttribute("src");
   els.cropModal.hidden = true;
   document.body.classList.remove("crop-open");
+  syncQuestModalInert();
 
   if (clearInput) {
     els.mediaInput.value = "";
   }
+
+  if (wasOpen && restoreFocus && focusTarget?.isConnected) {
+    requestAnimationFrame(() => focusTarget.focus({ preventScroll: true }));
+  }
 }
 
-function openCropper(file) {
+function openCropper(file, trigger = els.mediaInput) {
   if (!file?.type.startsWith("image/")) return;
 
-  closeCropper();
+  closeCropper({ restoreFocus: false });
+  cropTrigger = trigger instanceof HTMLElement ? trigger : els.mediaInput;
 
   pendingCropFile = file;
   cropSourceUrl = URL.createObjectURL(file);
   els.cropImage.src = cropSourceUrl;
   els.cropModal.hidden = false;
   document.body.classList.add("crop-open");
+  syncQuestModalInert();
+  requestAnimationFrame(() => els.closeCropModal.focus({ preventScroll: true }));
 
   els.cropImage.onload = () => {
     cropper = new Cropper(els.cropImage, {
@@ -1566,17 +1590,11 @@ function cancelCropper() {
   closeCropper({ clearInput: true });
 }
 
-  els.cancelCrop.addEventListener("click", cancelCropper);
-  els.closeCropModal.addEventListener("click", cancelCropper);
+els.cancelCrop.addEventListener("click", cancelCropper);
+els.closeCropModal.addEventListener("click", cancelCropper);
 
-  els.cropModal.addEventListener("click", (event) => {
-    if (event.target === els.cropModal) {
-      cancelCropper();
-    }
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !els.cropModal.hidden) {
+els.cropModal.addEventListener("click", (event) => {
+  if (event.target === els.cropModal) {
     cancelCropper();
   }
 });
@@ -1600,6 +1618,8 @@ function getCroppedImageBlob() {
       return;
     }
 
+    // This is the crop path's only lossy encoding step: Cropper supplies the
+    // final 1200×1200 pixels, which are stored at the intended JPEG quality.
     canvas.toBlob(
       (blob) => {
         if (blob) {
@@ -1609,7 +1629,7 @@ function getCroppedImageBlob() {
         }
       },
       "image/jpeg",
-      0.9
+      0.75
     );
   });
 }
@@ -1617,7 +1637,6 @@ function getCroppedImageBlob() {
 els.confirmCrop.addEventListener("click", async () => {
   if (!cropper || !pendingCropFile || !activeQuest) return;
 
-  const originalFile = pendingCropFile;
   const selectionRequest = ++mediaPreviewRequest;
   const questId = activeQuest.id;
   const existingMediaId = completedSubmission(questId)?.mediaId || null;
@@ -1631,8 +1650,7 @@ els.confirmCrop.addEventListener("click", async () => {
   els.confirmCrop.textContent = "Saving…";
 
   try {
-    const croppedBlob = await getCroppedImageBlob();
-    const blob = await mediaStore.compressImage(croppedBlob);
+    const blob = await getCroppedImageBlob();
 
     const mediaId = mediaStore.createMediaId();
     newMediaId = mediaId;
@@ -1648,7 +1666,6 @@ els.confirmCrop.addEventListener("click", async () => {
     }
 
     activeMediaId = mediaId;
-    activeMediaBlob = blob;
     activeMediaType = blob.type || "image/jpeg";
     markQuestAsChanged();
 
@@ -1659,7 +1676,6 @@ els.confirmCrop.addEventListener("click", async () => {
 
     if (!draftSaved) {
       activeMediaId = previousMediaRecord?.mediaId || null;
-      activeMediaBlob = null;
       activeMediaType = previousMediaRecord?.mediaType || null;
 
       await mediaStore.remove(mediaId);
@@ -1746,7 +1762,6 @@ async function loadMediaPreviewForRecord(record, questId) {
       throw error;
     }
     if (requestId !== mediaPreviewRequest || activeQuest?.id !== questId) return;
-    activeMediaBlob = blob;
     activeMediaType = record.mediaType || blob.type;
     renderMediaPreview(blob, activeMediaType);
   } catch (error) {
@@ -1759,7 +1774,7 @@ els.mediaInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
     if (file.type.startsWith("image/")) {
-    openCropper(file);
+    openCropper(file, event.currentTarget);
     return;
   }
 
@@ -1781,7 +1796,6 @@ els.mediaInput.addEventListener("change", async (event) => {
     }
 
     activeMediaId = mediaId;
-    activeMediaBlob = blob;
     activeMediaType = blob.type || file.type;
     renderMediaPreview(blob, activeMediaType);
     renderRewardPreview();
@@ -1789,7 +1803,6 @@ els.mediaInput.addEventListener("change", async (event) => {
 
     if (!draftSaved) {
       activeMediaId = previousMediaRecord?.mediaId || null;
-      activeMediaBlob = null;
       activeMediaType = previousMediaRecord?.mediaType || null;
       await mediaStore.remove(mediaId);
       if (previousMediaRecord?.mediaId || previousMediaRecord?.dataUrl) {
@@ -1823,7 +1836,7 @@ els.mediaInput.addEventListener("change", async (event) => {
 });
 
 els.incrementFriends.addEventListener("click", () => {
-  friendCount = Math.min(MAX_FRIENDS, friendCount + 1);
+  friendCount = normalizeFriendCount(friendCount + 1);
   renderFriendControls();
   markQuestAsChanged();
   captureDraft();
@@ -1852,8 +1865,10 @@ els.bonusField.addEventListener("change", (event) => {
   renderRewardPreview();
   captureDraft();
 });
-els.rewardPreview.addEventListener("click", () => {
-  els.rewardPreview.classList.toggle("expanded");
+els.rewardDisclosure.addEventListener("click", () => {
+  const expanded = !els.rewardPreview.classList.contains("expanded");
+  els.rewardPreview.classList.toggle("expanded", expanded);
+  els.rewardDisclosure.setAttribute("aria-expanded", String(expanded));
 });
 function handleQuestInputChange() {
   markQuestAsChanged();
@@ -2017,7 +2032,6 @@ els.form.addEventListener("submit", async (event) => {
     friends: finalQuest ? 0 : friendCount,
     location: els.location.value.trim(),
     caption: els.caption.value.trim(),
-    basePoints: activeQuest.basePoints ?? 5,
     selectedBonusIds: (activeQuest.bonuses || [])
       .filter((bonus) => selectedBonusIds.includes(bonus.id))
       .map((bonus) => bonus.id),
@@ -2068,12 +2082,11 @@ els.form.addEventListener("submit", async (event) => {
 
   renderGrid();
   renderProgress();
-  renderBoardActions();
   questHasUnsavedChanges = false;
   renderQuest(activeQuest);
 
   els.announcement.textContent =
-    `${activeQuest.title} completed. ${questPoints(nextSubmission)} points earned.`;
+    `${activeQuest.title} completed. ${questPoints(nextSubmission, questId)} points earned.`;
 
   try {
     if (completionStage) {
@@ -2095,8 +2108,8 @@ els.form.addEventListener("submit", async (event) => {
   }
 });
 
-els.remove.addEventListener("click", async () => {
-  if (!activeQuest || saveInProgress) return;
+async function removeActiveMemory() {
+  if (!activeQuest || saveInProgress || removeInProgress) return;
   const questId = activeQuest.id;
   const removedSubmission = state.submissions[questId] || null;
   const removedDraft = state.drafts[questId] || null;
@@ -2104,25 +2117,82 @@ els.remove.addEventListener("click", async () => {
     removedSubmission?.mediaId,
     removedDraft?.mediaId
   ].filter(Boolean));
-  delete state.submissions[questId];
-  delete state.drafts[questId];
+
+  removeInProgress = true;
+  els.confirmRemoveMemory.disabled = true;
+  els.confirmRemoveMemory.textContent = "Removing…";
+  els.keepMemory.disabled = true;
+  els.removeMemoryError.hidden = true;
+  els.removeMemoryError.textContent = "";
+  els.removeMemoryModal.querySelector("[role='dialog']")
+    ?.setAttribute("aria-busy", "true");
+
+  const mediaBackups = new Map();
+
   try {
+    for (const mediaId of mediaIds) {
+      const blob = await mediaStore.get(mediaId);
+      if (blob) mediaBackups.set(mediaId, blob);
+    }
+
+    for (const mediaId of mediaIds) {
+      await mediaStore.remove(mediaId);
+    }
+
+    delete state.submissions[questId];
+    delete state.drafts[questId];
     save();
+
+    removeInProgress = false;
+    closeRemoveConfirmation({ restoreFocus: false });
+    activeMediaId = null;
+    activeMediaType = null;
+    mediaPreviewRequest += 1;
+    renderMediaPreview(null, null);
+    renderGrid();
+    renderProgress();
+    questHasUnsavedChanges = false;
+    closeSheet(false);
   } catch (error) {
     if (removedSubmission) state.submissions[questId] = removedSubmission;
+    else delete state.submissions[questId];
     if (removedDraft) state.drafts[questId] = removedDraft;
-    reportMediaError(error, "save");
-    return;
+    else delete state.drafts[questId];
+
+    let rollbackSucceeded = true;
+    try {
+      await Promise.all(Array.from(
+        mediaBackups,
+        ([mediaId, blob]) => mediaStore.put(mediaId, blob)
+      ));
+    } catch (restoreError) {
+      rollbackSucceeded = false;
+      console.error("[Media storage] Memory removal rollback failed.", restoreError);
+    }
+
+    console.error("[Media storage] Memory removal failed.", error);
+    els.removeMemoryError.textContent = rollbackSucceeded
+      ? "We couldn't remove this memory. Your saved memory is still available. Please try again."
+      : "We couldn't finish removing this memory or restore its photo. Reload the app before trying again.";
+    els.removeMemoryError.hidden = false;
+    removeInProgress = false;
+    els.confirmRemoveMemory.disabled = false;
+    els.confirmRemoveMemory.textContent = "Remove Memory";
+    els.keepMemory.disabled = false;
+    requestAnimationFrame(() => els.confirmRemoveMemory.focus({ preventScroll: true }));
+  } finally {
+    els.removeMemoryModal.querySelector("[role='dialog']")
+      ?.removeAttribute("aria-busy");
   }
-  try {
-    await Promise.all(Array.from(mediaIds, mediaId => mediaStore.remove(mediaId)));
-  } catch (error) {
-    reportMediaError(error, "remove");
+}
+
+els.remove.addEventListener("click", openRemoveConfirmation);
+els.keepMemory.addEventListener("click", closeRemoveConfirmation);
+els.confirmRemoveMemory.addEventListener("click", removeActiveMemory);
+els.removeMemoryModal.addEventListener("click", (event) => {
+  if (event.target === els.removeMemoryModal) {
+    closeRemoveConfirmation();
   }
-  renderGrid();
-  renderProgress();
-  renderBoardActions();
-  closeSheet(false);
 });
 
 els.close.addEventListener("click", closeSheet);
@@ -2138,6 +2208,7 @@ document.addEventListener("keydown", (event) => {
   if (!modal || event.altKey || event.ctrlKey || event.metaKey) return;
   if (event.key === "Escape") {
     event.preventDefault();
+    event.stopImmediatePropagation();
     modal.close();
     return;
   }
@@ -2191,10 +2262,35 @@ async function initializeApp() {
     }
   }
 
+  renderScoringRulesCopy();
   renderGrid();
   renderProgress();
-  renderBoardActions();
   initBriefing();
+}
+
+if (new URLSearchParams(window.location.search).has("release-critical-validation")) {
+  window.SummerQuestTestHooks = Object.freeze({
+    scoring: Object.freeze({
+      migrationVersion: QUEST_DATA_MIGRATION_VERSION,
+      pointsPerFriend: FRIEND_SCORING.pointsPerFriend,
+      maxFriends: FRIEND_SCORING.maxFriends,
+      maxFriendReward: MAX_FRIEND_REWARD,
+      normalizeFriendCount,
+      friendPointsFor,
+      questPoints,
+      rankForScore: currentRank
+    }),
+    migrations: Object.freeze({
+      version: QUEST_DATA_MIGRATION_VERSION,
+      migrateSavedState
+    })
+  });
+}
+if (new URLSearchParams(window.location.search).has("interaction-accessibility-validation")) {
+  window.SummerQuestInteractionTestHooks = Object.freeze({
+    openCropper,
+    closeCropper
+  });
 }
 
 initializeApp();

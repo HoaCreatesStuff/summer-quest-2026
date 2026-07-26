@@ -35,13 +35,12 @@ No frameworks.
 │   └── journal.js
 │
 ├── docs/
-│   ├── Product Vision.md
-│   ├── Design System.md
+│   ├── ProductVision.md
+│   ├── DesignSystem.md
 │   ├── Roadmap.md
-│   ├── Copy Guide.md
+│   ├── Copy_Guide.md
 │   └── Architecture.md
 │
-├── app.js
 ├── style.css
 ├── index.html
 └── README.md
@@ -67,9 +66,11 @@ No frameworks.
 }
 ```
 
-Stable IDs are the keys in `window.QUESTS`. Board and navigation order lives in
-`window.BOARD_ORDER`, while fixed physical-square colors live independently in
-`window.BOARD_COLORS`.
+`data/quests.js` is the canonical source for quest content, base points,
+bonuses, stories, and Final Quest configuration. Stable IDs are the keys in
+`window.QUESTS`. Board and navigation order lives in `window.BOARD_ORDER`,
+while fixed physical-square colors live independently in `window.BOARD_COLORS`
+inside `data/boardConfig.js`.
 
 ## Submission
 
@@ -82,7 +83,6 @@ Stable IDs are the keys in `window.QUESTS`. Board and navigation order lives in
   friends: 2,
   location: "Brooklyn Bridge Park",
   caption: "Golden hour with the crew",
-  basePoints: 5,
   selectedBonusIds: [],
   completedAt: "2026-08-05T18:30:00Z"
 }
@@ -93,8 +93,8 @@ Stable IDs are the keys in `window.QUESTS`. Board and navigation order lives in
 ``` js
 {
   title: "NYC Insider",
-  minPoints: 90,
-  maxPoints: 119,
+  minPoints: 240,
+  maxPoints: 299,
   blurb: "You've earned serious local bragging rights."
 }
 ```
@@ -119,8 +119,9 @@ Object store: media
 Record: { mediaId, blob }
 ```
 
-Images are compressed to JPEG Blobs at approximately 0.75 quality with a
-maximum 1400 px edge. Preview, story, keepsake, and PDF rendering use temporary
+Photos selected through the quest form are cropped to 1200×1200 and encoded
+once as JPEG Blobs at approximately 0.75 quality. Videos remain in their
+selected format. Preview, journal, keepsake, and PDF rendering use temporary
 `blob:` URLs that are revoked when no longer needed.
 
 On startup, legacy `dataUrl` fields in submissions and drafts are converted to
@@ -137,23 +138,36 @@ App
 ├── Hero
 ├── Progress Card
 ├── Mission Briefing
-├── Quest Grid
+├── 5×5 Quest Grid
 │     └── Quest Card
-│
-└── Bottom Sheet
+├── Bottom Sheet
       ├── Upload Widget
       ├── Friend Counter
       ├── Reward Preview
+      ├── Crop Dialog
+      ├── Removal Confirmation
       └── Save Button
+├── Summer Journal
+│     ├── Dated memory story
+│     └── Story PDF export
+└── Memory Keepsake
+      ├── 5×5 photo board
+      └── PNG save/share
 ```
 
 ------------------------------------------------------------------------
 
 # Scoring Rules
 
--   5 points per completed quest
--   +2 points for each friend joining that adventure
+-   Variable base points and bonus values come from `data/quests.js`
+-   +2 points for each friend joining a non-Final quest, capped at 5 friends
+-   Final Quest friend scoring is disabled
+-   Rank thresholds are 0, 80, 160, 240, and 300 points
 -   Rank updates automatically
+
+The Final Quest uses the stable ID `party-time`. Its trivia question is an
+unlock gate and does not award points independently; the quest's configured
+base and bonus values are scored when the final memory is saved.
 
 ------------------------------------------------------------------------
 
@@ -228,7 +242,6 @@ Allows future editions:
 ## v0.3
 
 -   Cloud storage
--   Shared album
 
 ## v0.4
 

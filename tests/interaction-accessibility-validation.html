@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Summer Quest interaction and accessibility validation</title>
+  <style>
+    #appFrame {
+      position: absolute;
+      left: -10000px;
+      top: 0;
+      width: 390px;
+      height: 844px;
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Summer Quest interaction and accessibility validation</h1>
+  <pre id="result">Running…</pre>
+  <iframe id="appFrame" title="Summer Quest interaction test app"></iframe>
+
+  <script>
+    (async () => {
+      const result = document.querySelector("#result");
+      const frame = document.querySelector("#appFrame");
+      const checks = [];
+
+      const wait = milliseconds =>
+        new Promise(resolve => setTimeout(resolve, milliseconds));
+      const nextFrame = () =>
+        new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const waitFor = async (predicate, message) => {
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          if (await predicate()) return;
+          await wait(50);
+        }
+        throw new Error(message);
+      };
+      const check = (name, condition, details = "") => {
+        checks.push({ name, passed: Boolean(condition), details });
+      };
+
+      try {
+        const loaded = new Promise(resolve => {
+          frame.addEventListener("load", resolve, { once: true });
+        });
+        frame.src = "../index.html?interaction-accessibility-validation=1";
+        await loaded;
+        await waitFor(
+          () =>
+            frame.contentWindow?.SummerQuestInteractionTestHooks &&
+            frame.contentDocument?.querySelectorAll("#questGrid [data-quest-id]").length === 25,
+          "Timed out waiting for the test app to initialize."
+        );
+
+        const app = frame.contentWindow;
+        const documentUnderTest = frame.contentDocument;
+        const hooks = app.SummerQuestInteractionTestHooks;
+
+        documentUnderTest
+          .querySelector('#questGrid [data-quest-id="bodega-cat"]')
+          .click();
+        await nextFrame();
+
+        const rewardButton = documentUnderTest.querySelector("#rewardDisclosure");
+        const rewardDetails = documentUnderTest.querySelector("#rewardDetails");
+        check(
+          "Reward disclosure uses button semantics and controls the detail region",
+          rewardButton?.tagName === "BUTTON" &&
+            rewardButton.type === "button" &&
+            rewardButton.getAttribute("aria-expanded") === "false" &&
+            rewardButton.getAttribute("aria-controls") === rewardDetails.id
+        );
+        rewardButton.click();
+        check(
+          "Reward disclosure updates its expanded state",
+          rewardButton.getAttribute("aria-expanded") === "true" &&
+            documentUnderTest.querySelector(".reward-preview").classList.contains("expanded")
+        );
+        rewardButton.click();
+        check(
+          "Reward disclosure collapses with the existing behavior",
+          rewardButton.getAttribute("aria-expanded") === "false" &&
+            !documentUnderTest.querySelector(".reward-preview").classList.contains("expanded")
+        );
+
+        const friendsField = documentUnderTest.querySelector("#friendsField");
+        const decrement = documentUnderTest.querySelector("#decrementFriends");
+        const increment = documentUnderTest.querySelector("#incrementFriends");
+        const friendOutput = documentUnderTest.querySelector("#friendCount");
+        check(
+          "Friend counter uses a labelled fieldset group",
+          friendsField?.tagName === "FIELDSET" &&
+            friendsField.querySelector("legend")?.textContent.trim() ===
+              "How many friends joined you?" &&
+            friendsField.querySelector(".counter")?.getAttribute("role") === "group"
+        );
+        check(
+          "Friend controls and output have explicit accessible names",
+          decrement.getAttribute("aria-label") === "Decrease friend count" &&
+            increment.getAttribute("aria-label") === "Increase friend count" &&
+            friendOutput.getAttribute("aria-label") === "Friends joined" &&
+            friendOutput.getAttribute("aria-live") === "polite"
+        );
+
+        const uploadInput = documentUnderTest.querySelector("#mediaInput");
+        uploadInput.focus();
+        const imageFile = new app.File(
+          [
+            '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">' +
+              '<rect width="20" height="20" fill="#f35f59"/></svg>'
+          ],
+          "crop-test.svg",
+          { type: "image/svg+xml" }
+        );
+        hooks.openCropper(imageFile, uploadInput);
+        await nextFrame();
+
+        const cropModal = documentUnderTest.querySelector("#cropModal");
+        const questWrapper = documentUnderTest.querySelector("#questModalWrapper");
+        const cropClose = documentUnderTest.querySelector("#closeCropModal");
+        const cropConfirm = documentUnderTest.querySelector("#confirmCrop");
+        check(
+          "Opening crop focuses the crop modal and inerts the quest modal",
+          cropModal.contains(documentUnderTest.activeElement) &&
+            documentUnderTest.activeElement === cropClose &&
+            questWrapper.hasAttribute("inert")
+        );
+
+        cropConfirm.focus();
+        cropConfirm.dispatchEvent(new app.KeyboardEvent("keydown", {
+          key: "Tab",
+          bubbles: true,
+          cancelable: true
+        }));
+        const forwardTrapWorked = documentUnderTest.activeElement === cropClose;
+        cropClose.dispatchEvent(new app.KeyboardEvent("keydown", {
+          key: "Tab",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true
+        }));
+        check(
+          "Crop modal traps forward and reverse Tab navigation",
+          forwardTrapWorked && documentUnderTest.activeElement === cropConfirm
+        );
+
+        cropConfirm.dispatchEvent(new app.KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true
+        }));
+        await nextFrame();
+        check(
+          "Escape closes only crop and restores focus to its opener",
+          cropModal.hidden &&
+            !documentUnderTest.querySelector("#questSheet").hidden &&
+            !questWrapper.hasAttribute("inert") &&
+            documentUnderTest.activeElement === uploadInput
+        );
+
+        hooks.openCropper(imageFile, uploadInput);
+        await waitFor(
+          () => documentUnderTest.querySelector(".cropper-container"),
+          "Timed out waiting for Cropper to initialize."
+        );
+        documentUnderTest.querySelector("#confirmCrop").click();
+        await waitFor(
+          () =>
+            cropModal.hidden &&
+            !documentUnderTest.querySelector("#mediaPreview").hidden,
+          "Timed out waiting for the cropped draft to save."
+        );
+        const savedState = JSON.parse(
+          app.localStorage.getItem("nyc-summer-quest-mvp-v1") || "{}"
+        );
+        const savedCropRecord = savedState.drafts?.["bodega-cat"];
+        const savedCropBlob = await app.QuestMediaStore.get(savedCropRecord?.mediaId);
+        const savedCropBitmap = await app.createImageBitmap(savedCropBlob);
+        check(
+          "Crop saves one final 1200×1200 JPEG draft and restores the quest layer",
+          savedCropBlob?.type === "image/jpeg" &&
+            savedCropBitmap.width === 1200 &&
+            savedCropBitmap.height === 1200 &&
+            cropModal.hidden &&
+            !questWrapper.hasAttribute("inert") &&
+            documentUnderTest.activeElement === uploadInput
+        );
+        savedCropBitmap.close();
+
+        const questTitleBeforeSwipe =
+          documentUnderTest.querySelector("#sheetTitle").textContent;
+        const questContent = documentUnderTest.querySelector("#questContent");
+        questContent.dispatchEvent(new app.PointerEvent("pointerdown", {
+          pointerId: 1,
+          clientX: 330,
+          clientY: 300,
+          bubbles: true
+        }));
+        questContent.dispatchEvent(new app.PointerEvent("pointermove", {
+          pointerId: 1,
+          clientX: 40,
+          clientY: 302,
+          bubbles: true
+        }));
+        questContent.dispatchEvent(new app.PointerEvent("pointerup", {
+          pointerId: 1,
+          clientX: 40,
+          clientY: 302,
+          bubbles: true
+        }));
+        await wait(250);
+        check(
+          "Horizontal pointer swipes do not navigate between quests",
+          documentUnderTest.querySelector("#sheetTitle").textContent ===
+            questTitleBeforeSwipe
+        );
+
+        documentUnderTest.querySelector("#closeSheet").focus();
+        documentUnderTest.querySelector("#closeSheet").dispatchEvent(
+          new app.KeyboardEvent("keydown", {
+            key: "ArrowRight",
+            bubbles: true,
+            cancelable: true
+          })
+        );
+        const buttonTransitionPreserved =
+          questContent.classList.contains("quest-exit-next");
+        await wait(400);
+        check(
+          "Arrow-key navigation and quest transition classes remain available",
+          buttonTransitionPreserved &&
+            documentUnderTest.querySelector("#sheetTitle").textContent ===
+              "Subway Romance"
+        );
+
+        documentUnderTest.querySelector("#nextQuest").click();
+        await wait(400);
+        const nextButtonWorked =
+          documentUnderTest.querySelector("#sheetTitle").textContent ===
+            "Water Wonders";
+        documentUnderTest.querySelector("#previousQuest").click();
+        await wait(400);
+        check(
+          "Previous and Next buttons still navigate between quests",
+          nextButtonWorked &&
+            documentUnderTest.querySelector("#sheetTitle").textContent ===
+              "Subway Romance"
+        );
+
+        const removeLink = documentUnderTest.querySelector("#removeQuest");
+        removeLink.hidden = false;
+        removeLink.focus();
+        removeLink.click();
+        await nextFrame();
+        const removeModal = documentUnderTest.querySelector("#removeMemoryModal");
+        const removeDialog = removeModal.querySelector("[role='dialog']");
+        const keepMemory = documentUnderTest.querySelector("#keepMemory");
+        const confirmRemove = documentUnderTest.querySelector("#confirmRemoveMemory");
+        check(
+          "Remove Memory opens a labelled top-level confirmation dialog",
+          !removeModal.hidden &&
+            removeDialog.getAttribute("aria-modal") === "true" &&
+            removeDialog.getAttribute("aria-labelledby") === "removeMemoryTitle" &&
+            removeDialog.getAttribute("aria-describedby") === "removeMemoryDescription" &&
+            questWrapper.hasAttribute("inert") &&
+            documentUnderTest.querySelector("#boardPage").hasAttribute("inert") &&
+            documentUnderTest.activeElement === keepMemory
+        );
+        confirmRemove.focus();
+        confirmRemove.dispatchEvent(new app.KeyboardEvent("keydown", {
+          key: "Tab",
+          bubbles: true,
+          cancelable: true
+        }));
+        check(
+          "Remove confirmation traps focus",
+          documentUnderTest.activeElement === keepMemory
+        );
+        keepMemory.dispatchEvent(new app.KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true
+        }));
+        await nextFrame();
+        check(
+          "Escape closes only removal confirmation and restores its opener",
+          removeModal.hidden &&
+            !documentUnderTest.querySelector("#questSheet").hidden &&
+            !questWrapper.hasAttribute("inert") &&
+            !documentUnderTest.querySelector("#boardPage").hasAttribute("inert") &&
+            documentUnderTest.activeElement === removeLink
+        );
+        removeLink.click();
+        await nextFrame();
+        keepMemory.click();
+        await nextFrame();
+        check(
+          "Keep Memory cancels and returns focus without closing the quest",
+          removeModal.hidden &&
+            !documentUnderTest.querySelector("#questSheet").hidden &&
+            documentUnderTest.activeElement === removeLink
+        );
+        removeLink.click();
+        await nextFrame();
+        removeModal.click();
+        await nextFrame();
+        check(
+          "Clicking outside the confirmation never confirms removal",
+          removeModal.hidden &&
+            !documentUnderTest.querySelector("#questSheet").hidden
+        );
+
+        const closeRect = documentUnderTest
+          .querySelector("#closeSheet")
+          .getBoundingClientRect();
+        const previousRect = documentUnderTest
+          .querySelector("#previousQuest")
+          .getBoundingClientRect();
+        const nextRect = documentUnderTest
+          .querySelector("#nextQuest")
+          .getBoundingClientRect();
+        const desktopPreviousStyle = app.getComputedStyle(
+          documentUnderTest.querySelector("#desktopPreviousQuest")
+        );
+        const stickyStyle = app.getComputedStyle(
+          documentUnderTest.querySelector(".sticky-back-button")
+        );
+        const expandStyle = app.getComputedStyle(
+          documentUnderTest.querySelector("#expandKeepsakeBtn")
+        );
+        check(
+          "Required tap targets are at least 44 by 44 CSS pixels",
+          closeRect.width >= 44 &&
+            closeRect.height >= 44 &&
+            previousRect.width >= 44 &&
+            previousRect.height >= 44 &&
+            nextRect.width >= 44 &&
+            nextRect.height >= 44 &&
+            parseFloat(desktopPreviousStyle.width) >= 44 &&
+            parseFloat(desktopPreviousStyle.height) >= 44 &&
+            parseFloat(stickyStyle.minHeight) >= 44 &&
+            parseFloat(expandStyle.width) >= 44 &&
+            parseFloat(expandStyle.height) >= 44
+        );
+
+        const rootStyles = app.getComputedStyle(documentUnderTest.documentElement);
+        check(
+          "Original brand tokens are restored without contrast-only text tokens",
+          rootStyles.getPropertyValue("--teal").trim() === "#1ba9b9" &&
+            rootStyles.getPropertyValue("--coral").trim() === "#f35f59" &&
+            rootStyles.getPropertyValue("--paper").trim() === "#f7f2e9" &&
+            !rootStyles.getPropertyValue("--teal-text").trim() &&
+            !rootStyles.getPropertyValue("--coral-text").trim()
+        );
+
+        const stylesheet = await fetch("../style.css").then(response => response.text());
+        const appSource = await fetch("../data/app.js").then(response => response.text());
+        check(
+          "Mobile board spacing preserves the top safe-area inset",
+          /#boardPage\s*\{\s*padding-top:\s*env\(safe-area-inset-top\)/.test(
+            stylesheet
+          ) &&
+            !/@media\s*\(max-width:\s*620px\)[\s\S]*?\.app-shell\s*\{\s*padding-top:\s*0/.test(
+              stylesheet
+            )
+        );
+        check(
+          "Crop has one implementation and one lossy JPEG encoding path",
+          (appSource.match(/function openCropper\s*\(/g) || []).length === 1 &&
+            /getCroppedImageBlob\(\)/.test(appSource) &&
+            /["']image\/jpeg["'],\s*0\.75/.test(appSource) &&
+            !/compressImage\s*\(\s*(?:croppedBlob|await\s+getCroppedImageBlob)/.test(
+              appSource
+            )
+        );
+
+        const failed = checks.filter(item => !item.passed);
+        result.textContent = JSON.stringify({
+          status: failed.length === 0 ? "PASS" : "FAIL",
+          passed: checks.length - failed.length,
+          failed: failed.length,
+          checks
+        }, null, 2);
+      } catch (error) {
+        result.textContent = JSON.stringify({
+          status: "FAIL",
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+          checks
+        }, null, 2);
+      }
+    })();
+  </script>
+</body>
+</html>

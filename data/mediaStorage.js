@@ -208,6 +208,8 @@
     });
   }
 
+  // Keep this path for uncropped image inputs. Quest photos cropped in app.js
+  // already have final dimensions and quality, so they bypass this re-encode.
   async function compressImage(file) {
     try {
       const image = await imageFromBlob(file);
