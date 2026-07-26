@@ -15,6 +15,10 @@ const COMPLETION_TIMING = Object.freeze({
   particles: 360,
   restore: 180
 });
+const CAPTION_VISIBLE_LINES = Object.freeze({
+  min: 3,
+  max: 7
+});
 const mediaStore = window.QuestMediaStore;
 
 window.validateBoardConfig();
@@ -217,6 +221,10 @@ let activeMediaId = null;
 let activeMediaType = null;
 let activePreviewUrl = "";
 let mediaPreviewRequest = 0;
+let mediaRenderRequest = 0;
+let mediaPickerTrigger = null;
+let boardRenderRequest = 0;
+let boardMediaUrls = new Set();
 let cropper = null;
 let cropSourceUrl = "";
 let pendingCropFile = null;
@@ -230,6 +238,13 @@ let questHasUnsavedChanges = false;
 let sheetTrigger = null;
 let homeScreenSheetTrigger = null;
 let removeDialogTrigger = null;
+let captionViewportActive = false;
+let captionViewportBaselineHeight = 0;
+let captionViewportReleaseTimer = 0;
+let captionPositionTimer = 0;
+let questViewportBaselineHeight = 0;
+let questSwipeGesture = null;
+let questSwipeSettleTimer = 0;
 
 const ranks = [
   {
@@ -296,7 +311,6 @@ const els = {
   desktopNextQuest: document.querySelector("#desktopNextQuest"),
   questPosition: document.querySelector("#questPosition"),
   announcement: document.querySelector("#questAnnouncement"),
-  questNumber: document.querySelector("#sheetQuestNumber"),
   category: document.querySelector("#sheetCategory"),
   questIcon: document.querySelector("#sheetQuestIcon"),
   completedStamp: document.querySelector("#completedStamp"),
@@ -313,6 +327,7 @@ const els = {
   finalGateQuestion: document.querySelector("#finalGateQuestion"),
   finalResults: document.querySelector("#finalResults"),
   mediaInput: document.querySelector("#mediaInput"),
+  mediaUpload: document.querySelector("#mediaUpload"),
   mediaPreview: document.querySelector("#mediaPreview"),
 
   cropModal: document.querySelector("#cropModal"),
@@ -366,6 +381,335 @@ function questVisualMarkup(quest) {
 
 function delay(milliseconds) {
   return new Promise(resolve => window.setTimeout(resolve, Math.max(0, milliseconds)));
+}
+
+function captionSizingMetrics() {
+  const styles = window.getComputedStyle(els.caption);
+  const fontSize = Number.parseFloat(styles.fontSize) || 16;
+  const lineHeight = Number.parseFloat(styles.lineHeight) || fontSize * 1.5;
+  const verticalChrome = [
+    styles.paddingTop,
+    styles.paddingBottom,
+    styles.borderTopWidth,
+    styles.borderBottomWidth
+  ].reduce((total, value) => total + (Number.parseFloat(value) || 0), 0);
+
+  return {
+    minHeight: lineHeight * CAPTION_VISIBLE_LINES.min + verticalChrome,
+    maxHeight: lineHeight * CAPTION_VISIBLE_LINES.max + verticalChrome
+  };
+}
+
+function autosizeCaption() {
+  const selectionStart = els.caption.selectionStart;
+  const selectionEnd = els.caption.selectionEnd;
+  const selectionDirection = els.caption.selectionDirection;
+  const textareaScrollTop = els.caption.scrollTop;
+  const textareaScrollLeft = els.caption.scrollLeft;
+  const modalScrollTop = els.form.scrollTop;
+  const { minHeight, maxHeight } = captionSizingMetrics();
+
+  els.caption.style.height = "auto";
+  const contentHeight = els.caption.scrollHeight;
+  const nextHeight = Math.min(maxHeight, Math.max(minHeight, contentHeight));
+  els.caption.style.height = `${Math.ceil(nextHeight)}px`;
+  els.caption.style.overflowY = contentHeight > maxHeight + 1 ? "auto" : "hidden";
+
+  // Measuring with height:auto can momentarily move both scroll containers.
+  // Restore their state before the browser paints the final capped height.
+  els.form.scrollTop = modalScrollTop;
+  els.caption.scrollTop = textareaScrollTop;
+  els.caption.scrollLeft = textareaScrollLeft;
+  if (selectionStart !== null && selectionEnd !== null) {
+    els.caption.setSelectionRange(
+      selectionStart,
+      selectionEnd,
+      selectionDirection || "none"
+    );
+  }
+}
+
+function questVisualViewport() {
+  const viewport = window.visualViewport;
+  return {
+    height: viewport?.height || window.innerHeight,
+    offsetTop: viewport?.offsetTop || 0
+  };
+}
+
+function syncCaptionViewport() {
+  if (!captionViewportActive || els.modalWrapper.hidden || els.sheet.hidden) return;
+
+  const { height, offsetTop } = questVisualViewport();
+  const modalHeight = Math.min(height * 0.92, 860);
+  const modalTop = offsetTop + height - modalHeight;
+  const modalScrollTop = els.form.scrollTop;
+
+  els.modalWrapper.style.setProperty(
+    "--quest-visual-viewport-height",
+    `${Math.max(1, modalHeight)}px`
+  );
+  els.modalWrapper.style.setProperty(
+    "--quest-visual-viewport-top",
+    `${Math.max(0, modalTop)}px`
+  );
+  els.modalWrapper.classList.add("is-caption-editing");
+
+  // Safari may adjust an overflow container while its fixed ancestor changes size.
+  els.form.scrollTop = modalScrollTop;
+}
+
+function positionCaptionForKeyboard() {
+  if (document.activeElement !== els.caption || els.sheet.hidden) return;
+
+  const selectionStart = els.caption.selectionStart;
+  const selectionEnd = els.caption.selectionEnd;
+  const selectionDirection = els.caption.selectionDirection;
+  const textareaScrollTop = els.caption.scrollTop;
+  const scrollRect = els.form.getBoundingClientRect();
+  const fieldRect = els.caption.closest(".caption-field").getBoundingClientRect();
+  const topGap = 18;
+
+  els.form.scrollTop += fieldRect.top - (scrollRect.top + topGap);
+
+  const textareaRect = els.caption.getBoundingClientRect();
+  const captionStyles = window.getComputedStyle(els.caption);
+  const firstLineBottom =
+    textareaRect.top +
+    (Number.parseFloat(captionStyles.paddingTop) || 0) +
+    (Number.parseFloat(captionStyles.lineHeight) || 24);
+  const saveRect = els.saveQuest.getBoundingClientRect();
+  const comfortableBottom = Math.min(scrollRect.bottom - 18, saveRect.top - 16);
+
+  if (firstLineBottom > comfortableBottom) {
+    els.form.scrollTop += firstLineBottom - comfortableBottom;
+  }
+
+  els.caption.scrollTop = textareaScrollTop;
+  if (selectionStart !== null && selectionEnd !== null) {
+    els.caption.setSelectionRange(
+      selectionStart,
+      selectionEnd,
+      selectionDirection || "none"
+    );
+  }
+}
+
+function queueCaptionPosition() {
+  window.clearTimeout(captionPositionTimer);
+  requestAnimationFrame(() => requestAnimationFrame(positionCaptionForKeyboard));
+  captionPositionTimer = window.setTimeout(positionCaptionForKeyboard, 320);
+}
+
+function beginCaptionEditing() {
+  window.clearTimeout(captionViewportReleaseTimer);
+  captionViewportBaselineHeight = questVisualViewport().height;
+  captionViewportActive = true;
+  syncCaptionViewport();
+  queueCaptionPosition();
+}
+
+function finishCaptionEditing() {
+  window.clearTimeout(captionViewportReleaseTimer);
+  captionViewportReleaseTimer = window.setTimeout(() => {
+    if (document.activeElement === els.caption) return;
+
+    const viewportRecovered =
+      questVisualViewport().height >= captionViewportBaselineHeight - 80;
+    if (!viewportRecovered) return;
+
+    captionViewportActive = false;
+    els.modalWrapper.classList.remove("is-caption-editing");
+    els.modalWrapper.style.removeProperty("--quest-visual-viewport-height");
+    els.modalWrapper.style.removeProperty("--quest-visual-viewport-top");
+  }, 350);
+}
+
+function handleCaptionViewportChange() {
+  if (!captionViewportActive) return;
+  syncCaptionViewport();
+  if (document.activeElement === els.caption) queueCaptionPosition();
+  else finishCaptionEditing();
+}
+
+function questFormControlIsFocused() {
+  const activeElement = document.activeElement;
+  return Boolean(
+    activeElement &&
+    els.sheet.contains(activeElement) &&
+    activeElement.matches(
+      "input, textarea, select, [contenteditable='true']"
+    )
+  );
+}
+
+function questKeyboardIsOpen() {
+  if (questFormControlIsFocused()) return true;
+
+  const viewportHeight = questVisualViewport().height;
+  const captionKeyboardIsOpen =
+    captionViewportActive &&
+    viewportHeight < captionViewportBaselineHeight - 80;
+  const questViewportIsReduced =
+    questViewportBaselineHeight > 0 &&
+    viewportHeight < questViewportBaselineHeight - 100;
+
+  return captionKeyboardIsOpen || questViewportIsReduced;
+}
+
+function resetQuestSwipeVisuals({ removeAnimation = false } = {}) {
+  window.clearTimeout(questSwipeSettleTimer);
+  questSwipeSettleTimer = 0;
+  questSwipeGesture = null;
+  els.sheet.classList.remove("is-swipe-dragging", "is-swipe-settling");
+  els.sheet.style.removeProperty("transform");
+  if (removeAnimation) els.sheet.style.removeProperty("animation");
+}
+
+function releaseQuestSwipePointer(pointerId) {
+  if (!els.sheet.hasPointerCapture?.(pointerId)) return;
+  try {
+    els.sheet.releasePointerCapture(pointerId);
+  } catch (error) {
+    // The browser may have already released capture during pointercancel.
+  }
+}
+
+function beginQuestSwipe(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const swipeHandle = target?.closest("[data-quest-swipe-handle]");
+  const interactiveTarget = target?.closest(
+    "button, a, input, textarea, select, [contenteditable='true']"
+  );
+
+  if (
+    !event.isPrimary ||
+    (event.pointerType === "mouse" && event.button !== 0) ||
+    !swipeHandle ||
+    !els.sheet.contains(swipeHandle) ||
+    interactiveTarget ||
+    els.form.scrollTop > 1 ||
+    questKeyboardIsOpen() ||
+    saveInProgress ||
+    removeInProgress ||
+    els.modalWrapper.hasAttribute("data-completion-locked")
+  ) {
+    return;
+  }
+
+  window.clearTimeout(questSwipeSettleTimer);
+  els.sheet.classList.remove("is-swipe-settling");
+  els.sheet.style.animation = "none";
+  els.sheet.style.removeProperty("transform");
+  questSwipeGesture = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    lastY: event.clientY,
+    startTime: event.timeStamp,
+    lastTime: event.timeStamp,
+    offset: 0,
+    velocity: 0,
+    dragging: false
+  };
+
+  try {
+    els.sheet.setPointerCapture(event.pointerId);
+  } catch (error) {
+    // Synthetic pointer events and older Safari versions may not expose capture.
+  }
+}
+
+function moveQuestSwipe(event) {
+  const gesture = questSwipeGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+
+  const deltaX = event.clientX - gesture.startX;
+  const deltaY = event.clientY - gesture.startY;
+  if (!gesture.dragging) {
+    if (deltaY <= 4) return;
+    if (Math.abs(deltaX) > deltaY * 1.15) {
+      releaseQuestSwipePointer(gesture.pointerId);
+      resetQuestSwipeVisuals();
+      return;
+    }
+    gesture.dragging = true;
+    els.sheet.classList.add("is-swipe-dragging");
+  }
+
+  if (event.cancelable) event.preventDefault();
+  const elapsed = Math.max(1, event.timeStamp - gesture.lastTime);
+  const instantVelocity = (event.clientY - gesture.lastY) / elapsed;
+  gesture.velocity =
+    gesture.velocity * 0.65 + Math.max(0, instantVelocity) * 0.35;
+  gesture.lastY = event.clientY;
+  gesture.lastTime = event.timeStamp;
+  gesture.offset = Math.max(0, deltaY);
+  els.sheet.style.transform = `translateY(${gesture.offset}px)`;
+}
+
+function settleQuestSwipe({ dismiss, reducedMotion }) {
+  els.sheet.classList.remove("is-swipe-dragging");
+  els.sheet.classList.add("is-swipe-settling");
+  els.sheet.style.transform = dismiss ? "translateY(100%)" : "translateY(0)";
+
+  const finish = () => {
+    if (dismiss) {
+      closeSheet();
+      return;
+    }
+    resetQuestSwipeVisuals();
+  };
+
+  if (reducedMotion) {
+    finish();
+  } else {
+    questSwipeSettleTimer = window.setTimeout(finish, 210);
+  }
+}
+
+function endQuestSwipe(event) {
+  const gesture = questSwipeGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+
+  releaseQuestSwipePointer(gesture.pointerId);
+  if (!gesture.dragging) {
+    resetQuestSwipeVisuals();
+    return;
+  }
+
+  const sheetHeight = els.sheet.getBoundingClientRect().height;
+  const distanceThreshold = Math.min(
+    160,
+    Math.max(120, sheetHeight * 0.22)
+  );
+  const totalElapsed = Math.max(1, event.timeStamp - gesture.startTime);
+  const averageVelocity = gesture.offset / totalElapsed;
+  const velocity = Math.max(gesture.velocity, averageVelocity);
+  const dismiss =
+    gesture.offset >= distanceThreshold ||
+    (gesture.offset >= 52 && velocity >= 0.7);
+  const reducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)"
+  ).matches;
+
+  settleQuestSwipe({ dismiss, reducedMotion });
+}
+
+function cancelQuestSwipe(event) {
+  const gesture = questSwipeGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  releaseQuestSwipePointer(gesture.pointerId);
+  if (!gesture.dragging) {
+    resetQuestSwipeVisuals();
+    return;
+  }
+  settleQuestSwipe({
+    dismiss: false,
+    reducedMotion: window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches
+  });
 }
 
 function delayUntil(startedAt, elapsedMilliseconds) {
@@ -1169,11 +1513,16 @@ function renderQuestTitle(title) {
 }
 
 function renderGrid() {
+  const renderRequest = ++boardRenderRequest;
+  boardMediaUrls.forEach(url => URL.revokeObjectURL(url));
+  const nextMediaUrls = new Set();
+  boardMediaUrls = nextMediaUrls;
   els.grid.innerHTML = "";
   const quests = orderedQuests();
 
   quests.forEach((quest) => {
     const completed = questIsCompleted(quest.id);
+    const submission = completedSubmission(quest.id);
     const button = document.createElement("button");
     button.type = "button";
     button.className = [
@@ -1194,6 +1543,23 @@ function renderGrid() {
     `;
     button.addEventListener("click", () => openSheet(quest));
     els.grid.appendChild(button);
+
+    if (submission && !submission.mediaType?.startsWith("video/")) {
+      mediaStore.blobFor(submission).then((blob) => {
+        if (!blob || renderRequest !== boardRenderRequest || !button.isConnected) return;
+        const source = URL.createObjectURL(blob);
+        nextMediaUrls.add(source);
+        const thumbnail = document.createElement("img");
+        thumbnail.className = "quest-card-thumbnail";
+        thumbnail.src = source;
+        thumbnail.alt = "";
+        thumbnail.setAttribute("aria-hidden", "true");
+        button.classList.add("is-photo");
+        button.prepend(thumbnail);
+      }).catch((error) => {
+        console.error("[Media storage] Board thumbnail could not be loaded.", error);
+      });
+    }
   });
 }
 
@@ -1308,7 +1674,6 @@ function renderQuest(quest, announce = false) {
   const quests = orderedQuests();
   const questIndex = quests.findIndex(item => item.id === quest.id);
 
-  els.questNumber.textContent = isFinalQuest(quest) ? "Final Quest" : `Quest ${quest.boardNumber}`;
   els.category.textContent = meta.label;
   els.category.className = `category-pill ${meta.className}`;
   els.category.hidden = isFinalQuest(quest);
@@ -1333,6 +1698,7 @@ function renderQuest(quest, announce = false) {
       renderFriendControls();
       els.location.value = draft?.location || "";
       els.caption.value = draft?.caption || "";
+      autosizeCaption();
       renderBonusOptions();
       loadMediaPreviewForRecord(draft, quest.id);
     }
@@ -1341,6 +1707,7 @@ function renderQuest(quest, announce = false) {
     renderFriendControls();
     els.location.value = draft?.location || "";
     els.caption.value = draft?.caption || "";
+    autosizeCaption();
     renderBonusOptions();
     renderMediaPreview(null, null);
     loadMediaPreviewForRecord(draft, quest.id);
@@ -1353,10 +1720,12 @@ function openSheet(quest) {
   sheetTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
+  resetQuestSwipeVisuals({ removeAnimation: true });
   renderQuest(quest);
   els.backdrop.hidden = false;
   els.modalWrapper.hidden = false;
   els.sheet.hidden = false;
+  questViewportBaselineHeight = questVisualViewport().height;
   document.body.classList.add("sheet-open");
   requestAnimationFrame(() => els.close.focus());
 }
@@ -1365,10 +1734,18 @@ function closeSheet(preserveDraft = true) {
   if (saveInProgress) return;
   const focusTarget = sheetTrigger;
   sheetTrigger = null;
+  captionViewportActive = false;
+  window.clearTimeout(captionViewportReleaseTimer);
+  window.clearTimeout(captionPositionTimer);
+  els.modalWrapper.classList.remove("is-caption-editing");
+  els.modalWrapper.style.removeProperty("--quest-visual-viewport-height");
+  els.modalWrapper.style.removeProperty("--quest-visual-viewport-top");
   if (preserveDraft) captureDraft();
   mediaPreviewRequest += 1;
   renderMediaPreview(null, null);
   els.sheet.hidden = true;
+  resetQuestSwipeVisuals({ removeAnimation: true });
+  questViewportBaselineHeight = 0;
   els.modalWrapper.hidden = true;
   els.backdrop.hidden = true;
   document.body.classList.remove("sheet-open");
@@ -1675,7 +2052,9 @@ els.confirmCrop.addEventListener("click", async () => {
     activeMediaType = blob.type || "image/jpeg";
     markQuestAsChanged();
 
-    renderMediaPreview(blob, activeMediaType);
+    renderMediaPreview(blob, activeMediaType, {
+      animate: Boolean(previousMediaRecord?.mediaId || previousMediaRecord?.dataUrl)
+    });
     renderRewardPreview();
 
     const draftSaved = captureDraft();
@@ -1738,27 +2117,110 @@ els.confirmCrop.addEventListener("click", async () => {
   }
 });
 
-function renderMediaPreview(blob, mediaType) {
-  if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
-  activePreviewUrl = "";
-  els.mediaPreview.innerHTML = "";
-  if (!blob) {
-    els.mediaPreview.hidden = true;
-    delete els.mediaPreview.dataset.mediaType;
-    return;
-  }
-  els.mediaPreview.hidden = false;
-  if (mediaType) els.mediaPreview.dataset.mediaType = mediaType;
-  const media = document.createElement(mediaType?.startsWith("video/") ? "video" : "img");
+function mediaReplacementButton(className, label) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.dataset.replaceMedia = "";
+  button.setAttribute("aria-label", label);
+  return button;
+}
+
+function mediaPreviewMarkup(blob, mediaType) {
+  const isVideo = mediaType?.startsWith("video/");
+  const media = document.createElement(isVideo ? "video" : "img");
   activePreviewUrl = URL.createObjectURL(blob);
   media.src = activePreviewUrl;
-  if (media.tagName === "VIDEO") media.controls = true;
-  els.mediaPreview.appendChild(media);
+  media.className = "media-preview-element";
+
+  if (isVideo) {
+    media.controls = true;
+    els.mediaPreview.appendChild(media);
+  } else {
+    const imageButton = mediaReplacementButton(
+      "media-preview-image-button",
+      "Replace photo"
+    );
+    imageButton.appendChild(media);
+    els.mediaPreview.appendChild(imageButton);
+  }
+
+  const cameraButton = mediaReplacementButton(
+    "media-edit-button",
+    isVideo ? "Replace video" : "Replace photo"
+  );
+  cameraButton.innerHTML = `
+    <span class="material-symbols-outlined" aria-hidden="true">photo_camera</span>
+  `;
+  els.mediaPreview.appendChild(cameraButton);
+}
+
+function renderMediaPreview(
+  blob,
+  mediaType,
+  { animate = false, pending = false } = {}
+) {
+  const renderRequest = ++mediaRenderRequest;
+  const shouldAnimate =
+    animate &&
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const hasVisibleMedia = Boolean(
+    els.mediaPreview.querySelector(".media-preview-element")
+  );
+
+  const applyPreview = () => {
+    if (renderRequest !== mediaRenderRequest) return;
+    if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
+    activePreviewUrl = "";
+    els.mediaPreview.innerHTML = "";
+
+    const hasMedia = Boolean(blob || pending);
+    els.mediaUpload.hidden = hasMedia;
+    els.mediaPreview.hidden = !hasMedia;
+    els.mediaPreview.classList.toggle("is-loading", !blob && pending);
+    els.mediaInput.tabIndex = hasMedia ? -1 : 0;
+    if (hasMedia) {
+      els.mediaInput.setAttribute("aria-hidden", "true");
+    } else {
+      els.mediaInput.removeAttribute("aria-hidden");
+    }
+
+    if (!blob) {
+      delete els.mediaPreview.dataset.mediaType;
+      return;
+    }
+
+    if (mediaType) els.mediaPreview.dataset.mediaType = mediaType;
+    mediaPreviewMarkup(blob, mediaType);
+
+    if (shouldAnimate) {
+      els.mediaPreview.animate(
+        [{ opacity: 0 }, { opacity: 1 }],
+        { duration: 120, easing: "ease-out" }
+      );
+    }
+  };
+
+  if (shouldAnimate && blob && hasVisibleMedia) {
+    const fadeOut = els.mediaPreview.animate(
+      [{ opacity: 1 }, { opacity: 0 }],
+      { duration: 100, easing: "ease-in" }
+    );
+    fadeOut.finished.then(applyPreview).catch(applyPreview);
+    return;
+  }
+
+  applyPreview();
 }
 
 async function loadMediaPreviewForRecord(record, questId) {
   const requestId = ++mediaPreviewRequest;
-  if (!record?.mediaId && !record?.dataUrl) return;
+  if (!record?.mediaId && !record?.dataUrl) {
+    renderMediaPreview(null, null);
+    return;
+  }
+
+  renderMediaPreview(null, record.mediaType, { pending: true });
 
   try {
     const blob = await mediaStore.blobFor(record);
@@ -1776,11 +2238,29 @@ async function loadMediaPreviewForRecord(record, questId) {
   }
 }
 
+function openMediaPicker(trigger) {
+  if (!activeQuest || saveInProgress) return;
+  mediaPickerTrigger = trigger instanceof HTMLElement ? trigger : null;
+  els.mediaInput.value = "";
+  els.mediaInput.click();
+}
+
+els.mediaPreview.addEventListener("click", (event) => {
+  const trigger = event.target.closest("[data-replace-media]");
+  if (!trigger) return;
+  openMediaPicker(trigger);
+});
+
 els.mediaInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
-  if (!file) return;
-    if (file.type.startsWith("image/")) {
-    openCropper(file, event.currentTarget);
+  if (!file) {
+    mediaPickerTrigger = null;
+    return;
+  }
+  const pickerTrigger = mediaPickerTrigger || event.currentTarget;
+  mediaPickerTrigger = null;
+  if (file.type.startsWith("image/")) {
+    openCropper(file, pickerTrigger);
     return;
   }
 
@@ -1803,7 +2283,9 @@ els.mediaInput.addEventListener("change", async (event) => {
 
     activeMediaId = mediaId;
     activeMediaType = blob.type || file.type;
-    renderMediaPreview(blob, activeMediaType);
+    renderMediaPreview(blob, activeMediaType, {
+      animate: Boolean(previousMediaRecord?.mediaId || previousMediaRecord?.dataUrl)
+    });
     renderRewardPreview();
     const draftSaved = captureDraft();
 
@@ -1828,6 +2310,7 @@ els.mediaInput.addEventListener("change", async (event) => {
         console.warn("[Media storage] Replaced draft cleanup will be retried on startup.", error);
       }
     }
+    els.mediaInput.value = "";
   } catch (error) {
     if (newMediaId && newMediaId !== activeMediaId) {
       try {
@@ -1882,8 +2365,24 @@ function handleQuestInputChange() {
 }
 
 els.location.addEventListener("input", handleQuestInputChange);
-els.caption.addEventListener("input", handleQuestInputChange);
+els.caption.addEventListener("input", () => {
+  autosizeCaption();
+  handleQuestInputChange();
+});
+els.caption.addEventListener("focus", beginCaptionEditing);
+els.caption.addEventListener("blur", finishCaptionEditing);
 els.missionCodeInput.addEventListener("input", handleQuestInputChange);
+window.visualViewport?.addEventListener("resize", handleCaptionViewportChange);
+window.visualViewport?.addEventListener("scroll", handleCaptionViewportChange);
+window.addEventListener("orientationchange", () => {
+  window.setTimeout(() => {
+    autosizeCaption();
+    handleCaptionViewportChange();
+    if (!els.sheet.hidden && !questFormControlIsFocused()) {
+      questViewportBaselineHeight = questVisualViewport().height;
+    }
+  }, 250);
+});
 els.previousQuest.addEventListener("click", () => navigateQuest(-1));
 els.nextQuest.addEventListener("click", () => navigateQuest(1));
 els.desktopPreviousQuest.addEventListener("click", () => navigateQuest(-1));
@@ -2201,6 +2700,10 @@ els.removeMemoryModal.addEventListener("click", (event) => {
   }
 });
 
+els.sheet.addEventListener("pointerdown", beginQuestSwipe);
+els.sheet.addEventListener("pointermove", moveQuestSwipe);
+els.sheet.addEventListener("pointerup", endQuestSwipe);
+els.sheet.addEventListener("pointercancel", cancelQuestSwipe);
 els.close.addEventListener("click", closeSheet);
 els.closeHomeScreenSheet.addEventListener("click", closeHomeScreenHelp);
 els.confirmHomeScreenHelp.addEventListener("click", closeHomeScreenHelp);
@@ -2246,6 +2749,7 @@ document.addEventListener("keydown", (event) => {
 
 window.addEventListener("pagehide", () => {
   if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
+  boardMediaUrls.forEach(url => URL.revokeObjectURL(url));
 });
 
 async function initializeApp() {
@@ -2297,7 +2801,10 @@ if (new URLSearchParams(window.location.search).has("release-critical-validation
 if (new URLSearchParams(window.location.search).has("interaction-accessibility-validation")) {
   window.SummerQuestInteractionTestHooks = Object.freeze({
     openCropper,
-    closeCropper
+    closeCropper,
+    autosizeCaption,
+    positionCaptionForKeyboard,
+    syncCaptionViewport
   });
 }
 

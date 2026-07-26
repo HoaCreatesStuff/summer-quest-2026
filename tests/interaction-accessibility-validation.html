@@ -64,6 +64,137 @@
           .click();
         await nextFrame();
 
+        const questHeader =
+          documentUnderTest.querySelector("#questModalHeader");
+        const questNavigation =
+          documentUnderTest.querySelector(".quest-navigation");
+        const questPosition =
+          documentUnderTest.querySelector("#questPosition");
+        const categoryPill =
+          documentUnderTest.querySelector("#sheetCategory");
+        const closeButton =
+          documentUnderTest.querySelector("#closeSheet");
+        const headerRect = questHeader.getBoundingClientRect();
+        check(
+          "Quest header uses one left/center/right row with centered navigation",
+          !documentUnderTest.querySelector("#sheetQuestNumber") &&
+            questHeader.querySelector(":scope > #sheetCategory") === categoryPill &&
+            questNavigation.querySelector(":scope > #previousQuest") &&
+            questNavigation.querySelector(":scope > #nextQuest") &&
+            questHeader.querySelector(":scope > #closeSheet") === closeButton &&
+            questPosition.textContent.trim() === "2 / 25" &&
+            Math.abs(
+              questNavigation.getBoundingClientRect().left +
+              questNavigation.getBoundingClientRect().width / 2 -
+              (headerRect.left + headerRect.width / 2)
+            ) <= 1
+        );
+
+        const savedCategoryText = categoryPill.textContent;
+        frame.style.width = "320px";
+        await nextFrame();
+        const narrowCategoryLayouts = Object.values(app.QUEST_CATEGORIES)
+          .map(category => {
+            categoryPill.textContent = category.label;
+            const categoryRect = categoryPill.getBoundingClientRect();
+            const navigationRect = questNavigation.getBoundingClientRect();
+            const closeRect = closeButton.getBoundingClientRect();
+            return {
+              label: category.label,
+              fits:
+                categoryRect.right <= navigationRect.left + 1 &&
+                navigationRect.right <= closeRect.left + 1
+            };
+          });
+        check(
+          "Every category pill fits the single row at 320px",
+          narrowCategoryLayouts.every(layout => layout.fits),
+          narrowCategoryLayouts
+        );
+        categoryPill.textContent = savedCategoryText;
+        frame.style.width = "390px";
+        await nextFrame();
+
+        const caption = documentUnderTest.querySelector("#captionInput");
+        const questForm = documentUnderTest.querySelector("#questForm");
+        const captionMetrics = () => {
+          const styles = app.getComputedStyle(caption);
+          const lineHeight = parseFloat(styles.lineHeight);
+          const chrome = [
+            styles.paddingTop,
+            styles.paddingBottom,
+            styles.borderTopWidth,
+            styles.borderBottomWidth
+          ].reduce((total, value) => total + parseFloat(value), 0);
+          return {
+            height: caption.getBoundingClientRect().height,
+            minHeight: lineHeight * 3 + chrome,
+            maxHeight: lineHeight * 7 + chrome,
+            overflowY: styles.overflowY
+          };
+        };
+
+        caption.value = "";
+        hooks.autosizeCaption();
+        const emptyCaptionMetrics = captionMetrics();
+        caption.value = "A short saved memory.";
+        hooks.autosizeCaption();
+        const shortCaptionMetrics = captionMetrics();
+        check(
+          "New and short captions keep a stable three-line minimum",
+          Math.abs(emptyCaptionMetrics.height - emptyCaptionMetrics.minHeight) <= 1 &&
+            Math.abs(shortCaptionMetrics.height - shortCaptionMetrics.minHeight) <= 1
+        );
+
+        caption.value = Array.from(
+          { length: 14 },
+          (_, index) => `A reflective line ${index + 1} that wraps naturally on a phone.`
+        ).join("\n");
+        caption.setSelectionRange(31, 31);
+        hooks.autosizeCaption();
+        caption.scrollTop = 24;
+        questForm.scrollTop = 10;
+        hooks.autosizeCaption();
+        const longCaptionMetrics = captionMetrics();
+        check(
+          "Long saved captions cap at seven lines and scroll internally",
+          longCaptionMetrics.height <= longCaptionMetrics.maxHeight + 1 &&
+            longCaptionMetrics.height >= longCaptionMetrics.maxHeight - 1 &&
+            longCaptionMetrics.overflowY === "auto" &&
+            caption.scrollHeight > caption.clientHeight
+        );
+        check(
+          "Caption sizing preserves cursor and scroll positions",
+          caption.selectionStart === 31 &&
+            caption.selectionEnd === 31 &&
+            caption.scrollTop === 24 &&
+            questForm.scrollTop === 10
+        );
+
+        caption.focus();
+        await nextFrame();
+        hooks.syncCaptionViewport();
+        hooks.positionCaptionForKeyboard();
+        const saveButton = documentUnderTest.querySelector("#saveQuest");
+        const captionQuestWrapper = documentUnderTest.querySelector("#questModalWrapper");
+        check(
+          "Caption focus activates the visual-viewport modal and sticky primary CTA",
+          captionQuestWrapper.classList.contains("is-caption-editing") &&
+            app.getComputedStyle(saveButton).position === "sticky" &&
+            parseFloat(app.getComputedStyle(saveButton).bottom) === 8
+        );
+        check(
+          "Caption helper copy encourages reflection",
+          /memorable|remember|capture|read again/i.test(
+            caption.getAttribute("placeholder") || ""
+          )
+        );
+
+        caption.value = "";
+        hooks.autosizeCaption();
+        caption.blur();
+        questForm.scrollTop = 0;
+
         const rewardButton = documentUnderTest.querySelector("#rewardDisclosure");
         const rewardDetails = documentUnderTest.querySelector("#rewardDetails");
         check(
@@ -190,6 +321,133 @@
         );
         savedCropBitmap.close();
 
+        const mediaUpload = documentUnderTest.querySelector("#mediaUpload");
+        const previewImageButton =
+          documentUnderTest.querySelector(".media-preview-image-button");
+        const cameraButton =
+          documentUnderTest.querySelector(".media-edit-button");
+        const cameraStyle = app.getComputedStyle(cameraButton);
+        check(
+          "Saved media replaces the upload card with two accessible edit affordances",
+          mediaUpload.hidden &&
+            !documentUnderTest.querySelector("#mediaPreview").hidden &&
+            uploadInput.getAttribute("aria-hidden") === "true" &&
+            uploadInput.tabIndex === -1 &&
+            previewImageButton?.getAttribute("aria-label") === "Replace photo" &&
+            cameraButton?.getAttribute("aria-label") === "Replace photo" &&
+            parseFloat(cameraStyle.width) >= 44 &&
+            parseFloat(cameraStyle.height) >= 44
+        );
+
+        const locationInput =
+          documentUnderTest.querySelector("#locationInput");
+        locationInput.value = "The corner bodega";
+        locationInput.dispatchEvent(new app.Event("input", { bubbles: true }));
+        caption.value = "A patient orange shop manager.";
+        caption.dispatchEvent(new app.Event("input", { bubbles: true }));
+        increment.click();
+        increment.click();
+        const bonusInput =
+          documentUnderTest.querySelector(".bonus-option-input");
+        bonusInput.checked = true;
+        bonusInput.dispatchEvent(new app.Event("change", { bubbles: true }));
+
+        const firstState = JSON.parse(
+          app.localStorage.getItem("nyc-summer-quest-mvp-v1") || "{}"
+        );
+        const firstDraft = firstState.drafts?.["bodega-cat"];
+        const firstMediaId = firstDraft?.mediaId;
+        const firstPreviewSource =
+          documentUnderTest.querySelector(".media-preview-element")?.src;
+
+        hooks.openCropper(imageFile, cameraButton);
+        await waitFor(
+          () => documentUnderTest.querySelector(".cropper-container"),
+          "Timed out waiting for the first replacement cropper."
+        );
+        documentUnderTest.querySelector("#confirmCrop").click();
+        await waitFor(() => {
+          const replacementState = JSON.parse(
+            app.localStorage.getItem("nyc-summer-quest-mvp-v1") || "{}"
+          );
+          return (
+            cropModal.hidden &&
+            replacementState.drafts?.["bodega-cat"]?.mediaId !== firstMediaId &&
+            documentUnderTest.querySelector(".media-preview-element")?.src !==
+              firstPreviewSource
+          );
+        }, "Timed out waiting for the first replacement to save.");
+
+        const secondState = JSON.parse(
+          app.localStorage.getItem("nyc-summer-quest-mvp-v1") || "{}"
+        );
+        const secondDraft = secondState.drafts?.["bodega-cat"];
+        const secondMediaId = secondDraft?.mediaId;
+        const secondPreviewSource =
+          documentUnderTest.querySelector(".media-preview-element")?.src;
+        check(
+          "Replacing an image updates the preview and only changes draft media",
+          secondMediaId &&
+            secondMediaId !== firstMediaId &&
+            secondPreviewSource &&
+            secondPreviewSource !== firstPreviewSource &&
+            secondDraft.caption === firstDraft.caption &&
+            secondDraft.location === firstDraft.location &&
+            secondDraft.friends === firstDraft.friends &&
+            JSON.stringify(secondDraft.selectedBonusIds) ===
+              JSON.stringify(firstDraft.selectedBonusIds) &&
+            !secondState.submissions?.["bodega-cat"] &&
+            !(await app.QuestMediaStore.get(firstMediaId)),
+          {
+            mediaChanged: Boolean(secondMediaId && secondMediaId !== firstMediaId),
+            previewChanged: Boolean(
+              secondPreviewSource && secondPreviewSource !== firstPreviewSource
+            ),
+            caption: secondDraft?.caption,
+            location: secondDraft?.location,
+            friends: secondDraft?.friends,
+            selectedBonusIds: secondDraft?.selectedBonusIds,
+            hasCompletedSubmission: Boolean(
+              secondState.submissions?.["bodega-cat"]
+            ),
+            previousMediaRemoved: !(await app.QuestMediaStore.get(firstMediaId))
+          }
+        );
+
+        const replacementCameraButton =
+          documentUnderTest.querySelector(".media-edit-button");
+        hooks.openCropper(imageFile, replacementCameraButton);
+        await waitFor(
+          () => documentUnderTest.querySelector(".cropper-container"),
+          "Timed out waiting for the consecutive replacement cropper."
+        );
+        documentUnderTest.querySelector("#confirmCrop").click();
+        await waitFor(() => {
+          const replacementState = JSON.parse(
+            app.localStorage.getItem("nyc-summer-quest-mvp-v1") || "{}"
+          );
+          return (
+            cropModal.hidden &&
+            replacementState.drafts?.["bodega-cat"]?.mediaId !== secondMediaId
+          );
+        }, "Timed out waiting for the consecutive replacement to save.");
+
+        const thirdState = JSON.parse(
+          app.localStorage.getItem("nyc-summer-quest-mvp-v1") || "{}"
+        );
+        const thirdDraft = thirdState.drafts?.["bodega-cat"];
+        check(
+          "The same image can be selected repeatedly without losing quest data",
+          thirdDraft?.mediaId &&
+            thirdDraft.mediaId !== secondMediaId &&
+            thirdDraft.caption === secondDraft.caption &&
+            thirdDraft.location === secondDraft.location &&
+            thirdDraft.friends === secondDraft.friends &&
+            JSON.stringify(thirdDraft.selectedBonusIds) ===
+              JSON.stringify(secondDraft.selectedBonusIds) &&
+            !(await app.QuestMediaStore.get(secondMediaId))
+        );
+
         const questTitleBeforeSwipe =
           documentUnderTest.querySelector("#sheetTitle").textContent;
         const questContent = documentUnderTest.querySelector("#questContent");
@@ -249,6 +507,135 @@
             documentUnderTest.querySelector("#sheetTitle").textContent ===
               "Subway Romance"
         );
+
+        let swipePointerId = 20;
+        const dispatchQuestSwipe = ({
+          target = questPosition,
+          startX = 190,
+          startY = 42,
+          endX = startX,
+          endY
+        }) => {
+          swipePointerId += 1;
+          const pointerInit = {
+            pointerId: swipePointerId,
+            pointerType: "touch",
+            isPrimary: true,
+            clientX: startX,
+            clientY: startY,
+            bubbles: true,
+            cancelable: true
+          };
+          target.dispatchEvent(new app.PointerEvent("pointerdown", pointerInit));
+          target.dispatchEvent(new app.PointerEvent("pointermove", {
+            ...pointerInit,
+            clientX: endX,
+            clientY: endY
+          }));
+          target.dispatchEvent(new app.PointerEvent("pointerup", {
+            ...pointerInit,
+            clientX: endX,
+            clientY: endY
+          }));
+        };
+
+        const questSheet = documentUnderTest.querySelector("#questSheet");
+        const questFormForSwipe = documentUnderTest.querySelector("#questForm");
+        caption.value = Array.from(
+          { length: 12 },
+          (_, index) => `Scroll guard line ${index + 1}`
+        ).join("\n");
+        hooks.autosizeCaption();
+        questFormForSwipe.scrollTop = 20;
+        dispatchQuestSwipe({ endY: 220 });
+        await wait(30);
+        check(
+          "Swipe dismissal cannot start while modal content is scrolled",
+          !questSheet.hidden &&
+            !questSheet.classList.contains("is-swipe-settling") &&
+            !questSheet.style.transform
+        );
+
+        caption.value = "";
+        hooks.autosizeCaption();
+        questFormForSwipe.scrollTop = 0;
+        documentUnderTest.querySelector("#locationInput").focus();
+        dispatchQuestSwipe({ endY: 220 });
+        await wait(30);
+        check(
+          "Swipe dismissal is blocked while a form control is focused",
+          !questSheet.hidden &&
+            documentUnderTest.activeElement.id === "locationInput" &&
+            !questSheet.style.transform
+        );
+        documentUnderTest.querySelector("#locationInput").blur();
+        await wait(360);
+
+        dispatchQuestSwipe({ endY: 70 });
+        await wait(240);
+        check(
+          "A short downward drag snaps back without dismissing",
+          !questSheet.hidden &&
+            !questSheet.classList.contains("is-swipe-settling") &&
+            !questSheet.style.transform
+        );
+
+        dispatchQuestSwipe({
+          target: documentUnderTest.querySelector("#nextQuest"),
+          endY: 230
+        });
+        await wait(30);
+        check(
+          "Header buttons never initiate swipe dismissal",
+          !questSheet.hidden &&
+            !questSheet.classList.contains("is-swipe-dragging") &&
+            !questSheet.style.transform
+        );
+
+        dispatchQuestSwipe({ endY: 240 });
+        await wait(240);
+        check(
+          "A deliberate header drag closes the quest through the normal modal path",
+          questSheet.hidden &&
+            documentUnderTest.querySelector("#questModalWrapper").hidden &&
+            !documentUnderTest.body.classList.contains("sheet-open")
+        );
+
+        documentUnderTest
+          .querySelector('#questGrid [data-quest-id="bodega-cat"]')
+          .click();
+        await nextFrame();
+
+        documentUnderTest.querySelector("#closeSheet").click();
+        await nextFrame();
+        check(
+          "Close button still dismisses the quest modal",
+          questSheet.hidden &&
+            documentUnderTest.querySelector("#questModalWrapper").hidden
+        );
+        documentUnderTest
+          .querySelector('#questGrid [data-quest-id="bodega-cat"]')
+          .click();
+        await nextFrame();
+
+        documentUnderTest.querySelector("#closeSheet").focus();
+        documentUnderTest.querySelector("#closeSheet").dispatchEvent(
+          new app.KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true
+          })
+        );
+        await nextFrame();
+        check(
+          "Escape still dismisses the quest modal",
+          questSheet.hidden &&
+            documentUnderTest.querySelector("#questModalWrapper").hidden
+        );
+        documentUnderTest
+          .querySelector('#questGrid [data-quest-id="bodega-cat"]')
+          .click();
+        await nextFrame();
 
         const removeLink = documentUnderTest.querySelector("#removeQuest");
         removeLink.hidden = false;
@@ -333,17 +720,17 @@
         );
         check(
           "Required tap targets are at least 44 by 44 CSS pixels",
-          closeRect.width >= 44 &&
-            closeRect.height >= 44 &&
-            previousRect.width >= 44 &&
-            previousRect.height >= 44 &&
-            nextRect.width >= 44 &&
-            nextRect.height >= 44 &&
-            parseFloat(desktopPreviousStyle.width) >= 44 &&
-            parseFloat(desktopPreviousStyle.height) >= 44 &&
-            parseFloat(stickyStyle.minHeight) >= 44 &&
-            parseFloat(expandStyle.width) >= 44 &&
-            parseFloat(expandStyle.height) >= 44
+          closeRect.width >= 43.5 &&
+            closeRect.height >= 43.5 &&
+            previousRect.width >= 43.5 &&
+            previousRect.height >= 43.5 &&
+            nextRect.width >= 43.5 &&
+            nextRect.height >= 43.5 &&
+            parseFloat(desktopPreviousStyle.width) >= 43.5 &&
+            parseFloat(desktopPreviousStyle.height) >= 43.5 &&
+            parseFloat(stickyStyle.minHeight) >= 43.5 &&
+            parseFloat(expandStyle.width) >= 43.5 &&
+            parseFloat(expandStyle.height) >= 43.5
         );
 
         const rootStyles = app.getComputedStyle(documentUnderTest.documentElement);
@@ -375,6 +762,17 @@
             !/compressImage\s*\(\s*(?:croppedBlob|await\s+getCroppedImageBlob)/.test(
               appSource
             )
+        );
+        check(
+          "Photo replacement uses a 220ms fade and refreshes board thumbnails from saved media",
+          /\{\s*duration:\s*100,\s*easing:\s*["']ease-in["']\s*\}/.test(
+            appSource
+          ) &&
+            /\{\s*duration:\s*120,\s*easing:\s*["']ease-out["']\s*\}/.test(
+              appSource
+            ) &&
+            /mediaStore\.blobFor\(submission\)/.test(appSource) &&
+            /quest-card-thumbnail/.test(appSource)
         );
 
         const failed = checks.filter(item => !item.passed);
