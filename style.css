@@ -184,7 +184,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
     "description description"
     "track track"
     "meta meta";
-  gap: 12px 24px;
+  gap: 12px clamp(16px, 4vw, 24px);
   align-items: center;
 }
 .progress-rank-label {
@@ -203,7 +203,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
 .progress-card h2 {
   grid-area: rank;
   min-width: 0;
-  font-size: clamp(1.2rem, 5vw, 1.35rem);
+  font-size: clamp(1.2rem, 6vw, 1.35rem);
 }
 .progress-card h2 span {
   display: block;
@@ -224,6 +224,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   color: var(--coral);
   align-self: center;
   justify-self: end;
+  transform: translateY(-1px);
 }
 .score-block span {
   font: 700 3.4rem "Libre Baskerville", serif;
@@ -2502,7 +2503,6 @@ body.keepsake-preview-open { overflow: hidden; }
     font-size: .86rem;
   }
   .progress-card {
-    column-gap: 16px;
     row-gap: 10px;
     padding: 22px 20px;
   }
