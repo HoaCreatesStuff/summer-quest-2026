@@ -1043,12 +1043,31 @@ function finalQuestCompleted() {
   return questIsCompleted(FINAL_QUEST_ID);
 }
 
+function renderRankTitle(title) {
+  const lineBreakIndex = title.lastIndexOf(" ");
+  const lines = lineBreakIndex === -1
+    ? [title, "\u00a0"]
+    : [title.slice(0, lineBreakIndex), title.slice(lineBreakIndex + 1)];
+
+  const lineElements = lines.map(line => {
+    const span = document.createElement("span");
+    span.textContent = line;
+    return span;
+  });
+
+  els.rankTitle.replaceChildren(
+    lineElements[0],
+    document.createTextNode(" "),
+    lineElements[1]
+  );
+}
+
 function renderProgress() {
   const { score, completed } = getTotals();
   const rank = currentRank(score);
   const rankProgress = rankProgressForScore(score);
   els.score.textContent = score;
-  els.rankTitle.textContent = rank.title;
+  renderRankTitle(rank.title);
   els.rankBlurb.textContent = rank.blurb;
   els.completedCount.textContent = `${completed} / ${window.BOARD_ORDER.length} completed`;
 

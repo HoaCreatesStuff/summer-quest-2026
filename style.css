@@ -178,8 +178,18 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
 .progress-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label label"
+    "rank score"
+    "description description"
+    "track track"
+    "meta meta";
   gap: 12px 24px;
   align-items: center;
+}
+.progress-rank-label {
+  grid-area: label;
+  margin: 0 0 -8px;
 }
 .progress-card h2, .adventure-rank-value, .briefing h2, .section-heading h2, .bottom-sheet h2 {
   font-family: "Libre Baskerville", serif;
@@ -190,20 +200,37 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   font-size: 1.35rem;
   line-height: normal;
 }
+.progress-card h2 {
+  grid-area: rank;
+  min-width: 0;
+  font-size: clamp(1.2rem, 5vw, 1.35rem);
+}
+.progress-card h2 span {
+  display: block;
+  white-space: nowrap;
+}
 .rank-blurb, .adventure-rank-description {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: .9rem;
   line-height: 1.42;
 }
+.progress-card .rank-blurb {
+  grid-area: description;
+  margin-top: 0;
+}
 .score-block {
+  grid-area: score;
   color: var(--coral);
   align-self: center;
-  grid-row: span 1;
+  justify-self: end;
 }
-.score-block span { font: 700 clamp(3.4rem, 9vw, 5rem) "Libre Baskerville", serif; line-height: .9; }
+.score-block span {
+  font: 700 3.4rem "Libre Baskerville", serif;
+  line-height: .9;
+}
 .progress-track {
-  grid-column: 1/-1;
+  grid-area: track;
   margin-top: 4px;
   height: 12px;
   background: #f7dda0;
@@ -218,7 +245,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   transition: width .35s ease;
 }
 .progress-meta {
-  grid-column: 1/-1;
+  grid-area: meta;
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -1958,7 +1985,7 @@ body.keepsake-preview-open { overflow: hidden; }
 .story-date-entries {
   display: grid;
   gap: clamp(38px, 7vw, 62px);
-  margin-left: 48px;
+  margin-left: 36px;
   margin-top: 12px;
 }
 .story-entry {
@@ -2474,51 +2501,15 @@ body.keepsake-preview-open { overflow: hidden; }
   .keepsake-sticky-header > span:nth-child(2) {
     font-size: .86rem;
   }
-    .progress-card {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "rank score"
-      "track track"
-      "meta meta";
+  .progress-card {
     column-gap: 16px;
     row-gap: 10px;
     padding: 22px 20px;
   }
-  .progress-card > div:first-child {
-    grid-area: rank;
-    min-width: 0;
-    align-self: center;
-  }
-  .progress-card .score-block {
-    grid-area: score;
-    align-self: center;
-    justify-self: end;
-  }
-  .progress-card .progress-track {
-    grid-area: track;
-    width: 100%;
-  }
-  .progress-card .progress-meta {
-    grid-area: meta;
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-  }
   .progress-card .progress-meta span:last-child {
-  margin-left: auto;
-  text-align: right;
-  white-space: nowrap;
-}
-  .progress-card #score {
-    font-size: clamp(3.5rem, 15vw, 4.8rem);
-    line-height: 0.9;
-  }
-  .progress-card h2 {
-    margin-bottom: 4px;
-  }
-  .progress-card .rank-blurb {
-    margin: 0;
+    margin-left: auto;
+    text-align: right;
+    white-space: nowrap;
   }
 }
 
