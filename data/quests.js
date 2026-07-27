@@ -72,7 +72,7 @@ window.QUESTS = {
     description: "Track down one of New York's legendary bodega cats.",
     basePoints: 7,
     bonuses: [
-      { id: "pet-the-cat", label: "Pet the bodega cat.", points: 3 }
+      { id: "pet-the-cat", label: "Pet the cat.", points: 2 }
     ],
     story: "You met one of New York's fluffiest local celebrities{locationSentence}.",
     reflection: "Every bodega has someone in charge. This one just happened to purr.",
@@ -135,7 +135,7 @@ window.QUESTS = {
     basePoints: 5,
     bonuses: [
       { id: "beach-day", label: "Spend the day at the beach.", points: 3 },
-      { id: "on-the-water", label: "Do an activity on or in the water.", points: 4 },
+      { id: "on-the-water", label: "Do an activity on or in the water.", points: 3 },
       { id: "nyc-ferry", label: "Ride the NYC Ferry.", points: 2 }
     ],
     story: "You found a refreshing escape by the water{locationSentence}.",
@@ -154,7 +154,7 @@ window.QUESTS = {
     description: "Find a piece of public art worth stopping for.",
     basePoints: 5,
     bonuses: [
-      { id: "identify-artist", label: "Find out who created it and note it in the caption.", points: 2 }
+      { id: "identify-artist", label: "Find out who created it and note it in the caption.", points: 1 }
     ],
     story: "You found art where others might have walked right past{locationSentence}.",
     reflection: "Even the busiest streets leave room for creativity.",
@@ -244,13 +244,13 @@ window.QUESTS = {
     icon: "wb_twilight",
     title: "Golden Hour",
     description: "Capture the magic of golden hour.",
-    basePoints: 7,
+    basePoints: 5,
     bonuses: [
-      { id: "sunrise", label: "Catch the sunrise instead.", points: 4 },
+      { id: "sunrise", label: "Catch the sunrise instead.", points: 3 },
       { id: "skyline", label: "Capture the skyline.", points: 2 }
     ],
     story: "For a few golden minutes, the city glowed{locationSentence}.",
-    reflection: "Good things come to those who wait... and check sunset time.",
+    reflection: "Good things come to those who wait... and check the sun's schedule.",
     bonusMemories: {
       "sunrise": "You woke up in the city that never sleeps to catch a star that never stops shining.",
       "skyline": "The city looked familiar, yet somehow brand new. Amazing what a little patience can reveal."
@@ -329,15 +329,17 @@ window.QUESTS = {
     category: "challenges",
     icon: "sound_detection_dog_barking",
     title: "Pup-arazzi",
-    description: "Round up at least three dogs for a group photo.",
+    description: "Round up at least two dogs for a group selfie. Ask the human first.",
     basePoints: 5,
     bonuses: [
-      { id: "different-breeds", label: "Find three different dog breeds.", points: 2 },
-      { id: "dog-outfit", label: "Find a dog wearing an adorable outfit.", points: 1 }
+      { id: "more-than-two", label: "Have more than 2 dogs in the picture.", points: 2 },
+      { id: "different-breeds", label: "Have all different dog breeds.", points: 2 },
+      { id: "dog-outfit", label: "Have a dog wearing an adorable outfit.", points: 1 }
     ],
     story: "You met some very good dogs while exploring the streets of NYC{locationSentence}.",
     reflection: "Somehow, they happily live in tiny human shoeboxes and still wake up excited every day.",
     bonusMemories: {
+      "more-than-two": "Seeing one dog is exciting. A group photo with the whole pack is cuteness overload.",
       "different-breeds": "They all had different looks, and even more different personalities.",
       "dog-outfit": "One especially well-dressed pup completely stole the show."
     }
