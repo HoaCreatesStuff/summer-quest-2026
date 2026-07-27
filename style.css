@@ -762,10 +762,11 @@ line-height: normal;
   white-space: nowrap;
 }
 .quest-navigation {
-  justify-self: center;
   display: flex;
   align-items: center;
   gap: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .quest-nav-button {
   position: relative;
@@ -819,9 +820,9 @@ line-height: normal;
 }
 .quest-detail-copy { min-width: 0; }
 .quest-modal-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
+  gap: 6px;
   min-height: 44px;
   margin-bottom: 12px;
   touch-action: none;
@@ -829,14 +830,15 @@ line-height: normal;
   -webkit-user-select: none;
 }
 .quest-modal-header > .category-pill {
-  justify-self: start;
-  max-width: 100%;
+  flex: 0 1 auto;
+  white-space: nowrap;
 }
 .quest-modal-header > .close-button {
-  justify-self: end;
   position: static;
   width: 44px;
   height: 44px;
+  flex: 0 0 auto;
+  margin-left: 2px;
 }
 .quest-modal-shell.is-swipe-dragging {
   animation: none;
