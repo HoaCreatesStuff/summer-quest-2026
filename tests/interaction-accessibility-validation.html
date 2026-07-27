@@ -764,15 +764,15 @@
             )
         );
         check(
-          "Photo replacement uses a 220ms fade and refreshes board thumbnails from saved media",
+          "Photo replacement keeps its 220ms fade without enabling Home board thumbnails",
           /\{\s*duration:\s*100,\s*easing:\s*["']ease-in["']\s*\}/.test(
             appSource
           ) &&
             /\{\s*duration:\s*120,\s*easing:\s*["']ease-out["']\s*\}/.test(
               appSource
             ) &&
-            /mediaStore\.blobFor\(submission\)/.test(appSource) &&
-            /quest-card-thumbnail/.test(appSource)
+            !/quest-card-thumbnail/.test(appSource) &&
+            !/#questGrid\s*>\s*\.quest-card\.is-photo/.test(stylesheet)
         );
 
         const failed = checks.filter(item => !item.passed);

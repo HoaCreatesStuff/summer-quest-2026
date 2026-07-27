@@ -223,8 +223,6 @@ let activePreviewUrl = "";
 let mediaPreviewRequest = 0;
 let mediaRenderRequest = 0;
 let mediaPickerTrigger = null;
-let boardRenderRequest = 0;
-let boardMediaUrls = new Set();
 let cropper = null;
 let cropSourceUrl = "";
 let pendingCropFile = null;
@@ -1513,16 +1511,11 @@ function renderQuestTitle(title) {
 }
 
 function renderGrid() {
-  const renderRequest = ++boardRenderRequest;
-  boardMediaUrls.forEach(url => URL.revokeObjectURL(url));
-  const nextMediaUrls = new Set();
-  boardMediaUrls = nextMediaUrls;
   els.grid.innerHTML = "";
   const quests = orderedQuests();
 
   quests.forEach((quest) => {
     const completed = questIsCompleted(quest.id);
-    const submission = completedSubmission(quest.id);
     const button = document.createElement("button");
     button.type = "button";
     button.className = [
@@ -1543,23 +1536,6 @@ function renderGrid() {
     `;
     button.addEventListener("click", () => openSheet(quest));
     els.grid.appendChild(button);
-
-    if (submission && !submission.mediaType?.startsWith("video/")) {
-      mediaStore.blobFor(submission).then((blob) => {
-        if (!blob || renderRequest !== boardRenderRequest || !button.isConnected) return;
-        const source = URL.createObjectURL(blob);
-        nextMediaUrls.add(source);
-        const thumbnail = document.createElement("img");
-        thumbnail.className = "quest-card-thumbnail";
-        thumbnail.src = source;
-        thumbnail.alt = "";
-        thumbnail.setAttribute("aria-hidden", "true");
-        button.classList.add("is-photo");
-        button.prepend(thumbnail);
-      }).catch((error) => {
-        console.error("[Media storage] Board thumbnail could not be loaded.", error);
-      });
-    }
   });
 }
 
@@ -2749,7 +2725,6 @@ document.addEventListener("keydown", (event) => {
 
 window.addEventListener("pagehide", () => {
   if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
-  boardMediaUrls.forEach(url => URL.revokeObjectURL(url));
 });
 
 async function initializeApp() {
