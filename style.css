@@ -1279,20 +1279,12 @@ textarea.text-input {
 }
 .caption-field { margin-top: 22px; }
 .caption-field textarea {
-  max-height: calc(1.5em * 7 + 30px);
+  max-height: calc(1.5em * 9 + 30px);
 }
 .quest-modal-wrapper.is-caption-editing {
   top: var(--quest-visual-viewport-top, auto);
   bottom: auto;
   height: var(--quest-visual-viewport-height, min(92dvh, 860px));
-}
-.quest-modal-wrapper.is-caption-editing #saveQuest {
-  position: sticky;
-  z-index: 4;
-  bottom: 8px;
-  box-shadow:
-    0 0 0 8px var(--paper-2),
-    0 8px 24px rgba(39,37,34,.18);
 }
 .bonus-field {
   display: grid;
@@ -1932,10 +1924,19 @@ body.keepsake-preview-open { overflow: hidden; }
   position: absolute;
   z-index: 0;
   left: 7px;
-  top: 11px;
+  top: 33px;
   bottom: -11px;
   width: 1px;
   background: var(--teal);
+}
+.story-date-dot {
+  position: relative;
+  z-index: 1;
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--teal);
+  border-radius: 50%;
+  background: var(--paper);
 }
 .story-date-heading {
   display: grid;
@@ -1943,18 +1944,6 @@ body.keepsake-preview-open { overflow: hidden; }
   align-items: center;
   gap: 9px;
   width: 100%;
-}
-.story-date-heading::after {
-  content: "";
-  height: 1px;
-  background: rgba(27,169,185,.45);
-}
-.story-date-dot {
-  width: 15px;
-  height: 15px;
-  border: 2px solid var(--teal);
-  border-radius: 50%;
-  background: var(--paper);
 }
 .story-date-heading h2 {
   margin: 0;
@@ -1969,7 +1958,8 @@ body.keepsake-preview-open { overflow: hidden; }
 .story-date-entries {
   display: grid;
   gap: clamp(38px, 7vw, 62px);
-  margin: 28px 0 0 44px;
+  margin-left: 48px;
+  margin-top: 12px;
 }
 .story-entry {
   break-inside: avoid;
@@ -1978,9 +1968,11 @@ body.keepsake-preview-open { overflow: hidden; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 18px;
+  gap: 2px;
 }
 .story-entry-header h3 {
+  position: relative;
+  margin: 0;
   font-family: "Libre Baskerville", serif;
   font-size: clamp(1.2rem, 4vw, 1.65rem);
   font-weight: 400;
@@ -2016,6 +2008,20 @@ body.keepsake-preview-open { overflow: hidden; }
   font-weight: 500;
   line-height: 1.45;
 }
+.story-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.story-meta-item .material-symbols-outlined {
+  font-size: 15px;
+  line-height: 1;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 400,
+    "GRAD" 0,
+    "opsz" 20;
+}
 .story-entry-photo {
   display: block;
   width: min(100%, 560px);
@@ -2038,11 +2044,11 @@ body.keepsake-preview-open { overflow: hidden; }
   width: min(100%, 560px);
   margin: 10px 0 0;
   color: #4f4a44;
-  font-size: 1.5rem;
+  font-size: 1.35rem;
     font-family: "caveat", cursive;
     font-weight: 500;
     font-style: normal;
-  line-height: 1.65;
+  line-height: 1.25;
 }
 .story-next-date {
   position: relative;
@@ -2444,7 +2450,7 @@ body.keepsake-preview-open { overflow: hidden; }
     gap: 8px;
   }
   .story-entry-header p { justify-content: flex-start; }
-  .story-date-entries { margin-left: 32px; }
+  .story-date-entries { margin: 18px 0 0 44px;}
   .story-date-heading {
     grid-template-columns: 15px auto 1fr;
     gap: 9px;

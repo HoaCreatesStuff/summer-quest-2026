@@ -129,7 +129,7 @@
           return {
             height: caption.getBoundingClientRect().height,
             minHeight: lineHeight * 3 + chrome,
-            maxHeight: lineHeight * 7 + chrome,
+            maxHeight: lineHeight * 9 + chrome,
             overflowY: styles.overflowY
           };
         };
@@ -157,7 +157,7 @@
         hooks.autosizeCaption();
         const longCaptionMetrics = captionMetrics();
         check(
-          "Long saved captions cap at seven lines and scroll internally",
+          "Long saved captions cap at nine lines and scroll internally",
           longCaptionMetrics.height <= longCaptionMetrics.maxHeight + 1 &&
             longCaptionMetrics.height >= longCaptionMetrics.maxHeight - 1 &&
             longCaptionMetrics.overflowY === "auto" &&
@@ -171,18 +171,48 @@
             questForm.scrollTop === 10
         );
 
+        const saveButton = documentUnderTest.querySelector("#saveQuest");
+        const savePositionBeforeFocus = app.getComputedStyle(saveButton).position;
         caption.focus();
         await nextFrame();
         hooks.syncCaptionViewport();
         hooks.positionCaptionForKeyboard();
-        const saveButton = documentUnderTest.querySelector("#saveQuest");
         const captionQuestWrapper = documentUnderTest.querySelector("#questModalWrapper");
         check(
-          "Caption focus activates the visual-viewport modal and sticky primary CTA",
+          "Caption focus activates the visual viewport without a floating primary CTA",
           captionQuestWrapper.classList.contains("is-caption-editing") &&
-            app.getComputedStyle(saveButton).position === "sticky" &&
-            parseFloat(app.getComputedStyle(saveButton).bottom) === 8
+            app.getComputedStyle(saveButton).position === savePositionBeforeFocus &&
+            !["sticky", "fixed"].includes(savePositionBeforeFocus)
         );
+        await wait(400);
+        const focusedCaptionFieldRect =
+          caption.closest(".caption-field").getBoundingClientRect();
+        const focusedFormRect = questForm.getBoundingClientRect();
+        check(
+          "Caption focus keeps the full field and cursor inside the visible modal",
+          focusedCaptionFieldRect.top >= focusedFormRect.top + 17 &&
+            focusedCaptionFieldRect.bottom <= focusedFormRect.bottom - 23 &&
+            caption.selectionStart === 31 &&
+            caption.selectionEnd === 31
+        );
+        frame.style.height = "560px";
+        await nextFrame();
+        hooks.syncCaptionViewport();
+        hooks.positionCaptionForKeyboard();
+        await wait(400);
+        const keyboardCaptionFieldRect =
+          caption.closest(".caption-field").getBoundingClientRect();
+        const keyboardFormRect = questForm.getBoundingClientRect();
+        check(
+          "A keyboard-sized viewport keeps the full caption field and cursor visible",
+          keyboardCaptionFieldRect.top >= keyboardFormRect.top + 17 &&
+            keyboardCaptionFieldRect.bottom <= keyboardFormRect.bottom - 23 &&
+            caption.selectionStart === 31 &&
+            caption.selectionEnd === 31
+        );
+        frame.style.height = "844px";
+        await nextFrame();
+        hooks.syncCaptionViewport();
         check(
           "Caption helper copy encourages reflection",
           /memorable|remember|capture|read again/i.test(
@@ -193,6 +223,12 @@
         caption.value = "";
         hooks.autosizeCaption();
         caption.blur();
+        await wait(400);
+        check(
+          "Dismissing the keyboard restores the original bottom action layout",
+          !captionQuestWrapper.classList.contains("is-caption-editing") &&
+            app.getComputedStyle(saveButton).position === savePositionBeforeFocus
+        );
         questForm.scrollTop = 0;
 
         const rewardButton = documentUnderTest.querySelector("#rewardDisclosure");

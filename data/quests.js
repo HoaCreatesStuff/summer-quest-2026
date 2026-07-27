@@ -244,7 +244,7 @@ window.QUESTS = {
     icon: "wb_twilight",
     title: "Golden Hour",
     description: "Capture the magic of golden hour.",
-    basePoints: 5,
+    basePoints: 7,
     bonuses: [
       { id: "sunrise", label: "Catch the sunrise instead.", points: 3 },
       { id: "skyline", label: "Capture the skyline.", points: 2 }
@@ -353,7 +353,7 @@ window.QUESTS = {
     basePoints: 7,
     bonuses: [
       { id: "audience-participation", label: "Join in the fun, instead of just watching.", points: 2 },
-      { id: "theater", label: "See a show in a theater.", points: 1 }
+      { id: "theater", label: "See a show in a theater.", points: 2 }
     ],
     story: "You traded everyday life for a live performance{locationSentence}.",
     reflection: "No recording quite captures the joy of being present in a room full of people.",

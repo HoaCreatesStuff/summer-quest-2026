@@ -71,10 +71,9 @@
   }
 
   function friendsLabel(value) {
-    const count = normalizeFriendCount(value);
-    if (count === 0) return "Solo";
-    return count === 1 ? "+1 friend" : `+${count} friends`;
-  }
+  const count = Math.max(0, Math.trunc(Number(value) || 0));
+  return count === 0 ? "Solo" : String(count);
+}
 
   function mediaMarkup(entry, className) {
     const { submission, quest } = entry;
@@ -160,8 +159,15 @@
   }
                     </h3>
                     <p>
-                      ${location ? `<span>📍 ${escapeStoryText(location)}</span>` : ""}
-                      <span>👥 ${friendsLabel(entry.submission.friends)}</span>
+                      ${location ? `
+                      <span class="story-meta-item">
+                      <span class="material-symbols-outlined" aria-hidden="true">location_on</span>
+                      ${escapeStoryText(location)}
+                      </span>` : ""}
+                      <span class="story-meta-item">
+                      <span class="material-symbols-outlined" aria-hidden="true">groups</span>
+                      ${friendsLabel(entry.submission.friends)}
+                      </span>
                     </p>
                   </header>
                   ${mediaMarkup(entry, "story-entry-photo")}

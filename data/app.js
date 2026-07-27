@@ -17,7 +17,7 @@ const COMPLETION_TIMING = Object.freeze({
 });
 const CAPTION_VISIBLE_LINES = Object.freeze({
   min: 3,
-  max: 7
+  max: 9
 });
 const mediaStore = window.QuestMediaStore;
 
@@ -407,6 +407,13 @@ function autosizeCaption() {
   const modalScrollTop = els.form.scrollTop;
   const { minHeight, maxHeight } = captionSizingMetrics();
 
+  if (!els.caption.value) {
+    els.caption.style.removeProperty("height");
+    els.caption.style.overflowY = "hidden";
+    els.form.scrollTop = modalScrollTop;
+    return;
+  }
+
   els.caption.style.height = "auto";
   const contentHeight = els.caption.scrollHeight;
   const nextHeight = Math.min(maxHeight, Math.max(minHeight, contentHeight));
@@ -466,21 +473,28 @@ function positionCaptionForKeyboard() {
   const textareaScrollTop = els.caption.scrollTop;
   const scrollRect = els.form.getBoundingClientRect();
   const fieldRect = els.caption.closest(".caption-field").getBoundingClientRect();
-  const topGap = 18;
+  const comfortableTop = scrollRect.top + 18;
+  const comfortableBottom = scrollRect.bottom - 24;
+  const availableHeight = comfortableBottom - comfortableTop;
+  let scrollDelta = 0;
 
-  els.form.scrollTop += fieldRect.top - (scrollRect.top + topGap);
+  if (fieldRect.height <= availableHeight) {
+    if (fieldRect.top < comfortableTop) {
+      scrollDelta = fieldRect.top - comfortableTop;
+    } else if (fieldRect.bottom > comfortableBottom) {
+      scrollDelta = fieldRect.bottom - comfortableBottom;
+    }
+  } else {
+    const textareaRect = els.caption.getBoundingClientRect();
+    scrollDelta = textareaRect.top - comfortableTop;
+  }
 
-  const textareaRect = els.caption.getBoundingClientRect();
-  const captionStyles = window.getComputedStyle(els.caption);
-  const firstLineBottom =
-    textareaRect.top +
-    (Number.parseFloat(captionStyles.paddingTop) || 0) +
-    (Number.parseFloat(captionStyles.lineHeight) || 24);
-  const saveRect = els.saveQuest.getBoundingClientRect();
-  const comfortableBottom = Math.min(scrollRect.bottom - 18, saveRect.top - 16);
-
-  if (firstLineBottom > comfortableBottom) {
-    els.form.scrollTop += firstLineBottom - comfortableBottom;
+  if (Math.abs(scrollDelta) > 1) {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    els.form.scrollTo({
+      top: Math.max(0, els.form.scrollTop + scrollDelta),
+      behavior: reducedMotion ? "auto" : "smooth"
+    });
   }
 
   els.caption.scrollTop = textareaScrollTop;
@@ -1701,6 +1715,7 @@ function openSheet(quest) {
   els.backdrop.hidden = false;
   els.modalWrapper.hidden = false;
   els.sheet.hidden = false;
+  autosizeCaption();
   questViewportBaselineHeight = questVisualViewport().height;
   document.body.classList.add("sheet-open");
   requestAnimationFrame(() => els.close.focus());
@@ -2343,6 +2358,7 @@ function handleQuestInputChange() {
 els.location.addEventListener("input", handleQuestInputChange);
 els.caption.addEventListener("input", () => {
   autosizeCaption();
+  if (document.activeElement === els.caption) queueCaptionPosition();
   handleQuestInputChange();
 });
 els.caption.addEventListener("focus", beginCaptionEditing);

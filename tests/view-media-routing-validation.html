@@ -26,6 +26,10 @@
       const frame = document.querySelector("#appFrame");
       const checks = [];
       const questId = "bodega-cat";
+      const longSavedCaption = Array.from(
+        { length: 12 },
+        (_, index) => `Saved reflection line ${index + 1}`
+      ).join("\n");
 
       const wait = milliseconds =>
         new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -44,6 +48,11 @@
       };
 
       try {
+        localStorage.removeItem("nyc-summer-quest-mvp-v1");
+        await new Promise(resolve => {
+          const request = indexedDB.deleteDatabase("nyc-summer-quest-media");
+          request.onsuccess = request.onerror = request.onblocked = resolve;
+        });
         const loaded = new Promise(resolve => {
           frame.addEventListener("load", resolve, { once: true });
         });
@@ -181,6 +190,12 @@
         };
 
         await openQuest();
+        const newCaptionInput = documentUnderTest.querySelector("#captionInput");
+        check(
+          "New caption starts at the default three-line height",
+          !newCaptionInput.style.height &&
+            newCaptionInput.rows === 3
+        );
         await cropTestImage(
           "#f35f59",
           documentUnderTest.querySelector("#mediaInput")
@@ -189,7 +204,7 @@
         const captionInput = documentUnderTest.querySelector("#captionInput");
         locationInput.value = "Routing test corner";
         locationInput.dispatchEvent(new app.Event("input", { bubbles: true }));
-        captionInput.value = "Completed caption";
+        captionInput.value = longSavedCaption;
         captionInput.dispatchEvent(new app.Event("input", { bubbles: true }));
         documentUnderTest.querySelector("#saveQuest").click();
         await waitFor(
@@ -200,10 +215,34 @@
           20000
         );
         const completedMediaId = savedState().submissions[questId].mediaId;
-        await verifySavedViews("Complete", "Completed caption");
+        await verifySavedViews("Complete", longSavedCaption);
 
         await goToBoard();
         await openQuest();
+        const savedCaptionStyles = app.getComputedStyle(captionInput);
+        const savedCaptionChrome = [
+          savedCaptionStyles.paddingTop,
+          savedCaptionStyles.paddingBottom,
+          savedCaptionStyles.borderTopWidth,
+          savedCaptionStyles.borderBottomWidth
+        ].reduce((total, value) => total + parseFloat(value), 0);
+        const savedCaptionMaxHeight =
+          parseFloat(savedCaptionStyles.lineHeight) * 9 + savedCaptionChrome;
+        check(
+          "Existing long caption auto-expands to nine lines and scrolls internally",
+          Math.abs(
+            captionInput.getBoundingClientRect().height - savedCaptionMaxHeight
+          ) <= 1 &&
+            savedCaptionStyles.overflowY === "auto" &&
+            captionInput.scrollHeight > captionInput.clientHeight,
+          {
+            height: captionInput.getBoundingClientRect().height,
+            maxHeight: savedCaptionMaxHeight,
+            overflowY: savedCaptionStyles.overflowY,
+            scrollHeight: captionInput.scrollHeight,
+            clientHeight: captionInput.clientHeight
+          }
+        );
         captionInput.value = "Edited caption";
         captionInput.dispatchEvent(new app.Event("input", { bubbles: true }));
         documentUnderTest.querySelector("#saveQuest").click();
