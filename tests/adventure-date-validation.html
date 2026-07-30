@@ -240,8 +240,26 @@
           "Legacy submissions preload a local fallback from completedAt",
           dateInput.value === expectedLegacyDate &&
             dateDisplay.textContent === dates.formatAdventureDate(expectedLegacyDate) &&
-            friendOutput.textContent === "2"
+            friendOutput.textContent === "2" &&
+            !Object.hasOwn(
+              storedState().submissions["subway-romance"],
+              "adventureDate"
+            )
         );
+        documentUnderTest.querySelector("#closeSheet").click();
+        await nextFrame();
+        check(
+          "Opening and closing a legacy submission does not persist its derived date",
+          !Object.hasOwn(
+            storedState().submissions["subway-romance"],
+            "adventureDate"
+          ) &&
+            !Object.hasOwn(
+              storedState().drafts,
+              "subway-romance"
+            )
+        );
+        await openQuest("subway-romance");
         await app.QuestMediaStore.put(
           "date-test-subway-romance",
           new app.Blob(["legacy-memory"], { type: "image/jpeg" })

@@ -122,6 +122,22 @@ function adventureDateForSubmission(submission, fallback = localCalendarDate()) 
   return localCalendarDate(completedDate) || fallback;
 }
 
+function adventureDateForEditableRecord(
+  record,
+  savedSubmission,
+  fallback = localCalendarDate()
+) {
+  if (isValidLocalCalendarDate(record?.adventureDate)) {
+    return record.adventureDate;
+  }
+
+  if (savedSubmission) {
+    return adventureDateForSubmission(savedSubmission, fallback);
+  }
+
+  return adventureDateForSubmission(record, fallback);
+}
+
 function isSelectableAdventureDate(value, today = localCalendarDate()) {
   return (
     isValidLocalCalendarDate(value) &&
@@ -1364,8 +1380,10 @@ function draftAdventureDate() {
   const selectedDate = els.adventureDate.value;
   if (isSelectableAdventureDate(selectedDate)) return selectedDate;
 
-  return adventureDateForSubmission(
-    state.drafts[activeQuest?.id] || completedSubmission(activeQuest?.id)
+  const savedSubmission = completedSubmission(activeQuest?.id);
+  return adventureDateForEditableRecord(
+    state.drafts[activeQuest?.id] || savedSubmission,
+    savedSubmission
   );
 }
 
@@ -1823,10 +1841,15 @@ function captureDraft() {
   const finalQuest = isFinalQuest(activeQuest);
   const finalUnlocked = Boolean(state.drafts[activeQuest.id]?.finalUnlocked);
   const previousDraft = state.drafts[activeQuest.id];
+  const savedSubmission = completedSubmission(activeQuest.id);
   const restorePreviousDraft = () => {
     if (previousDraft) state.drafts[activeQuest.id] = previousDraft;
     else delete state.drafts[activeQuest.id];
   };
+
+  if (savedSubmission && !questHasUnsavedChanges) {
+    return true;
+  }
 
   if (finalQuest && !finalUnlocked) {
     if (questIsCompleted(activeQuest.id)) return false;
@@ -1877,7 +1900,8 @@ function draftDiffersFromSavedMemory(draft, saved) {
 
   return (
     (draft.mediaId || "") !== (saved.mediaId || "") ||
-    adventureDateForSubmission(draft) !== adventureDateForSubmission(saved) ||
+    adventureDateForEditableRecord(draft, saved) !==
+      adventureDateForSubmission(saved) ||
     normalizeFriendCount(draft.friends) !== normalizeFriendCount(saved.friends) ||
     String(draft.location || "").trim() !== String(saved.location || "").trim() ||
     String(draft.caption || "").trim() !== String(saved.caption || "").trim() ||
@@ -1904,7 +1928,11 @@ function renderQuest(quest, announce = false) {
   selectedBonusIds = selectedBonusIdsFrom(draft);
   const today = localCalendarDate();
   els.adventureDate.max = today;
-  els.adventureDate.value = adventureDateForSubmission(draft, today);
+  els.adventureDate.value = adventureDateForEditableRecord(
+    draft,
+    existing,
+    today
+  );
   syncAdventureDateDisplay();
   setAdventureDateError();
   const meta = window.QUEST_CATEGORIES[quest.category];
@@ -3186,7 +3214,8 @@ if (new URLSearchParams(window.location.search).has("release-critical-validation
       isValidLocalCalendarDate,
       isSelectableAdventureDate,
       formatAdventureDate,
-      adventureDateForSubmission
+      adventureDateForSubmission,
+      adventureDateForEditableRecord
     })
   });
 }

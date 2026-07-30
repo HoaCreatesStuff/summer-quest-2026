@@ -78,6 +78,13 @@
           }) === "2026-07-24"
         );
         check(
+          "Legacy drafts without a date inherit the saved completion date",
+          dates.adventureDateForEditableRecord(
+            { caption: "Legacy draft without an adventure date" },
+            { completedAt: new Date(2026, 6, 12, 12).toISOString() }
+          ) === "2026-07-12"
+        );
+        check(
           "Explicit adventure dates remain independent of completion timestamps",
           dates.adventureDateForSubmission({
             adventureDate: "2026-07-04",
