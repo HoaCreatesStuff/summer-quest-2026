@@ -57,6 +57,7 @@ For each release:
 - `data/pwa.js`
 - `tests/media-storage-validation.html`
 - `tests/legacy-migration-validation.html`
+- `tests/adventure-date-validation.html`
 - `tests/release-critical-validation.html`
 - `tests/interaction-accessibility-validation.html`
 - `tests/desktop-mobile-validation.html`

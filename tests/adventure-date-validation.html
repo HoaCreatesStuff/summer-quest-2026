@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Summer Quest adventure date validation</title>
+  <style>
+    #appFrame {
+      position: absolute;
+      left: -12000px;
+      top: 0;
+      width: 760px;
+      height: 900px;
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Summer Quest adventure date validation</h1>
+  <pre id="result">Running…</pre>
+  <iframe id="appFrame" title="Summer Quest date test app"></iframe>
+
+  <script>
+    (async () => {
+      const STORAGE_KEY = "nyc-summer-quest-mvp-v1";
+      const result = document.querySelector("#result");
+      const frame = document.querySelector("#appFrame");
+      const checks = [];
+      const check = (name, condition, details = "") => {
+        checks.push({ name, passed: Boolean(condition), details });
+      };
+      const wait = milliseconds =>
+        new Promise(resolve => setTimeout(resolve, milliseconds));
+      const nextFrame = () =>
+        new Promise(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        );
+      const waitFor = async (predicate, message) => {
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          if (await predicate()) return;
+          await wait(50);
+        }
+        throw new Error(message);
+      };
+      const storedState = () =>
+        JSON.parse(frame.contentWindow.localStorage.getItem(STORAGE_KEY));
+      const completionIso = (day, hour) =>
+        new Date(2026, 6, day, hour, 0, 0, 0).toISOString();
+
+      const seededState = {
+        submissions: {
+          "ny-eats": {
+            questId: "ny-eats",
+            completed: true,
+            mediaId: "date-test-ny-eats",
+            mediaType: "image/jpeg",
+            adventureDate: "2026-07-10",
+            friends: 1,
+            location: "Queens",
+            caption: "Explicit date",
+            selectedBonusIds: [],
+            completedAt: completionIso(20, 10)
+          },
+          "bodega-cat": {
+            questId: "bodega-cat",
+            completed: true,
+            mediaId: "date-test-bodega-cat",
+            mediaType: "image/jpeg",
+            adventureDate: "2026-07-09",
+            friends: 0,
+            location: "Brooklyn",
+            caption: "Same adventure day, later completion",
+            selectedBonusIds: [],
+            completedAt: completionIso(21, 10)
+          },
+          "subway-romance": {
+            questId: "subway-romance",
+            completed: true,
+            mediaId: "date-test-subway-romance",
+            mediaType: "image/jpeg",
+            friends: 2,
+            location: "Manhattan",
+            caption: "Legacy date fallback",
+            selectedBonusIds: [],
+            completedAt: completionIso(9, 12)
+          }
+        },
+        drafts: {},
+        questDataMigrationVersion: 3
+      };
+
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(seededState));
+        const loaded = new Promise(resolve => {
+          frame.addEventListener("load", resolve, { once: true });
+        });
+        frame.src =
+          "../index.html?release-critical-validation=1&adventure-date-validation=1";
+        await loaded;
+        await waitFor(
+          () =>
+            frame.contentWindow?.SummerQuestTestHooks &&
+            frame.contentDocument?.querySelectorAll(
+              "#questGrid [data-quest-id]"
+            ).length === 25,
+          "Timed out waiting for the test app to initialize."
+        );
+
+        const app = frame.contentWindow;
+        const documentUnderTest = frame.contentDocument;
+        const dates = app.SummerQuestTestHooks.dates;
+        const today = dates.localCalendarDate();
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowKey = dates.localCalendarDate(tomorrow);
+        const openQuest = async questId => {
+          documentUnderTest.querySelector("#closeSheet")?.click();
+          await nextFrame();
+          documentUnderTest
+            .querySelector(`#questGrid [data-quest-id="${questId}"]`)
+            .click();
+          await nextFrame();
+        };
+
+        await openQuest("city-freebies");
+        const dateInput =
+          documentUnderTest.querySelector("#adventureDateInput");
+        const dateControl =
+          documentUnderTest.querySelector("#adventureDateControl");
+        const dateDisplay =
+          documentUnderTest.querySelector("#adventureDateDisplay");
+        const friendOutput =
+          documentUnderTest.querySelector("#friendCount");
+        const decrement =
+          documentUnderTest.querySelector("#decrementFriends");
+        const increment =
+          documentUnderTest.querySelector("#incrementFriends");
+        const dateField = dateInput.closest(".field");
+        const friendsField = friendOutput.closest(".field");
+        const dateControlRect = dateControl.getBoundingClientRect();
+        const dateInputRect = dateInput.getBoundingClientRect();
+        check(
+          "New quests default to today with a formatted display and native picker capped at today",
+          dateInput.type === "date" &&
+            dateInput.value === today &&
+            dateInput.max === today &&
+            dateDisplay.textContent === dates.formatAdventureDate(today) &&
+            Math.abs(dateInputRect.width - dateControlRect.width) <= 2 &&
+            Math.abs(dateInputRect.height - dateControlRect.height) <= 2 &&
+            app.getComputedStyle(dateInput).position === "absolute"
+        );
+        check(
+          "Date appears before the original friend stepper at its default",
+          Boolean(
+            dateField.compareDocumentPosition(friendsField) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+          ) &&
+            friendsField.tagName === "FIELDSET" &&
+            friendOutput.textContent === "0" &&
+            decrement.disabled &&
+            !increment.disabled
+        );
+
+        await openQuest("ny-eats");
+        const originalCompletedAt =
+          storedState().submissions["ny-eats"].completedAt;
+        check(
+          "Editing preloads the saved adventure date and friend count",
+          dateInput.value === "2026-07-10" &&
+            dateDisplay.textContent === "July 10, 2026" &&
+            friendOutput.textContent === "1"
+        );
+
+        dateInput.value = tomorrowKey;
+        dateInput.dispatchEvent(new app.Event("input", { bubbles: true }));
+        documentUnderTest.querySelector("#questForm").dispatchEvent(
+          new app.Event("submit", { bubbles: true, cancelable: true })
+        );
+        await nextFrame();
+        check(
+          "Future dates are rejected by HTML constraints and save-time validation",
+          !dateInput.validity.valid &&
+            !documentUnderTest.querySelector("#adventureDateError").hidden &&
+            storedState().submissions["ny-eats"].adventureDate ===
+              "2026-07-10"
+        );
+
+        for (let index = 0; index < 10; index += 1) increment.click();
+        const upperClamped =
+          friendOutput.textContent === "5" && increment.disabled;
+        for (let index = 0; index < 10; index += 1) decrement.click();
+        const lowerClamped =
+          friendOutput.textContent === "0" && decrement.disabled;
+        check(
+          "Friend stepper prevents values outside 0–5",
+          upperClamped && lowerClamped
+        );
+
+        await app.QuestMediaStore.put(
+          "date-test-ny-eats",
+          new app.Blob(["memory"], { type: "image/jpeg" })
+        );
+        dateInput.value = "2026-07-08";
+        dateInput.dispatchEvent(new app.Event("input", { bubbles: true }));
+        for (let index = 0; index < 4; index += 1) increment.click();
+        documentUnderTest.querySelector("#questForm").dispatchEvent(
+          new app.Event("submit", { bubbles: true, cancelable: true })
+        );
+        await waitFor(
+          () =>
+            storedState().submissions["ny-eats"].adventureDate ===
+              "2026-07-08",
+          "Valid edited adventure date was not saved."
+        );
+        const editedSubmission = storedState().submissions["ny-eats"];
+        check(
+          "Valid edits persist date and friend count without changing completedAt",
+          editedSubmission.adventureDate === "2026-07-08" &&
+            editedSubmission.friends === 4 &&
+            editedSubmission.completedAt === originalCompletedAt
+        );
+        check(
+          "Changing the friend count changes only the existing +2-per-friend bonus",
+          app.SummerQuestTestHooks.scoring.questPoints(
+            editedSubmission,
+            "ny-eats"
+          ) -
+            app.SummerQuestTestHooks.scoring.questPoints(
+              { ...editedSubmission, friends: 1 },
+              "ny-eats"
+            ) === 6
+        );
+
+        await openQuest("subway-romance");
+        const expectedLegacyDate = dates.adventureDateForSubmission(
+          seededState.submissions["subway-romance"]
+        );
+        check(
+          "Legacy submissions preload a local fallback from completedAt",
+          dateInput.value === expectedLegacyDate &&
+            dateDisplay.textContent === dates.formatAdventureDate(expectedLegacyDate) &&
+            friendOutput.textContent === "2"
+        );
+        await app.QuestMediaStore.put(
+          "date-test-subway-romance",
+          new app.Blob(["legacy-memory"], { type: "image/jpeg" })
+        );
+        const captionInput =
+          documentUnderTest.querySelector("#captionInput");
+        captionInput.value += " edited";
+        captionInput.dispatchEvent(new app.Event("input", { bubbles: true }));
+        documentUnderTest.querySelector("#questForm").dispatchEvent(
+          new app.Event("submit", { bubbles: true, cancelable: true })
+        );
+        await waitFor(
+          () =>
+            storedState().submissions["subway-romance"].adventureDate ===
+              expectedLegacyDate,
+          "Legacy fallback was not saved as an explicit adventure date."
+        );
+        check(
+          "Saving a legacy edit writes adventureDate transparently",
+          storedState().submissions["subway-romance"].adventureDate ===
+            expectedLegacyDate &&
+            storedState().submissions["subway-romance"].completedAt ===
+              seededState.submissions["subway-romance"].completedAt
+        );
+
+        documentUnderTest.querySelector("#closeSheet").click();
+        documentUnderTest.querySelector("#viewBoardBtn").click();
+        await waitFor(
+          () =>
+            documentUnderTest.body.dataset.page === "story" &&
+            documentUnderTest.querySelectorAll(".story-date-group").length ===
+              2,
+          "Journal groups did not render."
+        );
+        const dateHeadings = Array.from(
+          documentUnderTest.querySelectorAll(".story-date-heading h2")
+        ).map(heading => heading.textContent.trim());
+        const julyNinthQuestIds = Array.from(
+          documentUnderTest
+            .querySelector("#storyDate-1")
+            .querySelectorAll(".story-entry")
+        ).map(entry => entry.dataset.questId);
+        check(
+          "Journal orders and formats groups by adventureDate",
+          JSON.stringify(dateHeadings) === JSON.stringify([
+            "July 8, 2026",
+            "July 9, 2026"
+          ])
+        );
+        check(
+          "Quests on the same adventure date retain completion ordering",
+          JSON.stringify(julyNinthQuestIds) ===
+            JSON.stringify(["subway-romance", "bodega-cat"])
+        );
+      } catch (error) {
+        checks.push({
+          name: "Validation completed without an uncaught error",
+          passed: false,
+          details: error?.stack || String(error)
+        });
+      }
+
+      const failures = checks.filter(test => !test.passed);
+      result.textContent = [
+        ...checks.map(test =>
+          `${test.passed ? "PASS" : "FAIL"}: ${test.name}` +
+          (test.details
+            ? `\n${JSON.stringify(test.details, null, 2)}`
+            : "")
+        ),
+        "",
+        `${checks.length - failures.length}/${checks.length} checks passed.`
+      ].join("\n");
+      document.title = failures.length
+        ? `FAIL (${failures.length}) — ${document.title}`
+        : `PASS — ${document.title}`;
+      document.body.dataset.validationStatus =
+        failures.length ? "failed" : "passed";
+    })();
+  </script>
+</body>
+</html>

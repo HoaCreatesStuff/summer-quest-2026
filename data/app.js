@@ -10,6 +10,7 @@ const FRIEND_SCORING = Object.freeze({
   pointsPerFriend: 2,
   maxFriends: 5
 });
+const LOCAL_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MAX_FRIEND_REWARD =
   FRIEND_SCORING.pointsPerFriend * FRIEND_SCORING.maxFriends;
 const COMPLETION_TIMING = Object.freeze({
@@ -64,6 +65,69 @@ function normalizeFriendCount(value) {
 
 function friendPointsFor(value) {
   return normalizeFriendCount(value) * FRIEND_SCORING.pointsPerFriend;
+}
+
+function localCalendarDate(date = new Date()) {
+  if (
+    !date ||
+    typeof date.getTime !== "function" ||
+    Number.isNaN(date.getTime())
+  ) return "";
+  return [
+    String(date.getFullYear()).padStart(4, "0"),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+function parseLocalCalendarDate(value) {
+  const match = LOCAL_DATE_PATTERN.exec(String(value || ""));
+  if (!match) return null;
+
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const day = Number(dayText);
+  const date = new Date(0);
+  date.setHours(12, 0, 0, 0);
+  date.setFullYear(year, monthIndex, day);
+
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === monthIndex &&
+    date.getDate() === day
+  ) ? date : null;
+}
+
+function isValidLocalCalendarDate(value) {
+  return Boolean(parseLocalCalendarDate(value));
+}
+
+function formatAdventureDate(value) {
+  const date = parseLocalCalendarDate(value);
+  if (!date) return "Select a date";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  }).format(date);
+}
+
+function adventureDateForSubmission(submission, fallback = localCalendarDate()) {
+  if (isValidLocalCalendarDate(submission?.adventureDate)) {
+    return submission.adventureDate;
+  }
+
+  const completedDate = new Date(submission?.completedAt || "");
+  return localCalendarDate(completedDate) || fallback;
+}
+
+function isSelectableAdventureDate(value, today = localCalendarDate()) {
+  return (
+    isValidLocalCalendarDate(value) &&
+    isValidLocalCalendarDate(today) &&
+    value <= today
+  );
 }
 
 const LEGACY_QUEST_ID_MAP = {
@@ -345,6 +409,10 @@ const els = {
   
   friendsField: document.querySelector("#friendsField"),
   questDetailsRow: document.querySelector("#questDetailsRow"),
+  adventureDateControl: document.querySelector("#adventureDateControl"),
+  adventureDate: document.querySelector("#adventureDateInput"),
+  adventureDateDisplay: document.querySelector("#adventureDateDisplay"),
+  adventureDateError: document.querySelector("#adventureDateError"),
   location: document.querySelector("#locationInput"),
   caption: document.querySelector("#captionInput"),
   bonusField: document.querySelector("#bonusField"),
@@ -1257,6 +1325,50 @@ const bonusEarned = questBonuses.reduce(
     details.join('<span class="reward-separator">•</span>');
 }
 
+function setAdventureDateError(message = "") {
+  els.adventureDate.setCustomValidity(message);
+  els.adventureDate.setAttribute("aria-invalid", String(Boolean(message)));
+  els.adventureDateControl.classList.toggle("is-invalid", Boolean(message));
+  els.adventureDateError.textContent = message;
+  els.adventureDateError.hidden = !message;
+}
+
+function syncAdventureDateDisplay() {
+  els.adventureDateDisplay.textContent = formatAdventureDate(
+    els.adventureDate.value
+  );
+}
+
+function validateAdventureDateInput({ focus = false } = {}) {
+  const value = els.adventureDate.value;
+  const today = localCalendarDate();
+  els.adventureDate.max = today;
+
+  let message = "";
+  if (!value || !isValidLocalCalendarDate(value)) {
+    message = "Choose a valid date.";
+  } else if (value > today) {
+    message = "Adventure dates can't be in the future.";
+  }
+
+  setAdventureDateError(message);
+  if (message && focus) {
+    els.adventureDate.reportValidity();
+    els.adventureDate.focus({ preventScroll: true });
+    els.adventureDate.scrollIntoView({ block: "nearest" });
+  }
+  return message ? null : value;
+}
+
+function draftAdventureDate() {
+  const selectedDate = els.adventureDate.value;
+  if (isSelectableAdventureDate(selectedDate)) return selectedDate;
+
+  return adventureDateForSubmission(
+    state.drafts[activeQuest?.id] || completedSubmission(activeQuest?.id)
+  );
+}
+
 function renderFriendControls() {
   els.friendCount.textContent = friendCount;
   els.decrementFriends.disabled = friendCount <= 0;
@@ -1737,6 +1849,7 @@ function captureDraft() {
     questId: activeQuest.id,
     mediaId: activeMediaId,
     mediaType: activeMediaType || completedSubmission(activeQuest.id)?.mediaType || null,
+    adventureDate: draftAdventureDate(),
     friends: finalQuest ? 0 : friendCount,
     location: els.location.value,
     caption: els.caption.value,
@@ -1764,6 +1877,7 @@ function draftDiffersFromSavedMemory(draft, saved) {
 
   return (
     (draft.mediaId || "") !== (saved.mediaId || "") ||
+    adventureDateForSubmission(draft) !== adventureDateForSubmission(saved) ||
     normalizeFriendCount(draft.friends) !== normalizeFriendCount(saved.friends) ||
     String(draft.location || "").trim() !== String(saved.location || "").trim() ||
     String(draft.caption || "").trim() !== String(saved.caption || "").trim() ||
@@ -1788,6 +1902,11 @@ function renderQuest(quest, announce = false) {
   activeMediaType = draft?.mediaType || null;
   friendCount = normalizeFriendCount(draft?.friends);
   selectedBonusIds = selectedBonusIdsFrom(draft);
+  const today = localCalendarDate();
+  els.adventureDate.max = today;
+  els.adventureDate.value = adventureDateForSubmission(draft, today);
+  syncAdventureDateDisplay();
+  setAdventureDateError();
   const meta = window.QUEST_CATEGORIES[quest.category];
   const quests = orderedQuests();
   const questIndex = quests.findIndex(item => item.id === quest.id);
@@ -2579,6 +2698,12 @@ function handleQuestInputChange() {
 }
 
 els.location.addEventListener("input", handleQuestInputChange);
+els.adventureDate.addEventListener("input", () => {
+  syncAdventureDateDisplay();
+  validateAdventureDateInput();
+  handleQuestInputChange();
+});
+els.adventureDate.addEventListener("change", syncAdventureDateDisplay);
 els.caption.addEventListener("input", () => {
   autosizeCaption();
   if (document.activeElement === els.caption) queueCaptionPosition();
@@ -2736,6 +2861,11 @@ els.form.addEventListener("submit", async (event) => {
   }
   if (finalQuest && questIsCompleted(activeQuest.id)) return;
 
+  const adventureDate = validateAdventureDateInput({ focus: true });
+  if (!adventureDate) return;
+
+  friendCount = finalQuest ? 0 : normalizeFriendCount(friendCount);
+
   if (!activeMediaId) {
     alert("Add a photo or video first.");
     return;
@@ -2767,6 +2897,7 @@ els.form.addEventListener("submit", async (event) => {
              previousSubmission?.mediaId ||
              previousDraft?.mediaId,
     mediaType,
+    adventureDate,
     friends: finalQuest ? 0 : friendCount,
     location: els.location.value.trim(),
     caption: els.caption.value.trim(),
@@ -3048,6 +3179,14 @@ if (new URLSearchParams(window.location.search).has("release-critical-validation
     migrations: Object.freeze({
       version: QUEST_DATA_MIGRATION_VERSION,
       migrateSavedState
+    }),
+    dates: Object.freeze({
+      localCalendarDate,
+      parseLocalCalendarDate,
+      isValidLocalCalendarDate,
+      isSelectableAdventureDate,
+      formatAdventureDate,
+      adventureDateForSubmission
     })
   });
 }

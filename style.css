@@ -485,7 +485,8 @@ line-height: normal;
 .text-button:focus-visible,
 .reward-disclosure:focus-visible,
 .text-input:focus,
-.counter button:focus-visible {
+.counter button:focus-visible,
+.date-control:focus-within {
   outline: 3px solid rgba(47,143,140,.36);
   outline-offset: 3px;
 }
@@ -799,11 +800,11 @@ line-height: normal;
   white-space: nowrap;
 }
 .quest-navigation {
-  grid-column: 2;
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 0;
-  margin-left: 0;
+  margin-left: auto;
 }
 .quest-nav-button {
   position: relative;
@@ -857,10 +858,9 @@ line-height: normal;
 }
 .quest-detail-copy { min-width: 0; }
 .quest-modal-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   min-height: 44px;
   margin-bottom: 12px;
   touch-action: none;
@@ -868,17 +868,15 @@ line-height: normal;
   -webkit-user-select: none;
 }
 .quest-modal-header > .category-pill {
-  grid-column: 1;
-  justify-self: start;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 .quest-modal-header > .close-button {
-  grid-column: 3;
   position: static;
+  flex: 0 0 auto;
   width: 44px;
   height: 44px;
-  justify-self: end;
-  margin-left: 0;
+  margin-left: 2px;
 }
 .quest-modal-shell.is-swipe-dragging {
   animation: none;
@@ -1248,8 +1246,13 @@ line-height: normal;
 
 .field { display:block; margin-top: 18px; }
 .field > span { display:block; font-weight:500; margin-bottom:8px; }
+.date-field,
 .friends-field {
   min-width: 0;
+}
+.friends-field {
+  margin-inline: 0;
+  margin-bottom: 0;
   padding: 0;
   border: 0;
 }
@@ -1276,27 +1279,49 @@ line-height: normal;
 }
 .form-row .field { margin-top: 0; }
 .counter {
-  display: inline-grid;
-  grid-template-columns: 48px 70px 48px;
+  display: grid;
+  grid-template-columns: 2fr 6fr 2fr;
   align-items: center;
-  border:1px solid var(--line);
-  border-radius:18px;
-  overflow:hidden;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(255,255,255,.35);
 }
 .counter button {
-  height:48px;
-  border:0;
-  background:#efe7dc;
-  cursor:pointer;
-  font-size:1.3rem;
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  border: 0;
+  background: #efe7dc;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1.3rem;
+}
+.counter button:first-child {
+  border-right: 1px solid var(--line);
+}
+.counter button:last-child {
+  border-left: 1px solid var(--line);
 }
 .counter button:disabled {
   cursor: not-allowed;
   opacity: .42;
 }
-.counter output { text-align:center; font-weight:600; }
+.counter output {
+  min-width: 0;
+  text-align: center;
+  font-weight: 600;
+}
 .text-input {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 50px;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -1304,6 +1329,56 @@ line-height: normal;
   background: rgba(255,255,255,.35);
   color: var(--ink);
   outline: none;
+}
+.field > .date-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  margin-bottom: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 0 14px 0 16px;
+  background: rgba(255,255,255,.35);
+  font-weight: 400;
+  outline: none;
+}
+.date-control.is-invalid {
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px rgba(243,95,89,.12);
+}
+.date-display {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.date-control-icon {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--muted);
+  font-size: 21px;
+}
+.date-native-input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  appearance: auto;
+  -webkit-appearance: auto;
 }
 .text-input::placeholder {
   color: var(--muted);
@@ -1597,16 +1672,13 @@ textarea.text-input {
   background: transparent;
 }
 .final-complete-mode .quest-modal-header {
-  grid-template-columns: minmax(0, 1fr) auto;
   margin-bottom: 10px;
 }
 .final-complete-mode .quest-modal-header > .close-button {
-  grid-column: 2;
+  margin-left: auto;
 }
 .quest-modal-header .final-complete-heading {
-  grid-column: 1;
-  align-self: center;
-  justify-self: start;
+  flex: 0 1 auto;
   margin: 0;
   color: var(--ink);
   font-family: "Libre Baskerville", serif;
@@ -1867,14 +1939,14 @@ textarea.text-input {
     grid-template-columns: 1fr;
   }
   .counter,
+  .date-control {
+    width: 100%;
+  }
   .text-input {
     width: 100%;
   }
   .caption-field textarea {
     resize: none;
-  }
-  .counter {
-    grid-template-columns: 48px 1fr 48px;
   }
 }
 

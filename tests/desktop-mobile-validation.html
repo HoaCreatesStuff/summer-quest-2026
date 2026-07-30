@@ -57,6 +57,7 @@
 
       try {
         sessionStorage.removeItem(sessionKey);
+        localStorage.removeItem(stateKey);
         const loaded = new Promise(resolve => {
           frame.addEventListener("load", resolve, { once: true });
         });
@@ -224,6 +225,47 @@
             )
         );
 
+        const dateControl =
+          documentUnderTest.querySelector("#adventureDateControl");
+        const friendCounter =
+          documentUnderTest.querySelector("#friendsField .counter");
+        const dateField =
+          documentUnderTest.querySelector(".date-field");
+        const friendsField =
+          documentUnderTest.querySelector("#friendsField");
+        const dateRectAtPhone = dateControl.getBoundingClientRect();
+        const friendRectAtPhone = friendCounter.getBoundingClientRect();
+        check(
+          "Date and friend count stack at full width on small phones",
+          friendRectAtPhone.top > dateRectAtPhone.bottom &&
+            Math.abs(dateRectAtPhone.width - friendRectAtPhone.width) <= 1 &&
+            Math.abs(dateRectAtPhone.height - friendRectAtPhone.height) <= 1 &&
+            dateRectAtPhone.height >= 44 &&
+            friendRectAtPhone.height >= 44 &&
+            noHorizontalOverflow(documentUnderTest)
+        );
+        const friendSegments = [
+          friendCounter.querySelector("#decrementFriends"),
+          friendCounter.querySelector("output"),
+          friendCounter.querySelector("#incrementFriends")
+        ].map(element => element.getBoundingClientRect());
+        check(
+          "Friend counter fills its field with balanced 20/60/20 segments",
+          Math.abs(
+            friendRectAtPhone.width -
+              friendsField.getBoundingClientRect().width
+          ) <= 1 &&
+            Math.abs(friendSegments[0].width - friendSegments[2].width) <= 1 &&
+            Math.abs(
+              friendSegments[1].width / friendRectAtPhone.width - 0.6
+            ) <= 0.02 &&
+            [friendSegments[0], friendSegments[2]].every(
+              segment =>
+                segment.height >= 44 &&
+                Math.abs(segment.height - (friendRectAtPhone.height - 2)) <= 1
+            )
+        );
+
         const questForm = documentUnderTest.querySelector("#questForm");
         const locationInput =
           documentUnderTest.querySelector("#locationInput");
@@ -268,11 +310,20 @@
         frame.style.width = "844px";
         frame.style.height = "390px";
         await nextFrame();
+        const dateRectAtDesktop = dateField.getBoundingClientRect();
+        const friendRectAtDesktop = friendsField.getBoundingClientRect();
         check(
           "Landscape and short-height quest layouts retain internal scrolling without page overflow",
           noHorizontalOverflow(documentUnderTest) &&
             app.getComputedStyle(questForm).overflowY === "auto" &&
             !close.hidden
+        );
+        check(
+          "Date and friend count share an equal-width row on larger screens",
+          Math.abs(dateRectAtDesktop.top - friendRectAtDesktop.top) <= 1 &&
+            Math.abs(dateRectAtDesktop.width - friendRectAtDesktop.width) <= 1 &&
+            dateRectAtDesktop.right < friendRectAtDesktop.left &&
+            noHorizontalOverflow(documentUnderTest)
         );
 
         close.click();

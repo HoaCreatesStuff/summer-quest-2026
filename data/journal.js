@@ -47,27 +47,44 @@
 
   function completedEntries() {
     return orderedQuests()
-      .map(quest => ({ quest, submission: completedSubmission(quest.id) }))
+      .map((quest, boardIndex) => ({
+        quest,
+        boardIndex,
+        submission: completedSubmission(quest.id)
+      }))
       .filter(entry => Boolean(entry.submission))
+      .map(entry => ({
+        ...entry,
+        adventureDate: adventureDateForSubmission(entry.submission)
+      }))
       .sort((left, right) => {
+        const dateOrder = left.adventureDate.localeCompare(right.adventureDate);
+        if (dateOrder) return dateOrder;
+
         const leftTime = new Date(left.submission.completedAt || 0).getTime();
         const rightTime = new Date(right.submission.completedAt || 0).getTime();
-        return leftTime - rightTime;
+        if (
+          Number.isFinite(leftTime) &&
+          Number.isFinite(rightTime) &&
+          leftTime !== rightTime
+        ) {
+          return leftTime - rightTime;
+        }
+        if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) {
+          return Number.isFinite(leftTime) ? -1 : 1;
+        }
+        return left.boardIndex - right.boardIndex;
       });
   }
 
-  function localDateKey(value) {
-    const date = new Date(value || Date.now());
-    if (Number.isNaN(date.getTime())) return "undated";
-    return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
-  }
-
   function formattedDate(value) {
-    const date = new Date(value || Date.now());
-    if (Number.isNaN(date.getTime())) return "Date not recorded";
-    const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(date);
-    const rest = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(date);
-    return `${weekday} • ${rest}`;
+    const date = parseLocalCalendarDate(value);
+    if (!date) return "Date not recorded";
+    return new Intl.DateTimeFormat("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    }).format(date);
   }
 
   function friendsLabel(value) {
@@ -87,7 +104,13 @@
 
   async function renderStory() {
     const entries = completedEntries();
-    const newestQuestId = entries.at(-1)?.quest.id;
+    const newestQuestId = [...entries]
+      .sort((left, right) => {
+        const leftTime = new Date(left.submission.completedAt || 0).getTime();
+        const rightTime = new Date(right.submission.completedAt || 0).getTime();
+        return leftTime - rightTime;
+      })
+      .at(-1)?.quest.id;
     const nextUrls = new Set();
     await Promise.all(entries.map(async (entry) => {
       entry.mediaSource = await mediaSourceFor(entry.submission, nextUrls);
@@ -97,10 +120,10 @@
 
     const groups = [];
     entries.forEach((entry) => {
-      const key = localDateKey(entry.submission.completedAt);
+      const key = entry.adventureDate;
       let group = groups[groups.length - 1];
       if (!group || group.key !== key) {
-        group = { key, date: entry.submission.completedAt, entries: [] };
+        group = { key, date: entry.adventureDate, entries: [] };
         groups.push(group);
       }
       group.entries.push(entry);
@@ -653,7 +676,7 @@ return new Promise((resolve, reject) => {
         const caption = String(entry.submission.caption || "").trim();
         context.fillStyle = cssVariableColor("--teal");
         context.font = '700 15px Montserrat, sans-serif';
-        context.fillText(formattedDate(entry.submission.completedAt).toUpperCase(), margin, y);
+        context.fillText(formattedDate(entry.adventureDate).toUpperCase(), margin, y);
         y += 34;
         context.fillStyle = "#272522";
         context.font = '400 34px "Libre Baskerville", serif';

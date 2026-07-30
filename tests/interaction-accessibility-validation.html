@@ -43,6 +43,7 @@
       };
 
       try {
+        localStorage.removeItem("nyc-summer-quest-mvp-v1");
         const loaded = new Promise(resolve => {
           frame.addEventListener("load", resolve, { once: true });
         });
@@ -75,19 +76,24 @@
         const closeButton =
           documentUnderTest.querySelector("#closeSheet");
         const headerRect = questHeader.getBoundingClientRect();
+        const headerNavigationRect = questNavigation.getBoundingClientRect();
+        const headerCloseRect = closeButton.getBoundingClientRect();
+        const headerCategoryRect = categoryPill.getBoundingClientRect();
         check(
-          "Quest header uses one left/center/right row with centered navigation",
+          "Quest header keeps the category left and navigation beside close on the right",
           !documentUnderTest.querySelector("#sheetQuestNumber") &&
             questHeader.querySelector(":scope > #sheetCategory") === categoryPill &&
             questNavigation.querySelector(":scope > #previousQuest") &&
             questNavigation.querySelector(":scope > #nextQuest") &&
             questHeader.querySelector(":scope > #closeSheet") === closeButton &&
             questPosition.textContent.trim() === "2 / 25" &&
-            Math.abs(
-              questNavigation.getBoundingClientRect().left +
-              questNavigation.getBoundingClientRect().width / 2 -
-              (headerRect.left + headerRect.width / 2)
-            ) <= 1
+            headerCategoryRect.left >= headerRect.left - 1 &&
+            headerCategoryRect.right <= headerNavigationRect.left + 1 &&
+            headerNavigationRect.right <= headerCloseRect.left + 1 &&
+            headerCloseRect.right <= headerRect.right + 1 &&
+            headerNavigationRect.left + headerNavigationRect.width / 2 >
+              headerRect.left + headerRect.width / 2 &&
+            app.getComputedStyle(categoryPill).flexGrow === "0"
         );
 
         const savedCategoryText = categoryPill.textContent;

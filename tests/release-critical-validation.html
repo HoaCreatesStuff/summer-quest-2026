@@ -49,6 +49,41 @@
         const documentUnderTest = frame.contentDocument;
         const scoring = app.SummerQuestTestHooks.scoring;
         const migrations = app.SummerQuestTestHooks.migrations;
+        const dates = app.SummerQuestTestHooks.dates;
+
+        const localToday = dates.localCalendarDate();
+        check(
+          "Local calendar dates use YYYY-MM-DD without UTC conversion",
+          /^\d{4}-\d{2}-\d{2}$/.test(localToday) &&
+            dates.localCalendarDate(new Date(2026, 6, 30, 23, 59)) ===
+              "2026-07-30"
+        );
+        check(
+          "Date validation rejects malformed, impossible, and future dates",
+          dates.isValidLocalCalendarDate("2026-07-30") &&
+            !dates.isValidLocalCalendarDate("2026-02-30") &&
+            !dates.isValidLocalCalendarDate("07/30/2026") &&
+            dates.isSelectableAdventureDate("2026-07-29", "2026-07-30") &&
+            !dates.isSelectableAdventureDate("2026-07-31", "2026-07-30")
+        );
+        check(
+          "Stored local dates format with a full month, day, comma, and year",
+          dates.formatAdventureDate("2026-07-30") === "July 30, 2026" &&
+            dates.formatAdventureDate("2026-08-01") === "August 1, 2026"
+        );
+        check(
+          "Legacy memories derive a local date from completedAt",
+          dates.adventureDateForSubmission({
+            completedAt: new Date(2026, 6, 24, 12).toISOString()
+          }) === "2026-07-24"
+        );
+        check(
+          "Explicit adventure dates remain independent of completion timestamps",
+          dates.adventureDateForSubmission({
+            adventureDate: "2026-07-04",
+            completedAt: new Date(2026, 6, 24, 12).toISOString()
+          }) === "2026-07-04"
+        );
 
         const friendCases = [
           [undefined, 0],
