@@ -21,7 +21,6 @@
   --board-open-coral: #f5d0ca;
   --board-final: #e8d2a2;
   --board-open-final: #e8d2a2;
-
   --sand: #e8d8c4;
   --line: rgba(39, 37, 34, 0.12);
   --final-card-padding: clamp(16px, 5vw, 28px);
@@ -448,9 +447,7 @@ line-height: normal;
   width: 100%;
 }
 
-.board-header .label {
-  margin: 0;
-}
+.board-header .label { margin: 0; }
 
 .reset-link {
   margin-left: auto;          /* pushes it all the way right */
@@ -1585,6 +1582,7 @@ textarea.text-input {
   color: #4d3915;
   box-shadow: inset 0 0 0 1px rgba(113,78,17,.18);
 }
+.final-complete-mode .quest-detail-header,
 .final-complete-mode .quest-navigation,
 .final-complete-mode .quest-content > .primary-button,
 .final-complete-mode .quest-content > .secondary-button {
@@ -1598,6 +1596,24 @@ textarea.text-input {
   padding: 0;
   background: transparent;
 }
+.final-complete-mode .quest-modal-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 10px;
+}
+.final-complete-mode .quest-modal-header > .close-button {
+  grid-column: 2;
+}
+.quest-modal-header .final-complete-heading {
+  grid-column: 1;
+  align-self: center;
+  justify-self: start;
+  margin: 0;
+  color: var(--ink);
+  font-family: "Libre Baskerville", serif;
+  font-size: clamp(1rem, 4vw, 1.55rem);
+  font-weight: 400;
+  line-height: 1.2;
+}
 .adventure-complete-page {
   padding: 6px 0 12px;
 }
@@ -1606,24 +1622,38 @@ textarea.text-input {
   margin: 0 auto;
   text-align: center;
 }
-.adventure-complete-stamp {
-  width: clamp(92px, 22vw, 126px);
-  height: auto;
-  margin-bottom: 12px;
-  opacity: .94;
-  filter:
-    drop-shadow(0 1px 0 rgba(39,37,34,.36))
-    drop-shadow(0 0 3px rgba(255,250,242,.82));
+.adventure-complete-hero {
+  position: relative;
+  width: clamp(108px, 30vw, 160px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
 }
-.adventure-complete-header h3 {
-  color: var(--ink);
-  font-size: clamp(1.5rem, 6vw, 2.6rem);
+.adventure-complete-illustration {
+  grid-area: 1 / 1;
+  display: block;
+  width: 72%;
+  height: auto;
+  transform: translateY(-3%);
+}
+.adventure-complete-stamp {
+  grid-area: 1 / 1;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: auto;
+  opacity: .92;
+  pointer-events: none;
+  filter:
+    drop-shadow(0 1px 0 rgba(39,37,34,.48))
+    drop-shadow(0 0 2px rgba(255,250,242,.72));
 }
 .adventure-results-row {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
   align-items: stretch;
-  margin-top: 30px;
+  margin-top: 16px;
   border-block: 1px solid rgba(157,112,29,.28);
   background:
     radial-gradient(circle at 50% 30%, rgba(255,244,213,.9), transparent 64%);
@@ -1699,7 +1729,15 @@ textarea.text-input {
   font-family: "Montserrat", sans-serif;
   line-height: 1.65;
 }
-.adventure-complete-actions { margin-top: 26px; }
+.adventure-complete-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 26px;
+}
+.adventure-complete-actions .secondary-button,
+.adventure-complete-actions .adventure-text-button {
+  margin-top: 0;
+}
 .adventure-text-button {
   width: 100%;
   height: var(--button-height);
@@ -1899,6 +1937,305 @@ textarea.text-input {
   .quest-modal-shell.is-completing .quest-content > .primary-button,
   .quest-modal-shell.is-completing .quest-content > .adventure-text-button {
     transition-duration: .01ms !important;
+  }
+}
+
+/* Final Quest finale: temporary presentation layer over the saved app state. */
+body.finale-open {
+  overflow: hidden;
+}
+
+.finale-overlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  pointer-events: none;
+}
+
+.finale-paper {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: rgb(247 242 233 / var(--finale-paper-opacity, .92));
+  backdrop-filter:
+    blur(var(--finale-background-blur, 10px))
+    brightness(var(--finale-background-brightness, .83));
+  -webkit-backdrop-filter:
+    blur(var(--finale-background-blur, 10px))
+    brightness(var(--finale-background-brightness, .83));
+}
+
+.finale-content {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: max(20px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+}
+
+.finale-board {
+  position: relative;
+  width: min(85vw, 620px, 58vh);
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  gap: clamp(5px, 1.5vw, 10px);
+  opacity: 0;
+  filter: drop-shadow(0 10px 16px rgba(39,37,34,.14));
+  perspective: 1000px;
+}
+
+.finale-tile {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border-radius: clamp(9px, 2.3vw, 17px);
+  perspective: 650px;
+}
+
+.finale-tile-card {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.finale-tile-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: inherit;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.finale-tile-front {
+  padding: clamp(5px, 1.35vw, 11px);
+  transform: rotateY(0deg) translateZ(1px);
+}
+
+.finale-tile-front img {
+  width: 64%;
+  height: 64%;
+  object-fit: contain;
+}
+
+.finale-tile--experience {
+  color: var(--ink);
+  background: var(--category-experience);
+}
+
+.finale-tile--community {
+  color: var(--paper);
+  background: var(--category-community);
+}
+
+.finale-tile--challenges {
+  color: var(--paper);
+  background: var(--category-challenges);
+}
+
+.finale-tile--final {
+  color: #5f481d;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,250,242,.72), transparent 28%),
+    radial-gradient(circle at 82% 88%, rgba(246,185,0,.16), transparent 32%),
+    linear-gradient(135deg, #fff4d5 0%, var(--board-final) 52%, #f8e7bd 100%);
+}
+
+.finale-tile-back {
+  background: var(--sand);
+  transform: rotateY(180deg) translateZ(1px);
+}
+
+.finale-tile-back .finale-tile-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.finale-tile-back .finale-tile-fallback {
+  width: 64%;
+  height: 64%;
+  object-fit: contain;
+}
+
+.finale-light-sweep {
+  position: absolute;
+  z-index: 5;
+  top: -45%;
+  left: -82%;
+  width: 62%;
+  height: 190%;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255,248,211,.08) 12%,
+    rgba(255,239,170,.76) 48%,
+    rgba(255,255,255,.17) 76%,
+    transparent
+  );
+  filter: blur(10px);
+  mix-blend-mode: screen;
+  transform: translateX(-60%) rotate(17deg);
+  pointer-events: none;
+}
+
+.finale-sparkle-layer {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  pointer-events: none;
+}
+
+.finale-sparkle {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  opacity: 0;
+  transform: rotate(45deg) scale(.1);
+}
+
+.finale-sparkle::before,
+.finale-sparkle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 100% 0;
+  background: #fff3b5;
+  box-shadow: 0 0 7px rgba(218,166,45,.55);
+}
+
+.finale-sparkle::after {
+  transform: rotate(90deg);
+}
+
+.finale-message {
+  position: relative;
+  z-index: 3;
+  margin: clamp(18px, 3vh, 28px) 0 0;
+  color: var(--ink);
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(1.28rem, 5.2vw, 1.95rem);
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.16;
+  text-align: center;
+  text-shadow: 0 2px 16px rgba(255,250,242,.92);
+  opacity: 0;
+}
+
+.finale-ranks {
+  position: relative;
+  z-index: 3;
+  width: min(92vw, 470px);
+  height: 45px;
+  margin-top: 4px;
+  text-align: center;
+}
+
+.finale-rank {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #4c4842;
+  font-family: "Montserrat", sans-serif;
+  font-size: clamp(.9rem, 3.8vw, 1.12rem);
+  font-weight: 500;
+  letter-spacing: .025em;
+  opacity: 0;
+}
+
+.finale-rank.is-final {
+  color: #c69a3a;
+  font-family: "Libre Baskerville", serif;
+  font-size: clamp(1.42rem, 5.65vw, 1.78rem);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-shadow:
+    0 1px 0 rgba(95,72,29,.18),
+    0 2px 14px rgba(255,250,242,.98),
+    0 0 18px rgba(198,154,58,.2);
+}
+
+.finale-rank-shine {
+  position: absolute;
+  inset: 0 16%;
+  opacity: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 32%,
+    rgba(246,185,0,.68),
+    transparent 64%
+  );
+  mix-blend-mode: screen;
+  transform: translateX(-90%);
+  pointer-events: none;
+}
+
+.finale-confetti-layer {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.finale-confetti {
+  position: absolute;
+  width: var(--finale-confetti-width);
+  height: var(--finale-confetti-height);
+  border-radius: var(--finale-confetti-radius);
+  opacity: 0;
+  background: var(--finale-confetti-color);
+  will-change: transform, opacity;
+}
+
+.finale-confetti.is-burst {
+  top: 34%;
+  left: 50%;
+}
+
+.finale-confetti.is-drift {
+  top: -8vh;
+  left: var(--finale-confetti-left);
+}
+
+.finale-overlay.is-reduced-motion .finale-tile-back {
+  opacity: 0;
+  transform: none;
+}
+
+@media (max-width: 620px) {
+  .finale-board {
+    width: min(85vw, 430px, 53vh);
+  }
+}
+
+@media (max-height: 700px) {
+  .finale-board {
+    width: min(82vw, 420px, 46vh);
+  }
+
+  .finale-message {
+    margin-top: 12px;
+  }
+
+  .finale-ranks {
+    height: 35px;
   }
 }
 

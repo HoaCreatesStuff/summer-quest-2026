@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Summer Quest finale validation</title>
+</head>
+<body>
+  <h1>Summer Quest finale validation</h1>
+  <pre id="result">Running…</pre>
+
+  <script src="../data/quests.js"></script>
+  <script src="../data/boardConfig.js"></script>
+  <script src="../data/mediaStorage.js"></script>
+  <script src="../data/finale.js"></script>
+  <script>
+    (async () => {
+      const result = document.querySelector("#result");
+      const checks = [];
+      const check = (name, condition, details = "") => {
+        checks.push({ name, passed: Boolean(condition), details });
+      };
+
+      try {
+        const finale = window.SummerQuestFinale;
+        const timing = finale.timing;
+
+        check(
+          "Sweep fully exits before the approved pause and first flip",
+          timing.sweep.start +
+            timing.sweep.duration +
+            timing.sweep.pauseAfter ===
+            timing.photoWave.start
+        );
+        check(
+          "Finale copy matches the approved message",
+          timing.message.text === "Here’s to a summer well spent."
+        );
+        check(
+          "Photo wave defines one non-uniform interval per transition",
+          timing.photoWave.intervals.length === 24 &&
+            timing.photoWave.intervals.at(-1) >
+              timing.photoWave.intervals[0]
+        );
+        check(
+          "Reduced-motion destination is available without the full wait",
+          timing.reduced.total < 2000
+        );
+        check(
+          "Paper treatment retains the approved opacity, blur, and brightness",
+          timing.paperOpacity === 0.92 &&
+            timing.blur === 10 &&
+            timing.brightness === 0.83
+        );
+
+        const timestampEntries = window.BOARD_ORDER.map((questId, boardIndex) => ({
+          questId,
+          boardIndex,
+          submission: {
+            completedAt: new Date(
+              Date.UTC(2026, 6, 1, 12, 0, boardIndex)
+            ).toISOString()
+          }
+        }));
+        const actualOrder = finale
+          .completionOrder([...timestampEntries].reverse())
+          .map((entry) => entry.questId);
+        check(
+          "Real completion timestamps determine reveal order",
+          JSON.stringify(actualOrder) === JSON.stringify(window.BOARD_ORDER)
+        );
+        check(
+          "Quest 25 sorts last when it has the latest completion timestamp",
+          actualOrder.at(-1) === "party-time"
+        );
+
+        const fallbackEntries = window.BOARD_ORDER.map(
+          (questId, boardIndex) => ({
+            questId,
+            boardIndex,
+            submission: { completedAt: "" }
+          })
+        );
+        const fallbackOrder = finale
+          .completionOrder([...fallbackEntries].reverse())
+          .map((entry) => entry.questId);
+        check(
+          "Missing timestamps use stable board-position fallback order",
+          JSON.stringify(fallbackOrder) === JSON.stringify(window.BOARD_ORDER)
+        );
+
+        const [appSource, styleSource, indexSource] = await Promise.all([
+          fetch("../data/app.js", { cache: "no-store" }).then((response) => response.text()),
+          fetch("../style.css", { cache: "no-store" }).then((response) => response.text()),
+          fetch("../index.html", { cache: "no-store" }).then((response) => response.text())
+        ]);
+
+        check(
+          "Final Quest trigger runs only after a new all-quest completion",
+          appSource.includes("finalQuestFinaleIsEligible") &&
+            appSource.includes("completedCount === boardItems.length") &&
+            appSource.includes("isNewCompletion === true")
+        );
+        check(
+          "Edit, refresh, and summary-open paths cannot satisfy the trigger",
+          appSource.includes(
+            "if (finalQuest && questIsCompleted(activeQuest.id)) return;"
+          )
+        );
+        check(
+          "Regular completion animation is excluded only for the Final Quest",
+          appSource.includes("isNewCompletion && !finalQuest")
+        );
+        check(
+          "Production uses the real Final Summary rather than a duplicate",
+          appSource.includes("summaryWrapper: els.modalWrapper") &&
+            !indexSource.includes("finale-summary-modal")
+        );
+        check(
+          "Final Summary keeps the approved CTA hierarchy and labels",
+          appSource.includes("Create Your Memory Keepsake") &&
+            appSource.includes("View Your Summer Story") &&
+            appSource.includes(">Back to Board</button>")
+        );
+        check(
+          "Finale photos preserve square cropping without distortion",
+          styleSource.includes(".finale-tile-back .finale-tile-photo") &&
+            styleSource.includes("object-fit: cover")
+        );
+        check(
+          "3D faces include WebKit backface and depth safeguards",
+          styleSource.includes("-webkit-transform-style: preserve-3d") &&
+            styleSource.includes("-webkit-backface-visibility: hidden") &&
+            styleSource.includes("translateZ(1px)")
+        );
+        check(
+          "Prototype controls are absent from the production finale",
+          !appSource.includes("timeline-slider") &&
+            !indexSource.includes("finale-replay")
+        );
+
+        const failed = checks.filter((item) => !item.passed);
+        result.textContent = JSON.stringify({
+          status: failed.length ? "FAIL" : "PASS",
+          checks
+        }, null, 2);
+      } catch (error) {
+        result.textContent = JSON.stringify({
+          status: "FAIL",
+          message: error.message,
+          stack: error.stack
+        }, null, 2);
+      }
+    })();
+  </script>
+</body>
+</html>

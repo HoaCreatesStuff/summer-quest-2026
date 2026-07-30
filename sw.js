@@ -13,6 +13,7 @@ const APP_SHELL_URLS = [
   "./data/quests.js",
   "./data/boardConfig.js",
   "./data/mediaStorage.js",
+  "./data/finale.js",
   "./data/app.js",
   "./data/journal.js",
   "./assets/favicon/icon-192.png",

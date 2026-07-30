@@ -23,6 +23,7 @@ const CAPTION_VISIBLE_LINES = Object.freeze({
   max: 9
 });
 const mediaStore = window.QuestMediaStore;
+const finalQuestFinale = window.SummerQuestFinale;
 
 window.validateBoardConfig();
 window.validateQuestData();
@@ -249,6 +250,7 @@ let captionPositionTimer = 0;
 let questViewportBaselineHeight = 0;
 let questSwipeGesture = null;
 let questSwipeSettleTimer = 0;
+let finalQuestFinaleCompletionKey = "";
 
 const ranks = [
   {
@@ -315,6 +317,7 @@ const els = {
   desktopNextQuest: document.querySelector("#desktopNextQuest"),
   questPosition: document.querySelector("#questPosition"),
   announcement: document.querySelector("#questAnnouncement"),
+  finalCompleteHeading: document.querySelector("#finalCompleteHeading"),
   category: document.querySelector("#sheetCategory"),
   questIcon: document.querySelector("#sheetQuestIcon"),
   completedStamp: document.querySelector("#completedStamp"),
@@ -1036,6 +1039,81 @@ function currentRank(score) {
   return [...ranks].reverse().find(rank => score >= rank.min) || ranks[0];
 }
 
+function finalQuestFinaleKey(submission) {
+  if (!submission) return "";
+  return [
+    FINAL_QUEST_ID,
+    submission.completedAt || "",
+    submission.mediaId || ""
+  ].join(":");
+}
+
+function finalQuestFinaleIsEligible({
+  questId,
+  isNewCompletion,
+  completedCount,
+  completionKey,
+  playedCompletionKey = finalQuestFinaleCompletionKey
+}) {
+  return (
+    questId === FINAL_QUEST_ID &&
+    isNewCompletion === true &&
+    completedCount === boardItems.length &&
+    Boolean(completionKey) &&
+    completionKey !== playedCompletionKey
+  );
+}
+
+function finalQuestFinaleEntries() {
+  return boardItems
+    .map((quest) => ({
+      questId: quest.id,
+      boardIndex: quest.boardIndex,
+      boardColor: quest.boardColor,
+      illustration: questIllustrationPath(quest.id),
+      submission: completedSubmission(quest.id)
+    }))
+    .filter((entry) => Boolean(entry.submission));
+}
+
+async function playFinalQuestFinale(submission) {
+  const completionKey = finalQuestFinaleKey(submission);
+  const entries = finalQuestFinaleEntries();
+  const { score, completed } = getTotals();
+
+  if (!finalQuestFinaleIsEligible({
+    questId: FINAL_QUEST_ID,
+    isNewCompletion: true,
+    completedCount: completed,
+    completionKey
+  })) {
+    return { played: false, reason: "not-eligible" };
+  }
+
+  finalQuestFinaleCompletionKey = completionKey;
+
+  if (!finalQuestFinale?.play || entries.length !== boardItems.length) {
+    console.warn(
+      "[Finale] Animation is unavailable or the completed board is incomplete; showing the Final Summary directly."
+    );
+    return { played: false, reason: "unavailable" };
+  }
+
+  const finalRank = currentRank(score);
+  const eligibleRankTitles = ranks
+    .filter((rank) => rank.min <= score)
+    .map((rank) => rank.title);
+
+  return finalQuestFinale.play({
+    completionKey,
+    entries,
+    finalRankTitle: finalRank.title,
+    rankTitles: eligibleRankTitles,
+    summaryWrapper: els.modalWrapper,
+    summaryClose: els.close
+  });
+}
+
 function rankProgressForScore(score) {
   const rankIndex = ranks.indexOf(currentRank(score));
   const rank = ranks[rankIndex];
@@ -1400,10 +1478,20 @@ function renderFinalResults() {
 
   els.finalResults.innerHTML = `
     <div class="adventure-complete-page">
-      <header class="adventure-complete-header">
-        <img class="adventure-complete-stamp" src="assets/illustrations/overlays/completed-stamp-256.png" alt="Completed" />
-        <h3>Adventure Complete!</h3>
-      </header>
+      <div class="adventure-complete-header">
+        <div class="adventure-complete-hero" aria-hidden="true">
+          <img
+            class="adventure-complete-illustration"
+            src="assets/illustrations/icons/birthday-selfie.png"
+            alt=""
+          />
+          <img
+            class="adventure-complete-stamp"
+            src="assets/illustrations/overlays/completed-stamp-256.png"
+            alt=""
+          />
+        </div>
+      </div>
 
       <section class="adventure-results-row" aria-label="Final results">
         <div class="adventure-result adventure-final-score">
@@ -1436,13 +1524,14 @@ function renderFinalResults() {
       <p class="adventure-closing"><strong>Thanks for celebrating with us and making this birthday unforgettable.</strong></p>
 
       <div class="adventure-complete-actions">
-        <button class="primary-button" type="button" data-final-action="review-memories"> VIEW YOUR SUMMER STORY
-        </button>
-        <button class="adventure-text-button" type="button" data-final-action="view-board"> BACK TO BOARD
-        </button>
+        <button class="primary-button" type="button" data-final-action="create-keepsake">Create Your Memory Keepsake</button>
+        <button class="secondary-button" type="button" data-final-action="view-journal">View Your Summer Story</button>
+        <button class="adventure-text-button" type="button" data-final-action="view-board">Back to Board</button>
       </div>
     </div>
   `;
+  els.finalCompleteHeading.hidden = false;
+  els.sheet.setAttribute("aria-labelledby", "finalCompleteHeading");
   startFinalScoreSync();
 }
 
@@ -1684,6 +1773,8 @@ function draftDiffersFromSavedMemory(draft, saved) {
 
 function renderQuest(quest, announce = false) {
   activeQuest = quest;
+  els.finalCompleteHeading.hidden = true;
+  els.sheet.setAttribute("aria-labelledby", "sheetTitle");
 
   const existing = completedSubmission(quest.id);
   const draft = state.drafts[quest.id] || existing;
@@ -2612,6 +2703,18 @@ els.finalResults.addEventListener("click", (event) => {
   const action = event.target.closest("[data-final-action]")?.dataset.finalAction;
   if (!action) return;
 
+  if (action === "create-keepsake") {
+    closeSheet(false);
+    els.saveBoard.click();
+    return;
+  }
+
+  if (action === "view-journal") {
+    closeSheet(false);
+    els.viewBoard.click();
+    return;
+  }
+
   if (action === "view-board") {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     closeSheet(false);
@@ -2619,11 +2722,6 @@ els.finalResults.addEventListener("click", (event) => {
       els.board.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
     });
     return;
-  }
-
-  if (action === "review-memories") {
-    closeSheet(false);
-    document.querySelector("#viewBoardBtn")?.click();
   }
 });
 
@@ -2644,7 +2742,10 @@ els.form.addEventListener("submit", async (event) => {
   }
   saveInProgress = true;
   const isNewCompletion = !questIsCompleted(activeQuest.id);
-  const completionStage = isNewCompletion ? beginCompletionFocus() : null;
+  const completionStage =
+    isNewCompletion && !finalQuest
+      ? beginCompletionFocus()
+      : null;
   els.saveQuest.disabled = true;
   els.saveQuest.textContent = "Saving…";
   const mediaType = activeMediaType || completedSubmission(activeQuest.id)?.mediaType || "image/jpeg";
@@ -2726,7 +2827,16 @@ els.form.addEventListener("submit", async (event) => {
     `${activeQuest.title} completed. ${questPoints(nextSubmission, questId)} points earned.`;
 
   try {
-    if (completionStage) {
+    const shouldPlayFinale = finalQuestFinaleIsEligible({
+      questId,
+      isNewCompletion,
+      completedCount: getTotals().completed,
+      completionKey: finalQuestFinaleKey(nextSubmission)
+    });
+
+    if (shouldPlayFinale) {
+      await playFinalQuestFinale(nextSubmission);
+    } else if (completionStage) {
       await playCompletionCelebration(completionStage);
     }
   } finally {
@@ -2967,6 +3077,27 @@ if (new URLSearchParams(window.location.search).has("desktop-mobile-validation")
     },
     positionFocusedControlForKeyboard: positionCaptionForKeyboard,
     syncFocusedControlViewport: syncCaptionViewport
+  });
+}
+if (new URLSearchParams(window.location.search).has("finale-validation")) {
+  window.SummerQuestFinaleTestHooks = Object.freeze({
+    timing: finalQuestFinale?.timing,
+    completionOrder: (entries) =>
+      finalQuestFinale?.completionOrder(entries) || [],
+    isEligible: finalQuestFinaleIsEligible,
+    finaleEntries: finalQuestFinaleEntries,
+    async replay() {
+      const submission = completedSubmission(FINAL_QUEST_ID);
+      if (!submission) return { played: false, reason: "final-quest-incomplete" };
+
+      const finalQuest = boardItems.find((quest) => quest.id === FINAL_QUEST_ID);
+      if (els.sheet.hidden) openSheet(finalQuest);
+      else renderQuest(finalQuest);
+
+      finalQuestFinaleCompletionKey = "";
+      finalQuestFinale?.resetReplayGuardForDevelopment();
+      return playFinalQuestFinale(submission);
+    }
   });
 }
 

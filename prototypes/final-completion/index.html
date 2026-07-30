@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Standalone motion prototype for the Summer Quest final completion sequence."
+    />
+    <title>Summer Quest — Final Completion Prototype</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Montserrat:wght@300;400;500;600&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="prototype" aria-label="Summer Quest final completion animation prototype">
+      <!-- Frozen production-style board screen behind the finale. -->
+      <section class="app-underlay" id="app-underlay" aria-hidden="true">
+        <div class="app-shell">
+          <header class="hero">
+            <div class="hero-cover">
+              <img
+                class="hero-illustration"
+                src="./assets/production-ui/hero-park-clean.png"
+                alt=""
+              />
+              <div class="hero-title-stack">
+                <p class="eyebrow">Hoa &amp; Erika’s 2026 Birthday Edition</p>
+                <h1><span class="title-kicker">NYC</span><span>Summer</span><span>Quest</span></h1>
+              </div>
+            </div>
+          </header>
+          <section class="progress-card">
+            <p class="label">Current rank</p>
+            <h2><span>Social</span> <span>Legend</span></h2>
+            <div class="score-block"><span>245</span></div>
+            <p class="rank-blurb">You made this summer legendary by bringing people together.</p>
+            <div class="progress-track"><div class="progress-fill"></div></div>
+          </section>
+          <section class="board-section">
+            <div class="section-heading">
+              <div><p class="label">Your adventure board</p><h2>25 memories made</h2></div>
+              <span class="board-count">25 / 25</span>
+            </div>
+            <div class="quest-grid" id="background-board"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- Actual production Final Quest bottom-sheet structure at submission. -->
+      <section class="initial-modal-layer" id="initial-modal-layer" aria-label="Final Quest">
+        <div class="sheet-backdrop"></div>
+        <div class="quest-modal-wrapper">
+          <section class="bottom-sheet quest-modal-shell" role="dialog" aria-modal="true">
+            <div class="sheet-handle" aria-hidden="true"></div>
+            <form class="quest-modal-scroll final-quest-mode">
+              <div class="quest-content">
+                <div class="quest-modal-header">
+                  <span class="category-pill category-final" hidden>Final Quest</span>
+                  <div class="quest-navigation" aria-label="Quest navigation">
+                    <button class="quest-nav-button" type="button" aria-label="Previous quest">
+                      <span class="material-symbols-outlined">chevron_left</span>
+                    </button>
+                    <span class="quest-position">25 / 25</span>
+                    <button class="quest-nav-button" type="button" disabled aria-label="Next quest">
+                      <span class="material-symbols-outlined">chevron_right</span>
+                    </button>
+                  </div>
+                  <button class="close-button" type="button" aria-label="Close">
+                    <span class="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+
+                <div class="quest-detail-header">
+                  <div class="quest-detail-copy">
+                    <h2>Party Time</h2>
+                    <p class="sheet-description">
+                      Take a selfie with the birthday girls. If you couldn't make it, a selfie with
+                      our photo counts too!
+                    </p>
+                  </div>
+                  <div class="sheet-icon-wrap" aria-hidden="true">
+                    <img
+                      class="sheet-quest-icon"
+                      src="./assets/production-icons/celebrate-together.png"
+                      alt=""
+                    />
+                  </div>
+                </div>
+
+                <div class="quest-form-fields">
+                  <div class="media-preview prototype-media-preview">
+                    <div class="prototype-upload-photo" aria-label="Uploaded Final Quest photo"></div>
+                    <button class="media-edit-button" type="button" aria-label="Edit photo">
+                      <span class="material-symbols-outlined">edit</span>
+                    </button>
+                  </div>
+
+                  <div class="form-row no-friends">
+                    <label class="field">
+                      <span>Location</span>
+                      <input class="text-input" type="text" value="Prospect Park, Brooklyn" />
+                    </label>
+                  </div>
+
+                  <label class="field caption-field">
+                    <span>Caption <small>Optional but encouraged</small></span>
+                    <textarea class="text-input" rows="3">One final photo with everyone who made this summer unforgettable.</textarea>
+                  </label>
+
+                  <div class="bonus-field">
+                    <label class="bonus-option">
+                      <input class="bonus-option-input" type="checkbox" checked />
+                      <span class="bonus-option-content">
+                        <span class="bonus-pill">BONUS</span>
+                        <span class="bonus-option-label">Attend the birthday party.</span>
+                        <span class="bonus-point-value">+5 pts</span>
+                      </span>
+                    </label>
+                  </div>
+
+                  <div class="reward-preview">
+                    <button class="reward-disclosure" type="button">
+                      <span class="reward-title">Rewards</span>
+                      <span class="reward-total-wrap">
+                        <span class="reward-total-line">10 pts</span>
+                        <span class="reward-chevron material-symbols-outlined">expand_more</span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <button class="primary-button" type="button">Complete Final Quest</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </section>
+
+      <!-- New motion work only: confetti, completed board, photos, message, ranks. -->
+      <section class="celebration-stage" id="celebration-stage" aria-label="Finale animation">
+        <div class="confetti-layer" id="confetti-layer" aria-hidden="true"></div>
+        <div class="finale-content">
+          <div class="finale-board" id="finale-board" aria-label="Completed 5 by 5 adventure board"></div>
+          <div class="finale-message" id="finale-message" aria-live="polite"></div>
+          <div class="rank-review" id="rank-review" aria-label="Rank progression"></div>
+        </div>
+      </section>
+
+      <!-- Actual production Final Summary bottom-sheet structure. -->
+      <section class="summary-layer" id="summary-layer" aria-label="Final Summary">
+        <div class="sheet-backdrop"></div>
+        <div class="quest-modal-wrapper">
+          <section class="bottom-sheet quest-modal-shell production-summary-sheet" role="dialog" aria-modal="true">
+            <div class="sheet-handle" aria-hidden="true"></div>
+            <div class="quest-modal-scroll final-quest-mode final-complete-mode">
+              <div class="quest-content">
+                <div class="quest-modal-header">
+                  <span class="category-pill category-final" hidden>Final Quest</span>
+                  <div class="quest-navigation" aria-label="Quest navigation">
+                    <span class="quest-position">25 / 25</span>
+                  </div>
+                  <button class="close-button" type="button" aria-label="Close">
+                    <span class="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+
+                <div class="quest-detail-header">
+                  <div class="quest-detail-copy">
+                    <h2>Party Time</h2>
+                    <p class="sheet-description">
+                      Take a selfie with the birthday girls. If you couldn't make it, a selfie with
+                      our photo counts too!
+                    </p>
+                  </div>
+                  <div class="sheet-icon-wrap" aria-hidden="true">
+                    <img
+                      class="sheet-quest-icon"
+                      src="./assets/production-icons/celebrate-together.png"
+                      alt=""
+                    />
+                  </div>
+                </div>
+
+                <div class="final-quest-flow">
+                  <section class="final-results">
+                    <div class="adventure-complete-page">
+                      <header class="adventure-complete-header">
+                        <img
+                          class="adventure-complete-stamp"
+                          src="./assets/production-ui/completed-stamp-256.png"
+                          alt="Completed"
+                        />
+                        <h3>Adventure Complete!</h3>
+                      </header>
+
+                      <section class="adventure-results-row" aria-label="Final results">
+                        <div class="adventure-result adventure-final-score">
+                          <p class="label">Score</p>
+                          <p class="adventure-score-value">245</p>
+                        </div>
+                        <div class="adventure-result adventure-final-rank">
+                          <p class="label">Rank</p>
+                          <div class="adventure-rank-copy">
+                            <h4 class="adventure-rank-value">Social Legend</h4>
+                            <p class="adventure-rank-description">
+                              You made this summer legendary by bringing people together.
+                            </p>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section class="adventure-story">
+                        <div class="adventure-story-lines">
+                          <div class="adventure-story-line">
+                            <span class="material-symbols-rounded adventure-story-icon" aria-hidden="true">task_alt</span>
+                            <p>One adventure at a time, you completed <strong>25 NYC quests</strong>.</p>
+                          </div>
+                          <div class="adventure-story-line">
+                            <span class="material-symbols-rounded adventure-story-icon" aria-hidden="true">group</span>
+                            <p>Along the way, <strong>18 people</strong> joined your adventures.</p>
+                          </div>
+                          <div class="adventure-story-line">
+                            <span class="material-symbols-rounded adventure-story-icon" aria-hidden="true">auto_awesome</span>
+                            <p>You even unlocked <strong>14 bonus memories</strong> along the way.</p>
+                          </div>
+                        </div>
+                      </section>
+
+                      <p class="adventure-closing">
+                        <strong>Thanks for celebrating with us and making this birthday unforgettable.</strong>
+                      </p>
+
+                      <div class="adventure-complete-actions">
+                        <button class="primary-button" type="button">VIEW YOUR SUMMER STORY</button>
+                        <button class="adventure-text-button" type="button">BACK TO BOARD</button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <aside class="controls" aria-label="Prototype controls">
+      <div class="control-topline">
+        <div class="control-actions">
+          <button class="control-button primary" id="replay-button" type="button">
+            <span aria-hidden="true">↻</span> Replay
+          </button>
+          <button class="control-button" id="pause-button" type="button">
+            <span id="pause-icon" aria-hidden="true">Ⅱ</span>
+            <span id="pause-label">Pause</span>
+          </button>
+        </div>
+        <div class="control-preferences">
+          <label class="message-picker">
+            <span>Message</span>
+            <select id="message-select" aria-label="Closing message"></select>
+            <small>M cycles</small>
+          </label>
+          <label class="motion-toggle">
+            <input id="reduced-motion-toggle" type="checkbox" />
+            <span class="toggle-track"><span></span></span>
+            Reduced motion
+          </label>
+        </div>
+      </div>
+
+      <div class="timeline-row">
+        <span class="timecode" id="current-time">0:00.0</span>
+        <input
+          id="timeline-slider"
+          class="timeline-slider"
+          type="range"
+          min="0"
+          max="100"
+          step="0.1"
+          value="0"
+          aria-label="Animation timeline"
+        />
+        <span class="timecode" id="total-time">0:10.5</span>
+      </div>
+
+      <div class="control-bottomline">
+        <div class="speed-group" role="group" aria-label="Playback speed">
+          <span>Speed</span>
+          <button type="button" data-speed="0.5">0.5×</button>
+          <button type="button" data-speed="1" class="active">1×</button>
+          <button type="button" data-speed="1.5">1.5×</button>
+          <button type="button" data-speed="2">2×</button>
+        </div>
+        <div class="jump-group" role="group" aria-label="Jump to animation moment">
+          <button type="button" data-jump-key="sweep">Sweep</button>
+          <button type="button" data-jump-key="photoWave">Photo wave</button>
+          <button type="button" data-jump-key="finalFlips">Final flips</button>
+          <button type="button" data-jump-key="message">Message</button>
+          <button type="button" data-jump-key="ranks">Ranks</button>
+          <button type="button" data-jump-key="summary">Summary</button>
+        </div>
+      </div>
+    </aside>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
