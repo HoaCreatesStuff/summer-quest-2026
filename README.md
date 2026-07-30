@@ -59,6 +59,7 @@ For each release:
 - `tests/legacy-migration-validation.html`
 - `tests/release-critical-validation.html`
 - `tests/interaction-accessibility-validation.html`
+- `tests/desktop-mobile-validation.html`
 - `tests/pwa-update-validation.html`
 
 `data/quests.js` is the canonical source for quest content, base points,

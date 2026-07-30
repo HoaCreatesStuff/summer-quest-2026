@@ -818,6 +818,9 @@ return new Promise((resolve, reject) => {
 
     currentPage = page;
     document.body.dataset.page = page;
+    document.dispatchEvent(new CustomEvent("summerquest:pagechange", {
+      detail: { page }
+    }));
     document.title = page === "story"
       ? "My Summer Story — NYC Summer Quest"
       : page === "keepsake"

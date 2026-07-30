@@ -1,5 +1,8 @@
 const STORAGE_KEY = "nyc-summer-quest-mvp-v1";
 const BRIEFING_STATE_KEY = "nyc-summer-quest-briefing-collapsed";
+const DESKTOP_NOTICE_SESSION_KEY = "nyc-summer-quest-desktop-notice-shown";
+const DESKTOP_NOTICE_MIN_WIDTH = 768;
+const DESKTOP_NOTICE_MIN_HEIGHT = 480;
 const QUEST_DATA_MIGRATION_VERSION = 3;
 const MEDIA_MIGRATION_VERSION = 1;
 const FINAL_QUEST_ID = "party-time";
@@ -236,6 +239,9 @@ let questHasUnsavedChanges = false;
 let sheetTrigger = null;
 let homeScreenSheetTrigger = null;
 let removeDialogTrigger = null;
+let desktopNoticeTrigger = null;
+let desktopNoticeShownThisDocument = false;
+let desktopNoticeResizeTimer = 0;
 let captionViewportActive = false;
 let captionViewportBaselineHeight = 0;
 let captionViewportReleaseTimer = 0;
@@ -353,6 +359,8 @@ const els = {
   keepMemory: document.querySelector("#keepMemory"),
   confirmRemoveMemory: document.querySelector("#confirmRemoveMemory"),
   removeMemoryError: document.querySelector("#removeMemoryError"),
+  desktopNoticeModal: document.querySelector("#desktopNoticeModal"),
+  continueOnDesktop: document.querySelector("#continueOnDesktop"),
   viewBoard: document.querySelector("#viewBoardBtn"),
   saveBoard: document.querySelector("#saveBoardBtn"),
   resetBoard: document.querySelector("#resetBoard"),
@@ -465,14 +473,22 @@ function syncCaptionViewport() {
 }
 
 function positionCaptionForKeyboard() {
-  if (document.activeElement !== els.caption || els.sheet.hidden) return;
+  const focusedControl = document.activeElement;
+  if (
+    els.sheet.hidden ||
+    !(focusedControl instanceof HTMLElement) ||
+    !els.sheet.contains(focusedControl) ||
+    !focusedControl.matches("input[type='text'], textarea")
+  ) return;
 
-  const selectionStart = els.caption.selectionStart;
-  const selectionEnd = els.caption.selectionEnd;
-  const selectionDirection = els.caption.selectionDirection;
-  const textareaScrollTop = els.caption.scrollTop;
+  const isCaption = focusedControl === els.caption;
+  const selectionStart = isCaption ? els.caption.selectionStart : null;
+  const selectionEnd = isCaption ? els.caption.selectionEnd : null;
+  const selectionDirection = isCaption ? els.caption.selectionDirection : null;
+  const textareaScrollTop = isCaption ? els.caption.scrollTop : 0;
   const scrollRect = els.form.getBoundingClientRect();
-  const fieldRect = els.caption.closest(".caption-field").getBoundingClientRect();
+  const field = focusedControl.closest(".field") || focusedControl;
+  const fieldRect = field.getBoundingClientRect();
   const comfortableTop = scrollRect.top + 18;
   const comfortableBottom = scrollRect.bottom - 24;
   const availableHeight = comfortableBottom - comfortableTop;
@@ -485,8 +501,8 @@ function positionCaptionForKeyboard() {
       scrollDelta = fieldRect.bottom - comfortableBottom;
     }
   } else {
-    const textareaRect = els.caption.getBoundingClientRect();
-    scrollDelta = textareaRect.top - comfortableTop;
+    const controlRect = focusedControl.getBoundingClientRect();
+    scrollDelta = controlRect.top - comfortableTop;
   }
 
   if (Math.abs(scrollDelta) > 1) {
@@ -497,8 +513,8 @@ function positionCaptionForKeyboard() {
     });
   }
 
-  els.caption.scrollTop = textareaScrollTop;
-  if (selectionStart !== null && selectionEnd !== null) {
+  if (isCaption) els.caption.scrollTop = textareaScrollTop;
+  if (isCaption && selectionStart !== null && selectionEnd !== null) {
     els.caption.setSelectionRange(
       selectionStart,
       selectionEnd,
@@ -524,7 +540,7 @@ function beginCaptionEditing() {
 function finishCaptionEditing() {
   window.clearTimeout(captionViewportReleaseTimer);
   captionViewportReleaseTimer = window.setTimeout(() => {
-    if (document.activeElement === els.caption) return;
+    if (questFormControlIsFocused()) return;
 
     const viewportRecovered =
       questVisualViewport().height >= captionViewportBaselineHeight - 80;
@@ -540,7 +556,7 @@ function finishCaptionEditing() {
 function handleCaptionViewportChange() {
   if (!captionViewportActive) return;
   syncCaptionViewport();
-  if (document.activeElement === els.caption) queueCaptionPosition();
+  if (questFormControlIsFocused()) queueCaptionPosition();
   else finishCaptionEditing();
 }
 
@@ -731,13 +747,15 @@ function delayUntil(startedAt, elapsedMilliseconds) {
 function syncQuestModalInert() {
   const topModalIsOpen =
     !els.cropModal.hidden ||
-    !els.removeMemoryModal.hidden;
+    !els.removeMemoryModal.hidden ||
+    !els.desktopNoticeModal.hidden;
   const completionIsLocked =
     els.modalWrapper.hasAttribute("data-completion-locked");
   els.modalWrapper.toggleAttribute("inert", topModalIsOpen || completionIsLocked);
   els.appPages.forEach((page) => {
     page.toggleAttribute("inert", topModalIsOpen);
   });
+  els.homeScreenModalWrapper.toggleAttribute("inert", !els.desktopNoticeModal.hidden);
 }
 
 function setCompletionInteractionLock(locked) {
@@ -1856,7 +1874,102 @@ function openRemoveConfirmation() {
   requestAnimationFrame(() => els.keepMemory.focus({ preventScroll: true }));
 }
 
+function desktopNoticeSessionShown() {
+  try {
+    return sessionStorage.getItem(DESKTOP_NOTICE_SESSION_KEY) === "true";
+  } catch {
+    return desktopNoticeShownThisDocument;
+  }
+}
+
+function markDesktopNoticeSessionShown() {
+  desktopNoticeShownThisDocument = true;
+  try {
+    sessionStorage.setItem(DESKTOP_NOTICE_SESSION_KEY, "true");
+  } catch {
+    // The in-memory flag still prevents repeated notices when storage is blocked.
+  }
+}
+
+function desktopNoticeConditions({
+  width = window.innerWidth,
+  height = window.innerHeight,
+  finePointer = window.matchMedia("(pointer: fine)").matches,
+  hover = window.matchMedia("(hover: hover)").matches
+} = {}) {
+  return (
+    width >= DESKTOP_NOTICE_MIN_WIDTH &&
+    height >= DESKTOP_NOTICE_MIN_HEIGHT &&
+    finePointer &&
+    hover
+  );
+}
+
+function anotherDialogIsOpen() {
+  return (
+    !els.removeMemoryModal.hidden ||
+    !els.cropModal.hidden ||
+    !els.homeScreenSheet.hidden ||
+    !els.sheet.hidden
+  );
+}
+
+function closeDesktopNotice({ restoreFocus = true } = {}) {
+  const wasOpen = !els.desktopNoticeModal.hidden;
+  const focusTarget = desktopNoticeTrigger;
+  desktopNoticeTrigger = null;
+  els.desktopNoticeModal.hidden = true;
+  document.body.classList.remove("desktop-notice-open");
+  syncQuestModalInert();
+
+  if (wasOpen && restoreFocus && focusTarget?.isConnected) {
+    requestAnimationFrame(() => focusTarget.focus({ preventScroll: true }));
+  }
+}
+
+function openDesktopNotice() {
+  if (
+    desktopNoticeSessionShown() ||
+    anotherDialogIsOpen() ||
+    document.body.dataset.page === "story" ||
+    document.body.dataset.page === "keepsake" ||
+    !desktopNoticeConditions()
+  ) return false;
+
+  desktopNoticeTrigger = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  markDesktopNoticeSessionShown();
+  els.desktopNoticeModal.hidden = false;
+  document.body.classList.add("desktop-notice-open");
+  syncQuestModalInert();
+  requestAnimationFrame(() => {
+    els.continueOnDesktop.focus({ preventScroll: true });
+  });
+  return true;
+}
+
+function reevaluateDesktopNotice() {
+  const shouldRemainOpen =
+    desktopNoticeConditions() &&
+    document.body.dataset.page !== "story" &&
+    document.body.dataset.page !== "keepsake";
+
+  if (!els.desktopNoticeModal.hidden && !shouldRemainOpen) {
+    closeDesktopNotice();
+    return;
+  }
+  if (els.desktopNoticeModal.hidden) openDesktopNotice();
+}
+
 function activeModalContext() {
+  if (!els.desktopNoticeModal.hidden) {
+    return {
+      wrapper: els.desktopNoticeModal,
+      close: closeDesktopNotice,
+      isQuest: false
+    };
+  }
   if (!els.removeMemoryModal.hidden) {
     return {
       wrapper: els.removeMemoryModal,
@@ -2380,9 +2493,17 @@ els.caption.addEventListener("input", () => {
   if (document.activeElement === els.caption) queueCaptionPosition();
   handleQuestInputChange();
 });
-els.caption.addEventListener("focus", beginCaptionEditing);
-els.caption.addEventListener("blur", finishCaptionEditing);
 els.missionCodeInput.addEventListener("input", handleQuestInputChange);
+els.form.addEventListener("focusin", (event) => {
+  if (event.target.matches("input[type='text'], textarea")) {
+    beginCaptionEditing();
+  }
+});
+els.form.addEventListener("focusout", (event) => {
+  if (event.target.matches("input[type='text'], textarea")) {
+    finishCaptionEditing();
+  }
+});
 window.visualViewport?.addEventListener("resize", handleCaptionViewportChange);
 window.visualViewport?.addEventListener("scroll", handleCaptionViewportChange);
 window.addEventListener("orientationchange", () => {
@@ -2710,6 +2831,12 @@ els.removeMemoryModal.addEventListener("click", (event) => {
     closeRemoveConfirmation();
   }
 });
+els.continueOnDesktop.addEventListener("click", closeDesktopNotice);
+els.desktopNoticeModal.addEventListener("click", (event) => {
+  if (event.target === els.desktopNoticeModal) {
+    closeDesktopNotice();
+  }
+});
 
 els.sheet.addEventListener("pointerdown", beginQuestSwipe);
 els.sheet.addEventListener("pointermove", moveQuestSwipe);
@@ -2761,6 +2888,11 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("pagehide", () => {
   if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
 });
+window.addEventListener("resize", () => {
+  window.clearTimeout(desktopNoticeResizeTimer);
+  desktopNoticeResizeTimer = window.setTimeout(reevaluateDesktopNotice, 240);
+});
+document.addEventListener("summerquest:pagechange", reevaluateDesktopNotice);
 
 async function initializeApp() {
   els.homeScreenHelpItem.hidden = isRunningStandalone();
@@ -2786,6 +2918,7 @@ async function initializeApp() {
   renderGrid();
   renderProgress();
   initBriefing();
+  requestAnimationFrame(reevaluateDesktopNotice);
 }
 
 if (new URLSearchParams(window.location.search).has("release-critical-validation")) {
@@ -2815,6 +2948,25 @@ if (new URLSearchParams(window.location.search).has("interaction-accessibility-v
     autosizeCaption,
     positionCaptionForKeyboard,
     syncCaptionViewport
+  });
+}
+if (new URLSearchParams(window.location.search).has("desktop-mobile-validation")) {
+  window.SummerQuestDesktopMobileTestHooks = Object.freeze({
+    desktopNoticeConditions,
+    openDesktopNotice,
+    closeDesktopNotice,
+    reevaluateDesktopNotice,
+    resetDesktopNotice() {
+      closeDesktopNotice({ restoreFocus: false });
+      desktopNoticeShownThisDocument = false;
+      try {
+        sessionStorage.removeItem(DESKTOP_NOTICE_SESSION_KEY);
+      } catch {
+        // The in-memory reset is sufficient when storage is unavailable.
+      }
+    },
+    positionFocusedControlForKeyboard: positionCaptionForKeyboard,
+    syncFocusedControlViewport: syncCaptionViewport
   });
 }
 
