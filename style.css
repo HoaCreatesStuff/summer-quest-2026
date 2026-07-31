@@ -251,14 +251,13 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
     "description description"
     "track track"
     "meta meta";
-  gap: var(--progress-card-row-gap) clamp(16px, 4vw, 24px);
+  row-gap: 0;
+  column-gap: clamp(16px, 4vw, 24px);
   align-items: center;
 }
 .progress-rank-label {
   grid-area: label;
-  margin-bottom: calc(
-    var(--eyebrow-heading-gap) - var(--progress-card-row-gap)
-  );
+  margin-bottom: var(--eyebrow-heading-gap);
 }
 .progress-card h2, .adventure-rank-value, .briefing h2, .section-heading h2, .bottom-sheet h2 {
   font-family: "Libre Baskerville", serif;
@@ -287,7 +286,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
 }
 .progress-card .rank-blurb {
   grid-area: description;
-  margin-top: 0;
+  margin-top: var(--progress-card-row-gap);
 }
 .score-block {
   grid-area: score;
@@ -302,7 +301,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
 }
 .progress-track {
   grid-area: track;
-  margin-top: 4px;
+  margin-top: calc(var(--progress-card-row-gap) + 4px);
   height: 12px;
   background: #f7dda0;
   border-radius: 99px;
@@ -320,7 +319,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-top: -2px;
+  margin-top: calc(var(--progress-card-row-gap) - 2px);
   color: var(--muted);
   font-size: .8rem;
 }

@@ -3,7 +3,7 @@
   "short_name": "Summer Quest 2026",
   "description": "Hoa & Erika's epic NYC birthday adventure.",
   "id": "./",
-  "start_url": "./?source=pwa&build=2026.07.30.21",
+  "start_url": "./?source=pwa&build=2026.07.30.22",
   "scope": "./",
   "display": "standalone",
   "background_color": "#FFF9F0",
