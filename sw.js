@@ -4,11 +4,11 @@ const BUILD_VERSION = self.SUMMER_QUEST_BUILD?.version || "unknown";
 const CACHE_PREFIX = "summer-quest-app-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_VERSION}`;
 const APP_SHELL_URLS = [
-  "./",
   "./index.html",
   "./style.css",
   "./manifest.json",
   "./version.js",
+  "./data/iconFonts.js",
   "./data/pwa.js",
   "./data/quests.js",
   "./data/boardConfig.js",
@@ -16,10 +16,57 @@ const APP_SHELL_URLS = [
   "./data/finale.js",
   "./data/app.js",
   "./data/journal.js",
+  "./assets/vendor/cropperjs/cropper.min.css",
+  "./assets/vendor/cropperjs/cropper.min.js",
+  "./assets/fonts/Montserrat-Variable.woff2",
+  "./assets/fonts/LibreBaskerville-Variable.woff2",
+  "./assets/fonts/LibreBaskerville-Italic-Variable.woff2",
+  "./assets/fonts/Caveat-Variable.woff2",
+  "./assets/fonts/MaterialSymbolsOutlined.woff2",
+  "./assets/fonts/MaterialSymbolsRounded.woff2",
+  "./assets/favicon/favicon.ico",
+  "./assets/favicon/favicon-16x16.png",
+  "./assets/favicon/favicon-32x32.png",
+  "./assets/favicon/apple-touch-icon.png",
   "./assets/favicon/icon-192.png",
   "./assets/favicon/icon-512.png",
   "./assets/hero-park-clean.png",
-  "./assets/hero-summer-journal.png"
+  "./assets/hero-summer-journal.png",
+  "./assets/link-preview.jpg",
+  "./assets/home-screen-help/iphone-step-1.png",
+  "./assets/home-screen-help/iphone-step-2.png",
+  "./assets/home-screen-help/iphone-step-3.png",
+  "./assets/home-screen-help/android-step-1.png",
+  "./assets/home-screen-help/android-step-2.png",
+  "./assets/home-screen-help/android-step-3.png",
+  "./assets/illustrations/icon.png",
+  "./assets/illustrations/overlays/completed-stamp-256.png",
+  "./assets/illustrations/icons/animal-statue.png",
+  "./assets/illustrations/icons/birthday-selfie.png",
+  "./assets/illustrations/icons/bodega-cat.png",
+  "./assets/illustrations/icons/celebrate-together.png",
+  "./assets/illustrations/icons/cinema-moment.png",
+  "./assets/illustrations/icons/city-freebies.png",
+  "./assets/illustrations/icons/diy-craft.png",
+  "./assets/illustrations/icons/favorite-art.png",
+  "./assets/illustrations/icons/get-sweaty.png",
+  "./assets/illustrations/icons/golden-hour.png",
+  "./assets/illustrations/icons/hidden-gems.png",
+  "./assets/illustrations/icons/human-pyramid.png",
+  "./assets/illustrations/icons/live-events.png",
+  "./assets/illustrations/icons/ny-eats.png",
+  "./assets/illustrations/icons/nyc-spirit.png",
+  "./assets/illustrations/icons/off-the-map.png",
+  "./assets/illustrations/icons/open-market.png",
+  "./assets/illustrations/icons/park-picnic.png",
+  "./assets/illustrations/icons/pup-arazzi.png",
+  "./assets/illustrations/icons/random-kindness.png",
+  "./assets/illustrations/icons/showtime.png",
+  "./assets/illustrations/icons/street-fashion.png",
+  "./assets/illustrations/icons/street-mural.png",
+  "./assets/illustrations/icons/subway-romance.png",
+  "./assets/illustrations/icons/time-capsule.png",
+  "./assets/illustrations/icons/waterfront-wonders.png"
 ];
 
 async function fetchFresh(request) {
@@ -59,33 +106,25 @@ async function cachedFallback(request, fallbackUrl) {
   return null;
 }
 
-async function networkFirst(request, fallbackUrl) {
-  try {
-    const response = await fetchFresh(request);
+async function cacheFirst(request, fallbackUrl) {
+  const cached = await cachedFallback(request);
+  if (cached) return cached;
 
+  try {
+    const response = await fetch(request);
     if (response.ok && response.type === "basic") {
       const cache = await caches.open(CACHE_NAME);
       await cache.put(request, response.clone());
     }
-
     return response;
   } catch (error) {
     const fallback = await cachedFallback(request, fallbackUrl);
     if (fallback) return fallback;
-    throw error;
+    return new Response("", {
+      status: 503,
+      statusText: "Offline"
+    });
   }
-}
-
-async function cacheFirst(request) {
-  const cached = await cachedFallback(request);
-  if (cached) return cached;
-
-  const response = await fetch(request);
-  if (response.ok && response.type === "basic") {
-    const cache = await caches.open(CACHE_NAME);
-    await cache.put(request, response.clone());
-  }
-  return response;
 }
 
 self.addEventListener("install", event => {
@@ -129,21 +168,9 @@ self.addEventListener("fetch", event => {
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
-    event.respondWith(networkFirst(request, "./index.html"));
+    event.respondWith(cacheFirst(request, "./index.html"));
     return;
   }
 
-  const freshDestinations = new Set(["script", "style", "manifest"]);
-  const isVersionedData =
-    url.pathname.endsWith("/version.js") ||
-    url.pathname.endsWith(".json");
-
-  if (freshDestinations.has(request.destination) || isVersionedData) {
-    event.respondWith(networkFirst(request));
-    return;
-  }
-
-  if (request.destination === "image") {
-    event.respondWith(cacheFirst(request));
-  }
+  event.respondWith(cacheFirst(request));
 });

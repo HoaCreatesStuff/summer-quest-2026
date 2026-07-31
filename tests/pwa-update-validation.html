@@ -41,6 +41,18 @@
         });
       }
 
+      async function activateWorkerForValidation(registration, worker) {
+        if (worker?.state === "installing") {
+          await waitForWorkerState(worker, "installed");
+        }
+
+        const waitingWorker =
+          registration.waiting ||
+          (worker?.state === "installed" ? worker : null);
+        waitingWorker?.postMessage({ type: "SUMMER_QUEST_SKIP_WAITING" });
+        await waitForWorkerState(waitingWorker || worker, "activated");
+      }
+
       function openTestDatabase() {
         return new Promise((resolve, reject) => {
           const request = indexedDB.open(testDatabaseName, 1);
@@ -174,10 +186,11 @@
             workerSource.includes("self.skipWaiting()")
         );
         check(
-          "Navigation and code use a network-first strategy",
+          "All same-origin app requests use a cache-first strategy",
           workerSource.includes('request.mode === "navigate"') &&
-            workerSource.includes('new Set(["script", "style", "manifest"])') &&
-            workerSource.includes("networkFirst(request")
+            workerSource.includes('cacheFirst(request, "./index.html")') &&
+            workerSource.includes("event.respondWith(cacheFirst(request))") &&
+            !workerSource.includes("networkFirst(request")
         );
         check(
           "Registration bypasses the HTTP cache and checks automatically",
@@ -235,7 +248,7 @@
             registration.installing ||
             registration.waiting ||
             registration.active;
-          await waitForWorkerState(worker, "activated");
+          await activateWorkerForValidation(registration, worker);
           const controller = await waitForController();
           const workerVersion = await requestWorkerVersion(controller);
           const cacheNames = await caches.keys();

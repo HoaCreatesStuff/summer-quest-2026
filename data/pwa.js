@@ -45,6 +45,10 @@
 
   async function checkForUpdate({ force = false } = {}) {
     if (!registration) return;
+    if (!navigator.onLine) {
+      setUpdateStatus(`Build ${buildVersion} · Ready offline.`);
+      return;
+    }
 
     const now = Date.now();
     if (!force && now - lastUpdateCheck < MIN_CHECK_GAP_MS) return;
@@ -54,7 +58,7 @@
       await registration.update();
       if (registration.waiting) showUpdateNotice();
     } catch (error) {
-      console.warn("[PWA update] Update check failed.", error);
+      setUpdateStatus(`Build ${buildVersion} · Ready offline.`);
     }
   }
 

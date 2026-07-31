@@ -1493,18 +1493,23 @@ function questStoryCandidate(entry) {
   );
   if (!baseHtml) return null;
 
-  const reflectionHtml = renderStoryMarkup(quest.reflection);
   const earnedBonusIds = new Set(selectedBonusIdsFrom(entry.submission));
-  const bonusHtml = quest.bonuses
-    .filter((bonus) => earnedBonusIds.has(bonus.id))
-    .map((bonus) => renderStoryMarkup(quest.bonusMemories[bonus.id]))
-    .filter(Boolean);
 
-  return {
-    html: [baseHtml, reflectionHtml, ...bonusHtml].filter(Boolean).join(" "),
-    kind: hasLocationToken && location ? "location" : null,
-    completedAt: entry.submission.completedAt || ""
-  };
+const bonusHtml = quest.bonuses
+  .filter((bonus) => earnedBonusIds.has(bonus.id))
+  .map((bonus) => renderStoryMarkup(quest.bonusMemories[bonus.id]))
+  .filter(Boolean);
+
+const reflectionHtml =
+  bonusHtml.length === 0
+    ? renderStoryMarkup(quest.reflection)
+    : "";
+
+return {
+  html: [baseHtml, reflectionHtml, ...bonusHtml].filter(Boolean).join(" "),
+  kind: hasLocationToken && location ? "location" : null,
+  completedAt: entry.submission.completedAt || ""
+};
 }
 
 function storyIconName(story) {

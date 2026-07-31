@@ -1,4 +1,52 @@
 /* After changing this file, bump the build in version.js and index.html. */
+@font-face {
+  font-family: "Montserrat";
+  src: url("./assets/fonts/Montserrat-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 300 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Libre Baskerville";
+  src: url("./assets/fonts/LibreBaskerville-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Libre Baskerville";
+  src: url("./assets/fonts/LibreBaskerville-Italic-Variable.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caveat";
+  src: url("./assets/fonts/Caveat-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Material Symbols Outlined";
+  src: url("./assets/fonts/MaterialSymbolsOutlined.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Material Symbols Rounded";
+  src: url("./assets/fonts/MaterialSymbolsRounded.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: block;
+}
+
 :root {
   --paper: #f7f2e9;
   --paper-2: #fffaf2;
@@ -25,6 +73,7 @@
   --line: rgba(39, 37, 34, 0.12);
   --final-card-padding: clamp(16px, 5vw, 28px);
   --button-height: 48px;
+  --eyebrow-heading-gap: 12px;
 }
 
 * { box-sizing: border-box; }
@@ -91,6 +140,12 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   font-size: .72rem;
   font-weight: 600;
   color: var(--coral);
+}
+.section-eyebrow {
+  margin-bottom: var(--eyebrow-heading-gap);
+}
+.section-heading-title {
+  margin-top: 0;
 }
 .hero-cover {
   position: relative;
@@ -187,6 +242,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   padding: 24px;
 }
 .progress-card {
+  --progress-card-row-gap: 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
@@ -195,12 +251,14 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
     "description description"
     "track track"
     "meta meta";
-  gap: 12px clamp(16px, 4vw, 24px);
+  gap: var(--progress-card-row-gap) clamp(16px, 4vw, 24px);
   align-items: center;
 }
 .progress-rank-label {
   grid-area: label;
-  margin: 0 0 -8px;
+  margin-bottom: calc(
+    var(--eyebrow-heading-gap) - var(--progress-card-row-gap)
+  );
 }
 .progress-card h2, .adventure-rank-value, .briefing h2, .section-heading h2, .bottom-sheet h2 {
   font-family: "Libre Baskerville", serif;
@@ -213,6 +271,7 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
 }
 .progress-card h2 {
   grid-area: rank;
+  align-self: start;
   min-width: 0;
   font-size: clamp(1.2rem, 6vw, 1.35rem);
 }
@@ -285,9 +344,9 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   text-align: left;
   cursor: pointer;
 }
-.briefing-toggle .label {
+.briefing-toggle .section-eyebrow {
   display: block;
-  margin: 0 0 12px;
+  margin: 0 0 var(--eyebrow-heading-gap);
 }
 .briefing-title {
   display: block;
@@ -345,7 +404,9 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   word-wrap: normal;
   direction: ltr;
   -webkit-font-feature-settings: "liga";
+  font-feature-settings: "liga";
   -webkit-font-smoothing: antialiased;
+  visibility: hidden;
 }
 .material-symbols-rounded {
   font-family: "Material Symbols Rounded";
@@ -360,7 +421,13 @@ a:focus-visible {outline: 2px solid var(--teal); outline-offset: 2px;}
   word-wrap: normal;
   direction: ltr;
   -webkit-font-feature-settings: "liga";
+  font-feature-settings: "liga";
   -webkit-font-smoothing: antialiased;
+  visibility: hidden;
+}
+.material-symbols-outlined-ready .material-symbols-outlined,
+.material-symbols-rounded-ready .material-symbols-rounded {
+  visibility: visible;
 }
 .briefing-list .material-symbols-outlined {
   color: var(--teal);
@@ -443,11 +510,13 @@ line-height: normal;
 .board-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
   width: 100%;
 }
 
-.board-header .label { margin: 0; }
+.board-header .section-eyebrow {
+  margin: 0 0 var(--eyebrow-heading-gap);
+}
 
 .reset-link {
   margin-left: auto;          /* pushes it all the way right */
@@ -2980,7 +3049,7 @@ body.keepsake-preview-open { overflow: hidden; }
     font-size: .86rem;
   }
   .progress-card {
-    row-gap: 10px;
+    --progress-card-row-gap: 10px;
     padding: 22px 20px;
   }
   .progress-card .progress-meta span:last-child {
