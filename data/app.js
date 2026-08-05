@@ -458,7 +458,6 @@ const els = {
   closePrivacyModal: document.querySelector("#closePrivacyModal"),
   confirmPrivacyModal: document.querySelector("#confirmPrivacyModal"),
   privacySharingToggle: document.querySelector("#privacySharingToggle"),
-  analyticsConsentModal: document.querySelector("#analyticsConsentModal"),
   openContactModal: document.querySelector("#openContactModal"),
   contactModal: document.querySelector("#contactModal"),
   closeContactModal: document.querySelector("#closeContactModal"),
@@ -1174,27 +1173,20 @@ function initializeAnalyticsSync() {
     canonicalSelectedBonusIds,
     questPoints,
     totalsForSubmissions,
-    isFinalQuest
+    isFinalQuest,
+    rankForScore: currentRank
   });
   renderPrivacySharingStatus();
   analyticsSync?.onStatusChange(renderPrivacySharingStatus);
 }
 
 function renderPrivacySharingStatus() {
-  els.privacySharingToggle.checked = Boolean(analyticsSync?.hasConsent());
+  els.privacySharingToggle.checked = analyticsSync?.isSharingEnabled?.() !== false;
 }
 
-function requestPrivacySharingPreference(event) {
-  event.preventDefault();
-  const currentPreference = Boolean(analyticsSync?.hasConsent());
+function updatePrivacySharingPreference() {
+  analyticsSync?.setSharingEnabled?.(els.privacySharingToggle.checked);
   renderPrivacySharingStatus();
-  const returnFocus = closePrivacyModal({ restoreFocus: false });
-  const opened = analyticsSync?.requestConsentChange(!currentPreference, {
-    returnFocus: returnFocus || els.openPrivacyModal
-  });
-  if (!opened && returnFocus?.isConnected) {
-    requestAnimationFrame(() => returnFocus.focus({ preventScroll: true }));
-  }
 }
 
 function currentRank(score) {
@@ -1266,7 +1258,11 @@ async function playFinalQuestFinale(submission) {
     .filter((rank) => rank.min <= score)
     .map((rank) => rank.title);
 
-  return finalQuestFinale.play({
+  analyticsSync?.trackFeature?.("finale_animation_started", {}, {
+    dedupeKey: `finale_animation_started:${completionKey}`
+  });
+
+  const result = await finalQuestFinale.play({
     completionKey,
     entries,
     finalRankTitle: finalRank.title,
@@ -1274,6 +1270,10 @@ async function playFinalQuestFinale(submission) {
     summaryWrapper: els.modalWrapper,
     summaryClose: els.close
   });
+  analyticsSync?.trackFeature?.("finale_animation_completed", {}, {
+    dedupeKey: `finale_animation_completed:${completionKey}`
+  });
+  return result;
 }
 
 function rankProgressForScore(score) {
@@ -1892,7 +1892,7 @@ function renderGrid() {
   });
 }
 
-function setBriefingCollapsed(isCollapsed) {
+function setBriefingCollapsed(isCollapsed, { track = false } = {}) {
   els.briefing.classList.toggle("collapsed", isCollapsed);
   els.briefingToggle.setAttribute("aria-expanded", String(!isCollapsed));
   try {
@@ -1900,6 +1900,7 @@ function setBriefingCollapsed(isCollapsed) {
   } catch (error) {
     console.warn("[Quest state] Briefing preference could not be saved.", error);
   }
+  if (track && isCollapsed) analyticsSync?.trackMissionBriefingCompleted?.();
 }
 
 function initBriefing() {
@@ -2068,6 +2069,7 @@ function openSheet(quest) {
   sheetTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
+  analyticsSync?.trackQuestOpened?.(quest.id);
   resetQuestSwipeVisuals({ removeAnimation: true });
   renderQuest(quest);
   els.backdrop.hidden = false;
@@ -2143,6 +2145,7 @@ function setHomeScreenPlatform(platform, moveFocus = false) {
 function openHomeScreenHelp(event) {
   event?.preventDefault();
   if (isRunningStandalone()) return;
+  analyticsSync?.trackFeature?.("install_help_opened");
   homeScreenSheetTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
@@ -2178,6 +2181,7 @@ function resetContactStatus() {
 
 function openPrivacyModal(event) {
   event?.preventDefault();
+  analyticsSync?.trackFeature?.("privacy_opened");
   privacyDialogTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : els.openPrivacyModal;
@@ -2201,6 +2205,7 @@ function closePrivacyModal({ restoreFocus = true } = {}) {
 
 function openContactModal(event) {
   event?.preventDefault();
+  analyticsSync?.trackFeature?.("contact_opened");
   contactDialogTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : els.openContactModal;
@@ -2317,6 +2322,7 @@ async function submitContactForm(event) {
       body: formData
     });
     if (!response.ok) throw new Error(`Formspree responded with ${response.status}`);
+    analyticsSync?.trackFeature?.("feedback_submitted");
     els.contactForm.reset();
     setContactStatus("Thanks for helping improve Summer Quest!", "success");
     els.contactDone.hidden = false;
@@ -2456,13 +2462,6 @@ function reevaluateDesktopNotice() {
 }
 
 function activeModalContext() {
-  if (!els.analyticsConsentModal.hidden) {
-    return {
-      wrapper: els.analyticsConsentModal,
-      close: analyticsSync.cancelConsentDialog,
-      isQuest: false
-    };
-  }
   if (!els.contactModal.hidden) {
     return {
       wrapper: els.contactModal,
@@ -3058,7 +3057,7 @@ els.saveQuest.addEventListener("click", (event) => {
 });
 
 els.briefingToggle.addEventListener("click", () => {
-  setBriefingCollapsed(!els.briefing.classList.contains("collapsed"));
+  setBriefingCollapsed(!els.briefing.classList.contains("collapsed"), { track: true });
 });
 
 els.homeScreenHelpLink.addEventListener("click", openHomeScreenHelp);
@@ -3298,18 +3297,9 @@ els.form.addEventListener("submit", async (event) => {
     window.pendingStoryQuestId = questId;
 
     closeSheet(false);
-    analyticsSync?.maybePromptAfterQuestCompletion({
-      previousCompletedCount: totalsBeforeSave.completed,
-      isNewCompletion
-    });
 
     requestAnimationFrame(() => {
       els.viewBoard.click();
-    });
-  } else {
-    analyticsSync?.maybePromptAfterQuestCompletion({
-      previousCompletedCount: totalsBeforeSave.completed,
-      isNewCompletion
     });
   }
 });
@@ -3413,7 +3403,7 @@ els.desktopNoticeModal.addEventListener("click", (event) => {
 els.openPrivacyModal.addEventListener("click", openPrivacyModal);
 els.closePrivacyModal.addEventListener("click", closePrivacyModal);
 els.confirmPrivacyModal.addEventListener("click", closePrivacyModal);
-els.privacySharingToggle.addEventListener("click", requestPrivacySharingPreference);
+els.privacySharingToggle.addEventListener("change", updatePrivacySharingPreference);
 els.privacyModal.addEventListener("click", (event) => {
   if (event.target === els.privacyModal) closePrivacyModal();
 });
@@ -3435,7 +3425,10 @@ els.sheet.addEventListener("pointerup", endQuestSwipe);
 els.sheet.addEventListener("pointercancel", cancelQuestSwipe);
 els.close.addEventListener("click", closeSheet);
 els.closeHomeScreenSheet.addEventListener("click", closeHomeScreenHelp);
-els.confirmHomeScreenHelp.addEventListener("click", closeHomeScreenHelp);
+els.confirmHomeScreenHelp.addEventListener("click", () => {
+  analyticsSync?.trackAppInstalled?.("install_help_confirmed");
+  closeHomeScreenHelp();
+});
 els.homeScreenModalWrapper.addEventListener("click", (event) => {
   if (event.target === els.homeScreenModalWrapper) closeHomeScreenHelp();
 });

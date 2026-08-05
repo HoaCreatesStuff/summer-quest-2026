@@ -3496,39 +3496,6 @@ body.keepsake-preview-open { overflow: hidden; }
   margin-top: 0;
 }
 
-.analytics-consent-modal {
-  z-index: 120;
-}
-
-.analytics-consent-dialog {
-  width: min(100%, 520px);
-  padding: clamp(24px, 4vw, 34px);
-}
-
-.analytics-consent-dialog .label {
-  margin-bottom: 12px;
-  color: var(--coral);
-}
-
-.analytics-consent-dialog h2 {
-  margin: 0;
-  font-family: "Libre Baskerville", serif;
-  font-size: clamp(1.55rem, 5vw, 2rem);
-  font-weight: 400;
-  line-height: 1.16;
-}
-
-.analytics-consent-dialog > p:not(.label) {
-  margin: 14px 0 0;
-  color: var(--muted);
-  line-height: 1.55;
-}
-
-.analytics-consent-dialog .confirmation-actions .primary-button,
-.analytics-consent-dialog .confirmation-actions .secondary-button {
-  margin-top: 0;
-}
-
 .crop-header {
   display: flex;
   align-items: flex-start;

@@ -27,6 +27,10 @@
   let keepsakeMediaUrls = new Set();
   const videoFrameCache = new Map();
 
+  function analytics() {
+    return window.SummerQuestAnalytics;
+  }
+
   function revokeMediaUrls(urls) {
     urls.forEach(url => URL.revokeObjectURL(url));
     urls.clear();
@@ -582,6 +586,7 @@ return new Promise((resolve, reject) => {
       document.querySelector("#keepsakeArtwork").hidden = true;
       requestAnimationFrame(() => keepsakeGeneratedPreview.classList.add("is-revealed"));
       keepsakeStatus.textContent = "Your keepsake is ready.";
+      analytics()?.trackFeature?.("keepsake_generated");
       setKeepsakeActionState(false);
       return true;
     } catch (error) {
@@ -828,10 +833,12 @@ return new Promise((resolve, reject) => {
       keepsakeReturnPage = currentPage === "keepsake"
         ? keepsakeReturnPage
         : currentPage;
+      analytics()?.trackFeature?.("keepsake_opened");
       await renderKeepsake();
     }
 
     if (page === "story") {
+      analytics()?.trackFeature?.("journal_opened");
       await renderStory();
     }
 

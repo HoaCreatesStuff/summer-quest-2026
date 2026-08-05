@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#F35F59" />
-  <meta name="application-version" content="2026.08.05.4" />
+  <meta name="application-version" content="2026.08.05.5" />
   
   <meta property="og:type" content="website">
   <meta property="og:title" content="NYC Summer Quest">
@@ -22,9 +22,9 @@
 <meta name="twitter:image" content="https://hoacreatesstuff.github.io/summer-quest-2026/assets/link-preview.jpg">
   
   <title>NYC Summer Quest</title>
-  <link rel="stylesheet" href="style.css?v=2026.08.05.4" />
+  <link rel="stylesheet" href="style.css?v=2026.08.05.5" />
   <link rel="stylesheet" href="assets/vendor/cropperjs/cropper.min.css?v=1.6.2"/>
-  <link rel="manifest" href="./manifest.json?v=2026.08.05.4">
+  <link rel="manifest" href="./manifest.json?v=2026.08.05.5">
   <link rel="icon" href="./assets/favicon/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon/favicon-16x16.png">
@@ -89,6 +89,12 @@
   </span>
 </li>
             <li id="homeScreenHelpItem"><span class="material-symbols-outlined" aria-hidden="true">install_mobile</span><span>Save the <a id="homeScreenHelpLink" href="#save-to-home-screen">Summer Quest web app</a> to your home screen for the best experience!</span>
+</li>
+            <li>
+  <span class="material-symbols-outlined" aria-hidden="true">shield_lock</span>
+  <span>
+    Your memories stay on your device. Summer Quest collects anonymous gameplay stats (like completed quests and points) to help improve future adventures. You can turn sharing off anytime under Privacy.
+  </span>
 </li>
           </ul>
           <!--
@@ -473,7 +479,7 @@
       <p>Your Summer Quest memories <strong>stay on your device</strong>.</p>
       <ul class="info-modal-list">
         <li><span class="material-symbols-rounded" aria-hidden="true">phone_iphone</span><span>Photos, captions, reflections, names, and precise locations are stored locally and never uploaded.</span></li>
-        <li><span class="material-symbols-rounded" aria-hidden="true">analytics</span><span>If you opt in, anonymous usage data such as quest completions, points, and friend counts may be shared to help improve Summer Quest.</span></li>
+        <li><span class="material-symbols-rounded" aria-hidden="true">analytics</span><span>Anonymous gameplay data such as quest completions, points, and friend counts helps improve Summer Quest.</span></li>
         <li><span class="material-symbols-rounded" aria-hidden="true">mail</span><span>Messages sent through the Contact form are emailed to me (Hoa) so I can respond and improve the app.</span></li>
       </ul>
     </div>
@@ -486,7 +492,7 @@
             <span class="privacy-switch-track" aria-hidden="true"></span>
           </span>
         </div>
-        <p id="privacySharingHelp">Help improve Summer Quest with anonymous usage data.</p>
+        <p id="privacySharingHelp">Help improve Summer Quest with anonymous gameplay data.</p>
       </section>
       <button id="confirmPrivacyModal" class="primary-button" type="button">Got It</button>
     </footer>
@@ -621,24 +627,6 @@
   </section>
 </div>
 
-<!-- Anonymous analytics consent -->
-<div id="analyticsConsentModal" class="crop-modal analytics-consent-modal" hidden>
-  <section
-    class="crop-dialog analytics-consent-dialog"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="analyticsConsentTitle"
-  >
-    <h2 id="analyticsConsentTitle">Can you help me improve Summer Quest?</h2>
-    <p>Hi! I'm Hoa, the creator of Summer Quest. Would you help me improve the app by anonymously sharing gameplay data?</p>
-    <p>Your photos, captions, reflections, name, and precise location are never shared.</p>
-    <footer class="confirmation-actions">
-      <button class="secondary-button" type="button" data-analytics-consent="postpone">Maybe Later</button>
-      <button class="primary-button" type="button" data-analytics-consent="grant">Happy to Help</button>
-    </footer>
-  </section>
-</div>
-
   <aside
     id="pwaUpdateNotice"
     class="pwa-update-notice"
@@ -651,23 +639,16 @@
     <button id="pwaUpdateButton" class="secondary-button" type="button">Restart</button>
   </aside>
 
-  <script src="version.js?v=2026.08.05.4"></script>
-  <script src="data/iconFonts.js?v=2026.08.05.4"></script>
-  <script src="data/pwa.js?v=2026.08.05.4"></script>
-  <script src="data/quests.js?v=2026.08.05.4"></script>
-  <script src="data/boardConfig.js?v=2026.08.05.4"></script>
-  <script src="data/mediaStorage.js?v=2026.08.05.4"></script>
-  <script src="data/finale.js?v=2026.08.05.4"></script>
-  <script>
-    window.SUMMER_QUEST_ANALYTICS_CONFIG = {
-      enabled: false,
-      endpointUrl: "",
-      supabaseAnonKey: ""
-    };
-  </script>
-  <script src="data/analytics.js?v=2026.08.05.4"></script>
+  <script src="version.js?v=2026.08.05.5"></script>
+  <script src="data/iconFonts.js?v=2026.08.05.5"></script>
+  <script src="data/pwa.js?v=2026.08.05.5"></script>
+  <script src="data/quests.js?v=2026.08.05.5"></script>
+  <script src="data/boardConfig.js?v=2026.08.05.5"></script>
+  <script src="data/mediaStorage.js?v=2026.08.05.5"></script>
+  <script src="data/finale.js?v=2026.08.05.5"></script>
+  <script src="data/analytics.js?v=2026.08.05.5"></script>
   <script src="assets/vendor/cropperjs/cropper.min.js?v=1.6.2"></script>
-  <script src="data/app.js?v=2026.08.05.4"></script>
-  <script src="data/journal.js?v=2026.08.05.4"></script>
+  <script src="data/app.js?v=2026.08.05.5"></script>
+  <script src="data/journal.js?v=2026.08.05.5"></script>
 </body>
 </html>
