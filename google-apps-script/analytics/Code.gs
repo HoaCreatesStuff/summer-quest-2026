@@ -19,6 +19,8 @@ const ANALYTICS_HEADERS = Object.freeze([
   "Historical",
   "Feature",
   "Source",
+  "Environment",
+  "Is Test",
   "Total Completed Quests",
   "Total Points",
   "Total Friends",
@@ -38,7 +40,7 @@ function doPost(event) {
 
     lock.waitLock(5000);
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    const sheetName = properties.getProperty("ANALYTICS_SHEET_NAME") || "Analytics";
+    const sheetName = analyticsSheetName(payload, properties);
     const sheet = spreadsheet.getSheetByName(sheetName) || spreadsheet.insertSheet(sheetName);
     const headers = ensureAnalyticsHeaders(sheet);
     const values = analyticsValues(payload);
@@ -53,6 +55,17 @@ function doPost(event) {
   } finally {
     if (lock.hasLock()) lock.releaseLock();
   }
+}
+
+function analyticsPayloadIsTest(payload) {
+  return payload?.environment !== "beta" || payload?.is_test !== false;
+}
+
+function analyticsSheetName(payload, properties) {
+  if (analyticsPayloadIsTest(payload)) {
+    return properties.getProperty("ANALYTICS_TEST_SHEET_NAME") || "Analytics Testing";
+  }
+  return properties.getProperty("ANALYTICS_SHEET_NAME") || "Analytics";
 }
 
 function ensureAnalyticsHeaders(sheet) {
@@ -96,6 +109,8 @@ function analyticsValues(payload) {
     "Historical": payload.historical === true,
     "Feature": cellValue(payload.feature),
     "Source": cellValue(payload.source),
+    "Environment": cellValue(payload.environment),
+    "Is Test": payload.is_test === true,
     "Total Completed Quests": cellValue(payload.totalCompletedQuests),
     "Total Points": cellValue(payload.totalPoints),
     "Total Friends": cellValue(payload.totalFriends),

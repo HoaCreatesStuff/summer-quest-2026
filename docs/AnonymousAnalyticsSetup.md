@@ -8,7 +8,8 @@ the events in this document; arbitrary event names are not accepted.
 
 Every payload contains `installationId`, `sessionId`, `eventName`, `timestamp`,
 `build`, `platform`, `displayMode`, `language`, `historical`, `feature`, and
-`source`.
+`source`. Runtime classification also adds `environment` and `is_test` without
+using browser storage or a manual toggle.
 
 Quest payloads also contain `questId`, `questTitle`, `completedAt`,
 `adventureDate`, `points`, `friendCount`, `bonusEarned`, `bonusCount`, and
@@ -72,10 +73,20 @@ fallback only when the beacon is rejected. Historical events use sequential
 `fetch()` calls so progress is marked only after each request resolves. Analytics
 failures never interrupt gameplay or persistence.
 
+## Runtime Environment
+
+Only `https://hoacreatesstuff.github.io/summer-quest-2026/` and paths beneath it
+are production. Those payloads use `environment: "beta"` and `is_test: false`.
+Every other runtime, including localhost, `127.0.0.1`, local development server
+ports, preview deployments, and alternate hosts, defaults to
+`environment: "development"` and `is_test: true`.
+
 ## Google Apps Script Receiver
 
 The receiver is maintained in `google-apps-script/analytics/Code.gs`. Set the
-Script Property `ANALYTICS_SECRET` and optionally `ANALYTICS_SHEET_NAME`, then
-deploy a new web app version. The receiver appends missing headers, including
-`Feature`, `Source`, `Bonus Count`, `Bonus IDs`, and `Historical`, without
-changing existing data rows.
+Script Property `ANALYTICS_SECRET` and optionally `ANALYTICS_SHEET_NAME` and
+`ANALYTICS_TEST_SHEET_NAME`, then deploy a new web app version. Production rows
+default to `Analytics`; development and unclassified rows default to
+`Analytics Testing`. The receiver appends missing headers, including `Feature`,
+`Source`, `Bonus Count`, `Bonus IDs`, `Historical`, `Environment`, and `Is Test`,
+without changing existing data rows.

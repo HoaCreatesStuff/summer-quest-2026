@@ -12,6 +12,9 @@
   const BACKFILL_START_DELAY_MS = 500;
   const BACKFILL_BETWEEN_EVENTS_MS = 120;
   const DEBUG_PARAM = "summer-quest-analytics-debug";
+  const PRODUCTION_PROTOCOL = "https:";
+  const PRODUCTION_HOSTNAME = "hoacreatesstuff.github.io";
+  const PRODUCTION_PATH_PREFIX = "/summer-quest-2026";
 
   const EVENT_FEATURES = Object.freeze({
     app_first_opened: "app",
@@ -120,6 +123,19 @@
     return navigator.userAgentData?.platform || navigator.platform || "unknown";
   }
 
+  function runtimeEnvironment() {
+    const pathname = window.location.pathname || "/";
+    const isProduction =
+      window.location.protocol === PRODUCTION_PROTOCOL &&
+      window.location.hostname === PRODUCTION_HOSTNAME &&
+      (pathname === PRODUCTION_PATH_PREFIX ||
+        pathname.startsWith(`${PRODUCTION_PATH_PREFIX}/`));
+
+    return isProduction
+      ? { environment: "beta", is_test: false }
+      : { environment: "development", is_test: true };
+  }
+
   function isSharingEnabled() {
     return readStorage(SHARING_PREFERENCE_KEY) !== "false";
   }
@@ -212,7 +228,8 @@
       language: navigator.language || "unknown",
       historical: Boolean(historical),
       feature,
-      source
+      source,
+      ...runtimeEnvironment()
     };
   }
 

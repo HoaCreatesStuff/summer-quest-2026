@@ -55,7 +55,10 @@
           fetchRejectOn = 0,
           fetchThrows = false,
           runTimers = false,
-          randomSeed = 1
+          randomSeed = 1,
+          protocol = "http:",
+          hostname = "localhost",
+          pathname = "/tests/analytics-validation.html"
         } = {}) {
           const sent = [];
           const attempts = { beacon: 0, fetch: 0 };
@@ -72,7 +75,7 @@
             }
           };
           const fakeWindow = {
-            location: { search: "" },
+            location: { search: "", protocol, hostname, pathname },
             SUMMER_QUEST_BUILD: { version: buildVersion },
             matchMedia(query) {
               return { matches: standalone ? query.includes("standalone") : query.includes("browser") };
@@ -305,7 +308,8 @@
 
         const requiredCommonFields = [
           "installationId", "sessionId", "eventName", "timestamp", "build",
-          "platform", "displayMode", "language", "historical", "feature", "source"
+          "platform", "displayMode", "language", "historical", "feature", "source",
+          "environment", "is_test"
         ];
         check(
           "Every payload contains the complete anonymous common contract",
@@ -318,6 +322,40 @@
           freshPayloads.every(payload => payload.historical === false) &&
             /^SQ-[A-F0-9]{8}$/.test(freshPayloads[0]?.installationId || "") &&
             /^SESSION-[A-F0-9]{6}$/.test(freshPayloads[0]?.sessionId || "")
+        );
+        check(
+          "Localhost analytics is automatically marked as development test data",
+          freshPayloads.every(payload =>
+            payload.environment === "development" && payload.is_test === true
+          )
+        );
+
+        const loopback = createHarness({ hostname: "127.0.0.1" });
+        loopback.api.init(questContext({ submissions: {} }));
+        const preview = createHarness({
+          protocol: "https:",
+          hostname: "summer-quest-preview.example.com",
+          pathname: "/summer-quest-2026/"
+        });
+        preview.api.init(questContext({ submissions: {} }));
+        check(
+          "Loopback and non-production hosts remain development test data",
+          [...await loopback.payloads(), ...await preview.payloads()].every(payload =>
+            payload.environment === "development" && payload.is_test === true
+          )
+        );
+
+        const production = createHarness({
+          protocol: "https:",
+          hostname: "hoacreatesstuff.github.io",
+          pathname: "/summer-quest-2026/"
+        });
+        production.api.init(questContext({ submissions: {} }));
+        check(
+          "Exact Summer Quest Pages URL is automatically marked as beta production data",
+          (await production.payloads()).every(payload =>
+            payload.environment === "beta" && payload.is_test === false
+          )
         );
 
         const forbiddenFields = [
@@ -691,19 +729,51 @@
         );
 
         const receiverApi = new Function(
-          `${receiverSource}\nreturn { headers: ANALYTICS_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders };`
+          `${receiverSource}\nreturn { headers: ANALYTICS_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName };`
         )();
         const receiverValues = receiverApi.values(firstQuestPayload);
         check(
           "Apps Script receiver maps the complete v1.0 contract",
           [
-            "Bonus Count", "Bonus IDs", "Historical", "Feature", "Source"
+            "Bonus Count", "Bonus IDs", "Historical", "Feature", "Source",
+            "Environment", "Is Test"
           ].every(header => receiverApi.headers.includes(header)) &&
             receiverValues["Bonus Count"] === 1 &&
             receiverValues["Bonus IDs"] === "bonus" &&
             receiverValues.Historical === false &&
             receiverValues.Feature === "gameplay" &&
-            receiverValues.Source === "quest_save"
+            receiverValues.Source === "quest_save" &&
+            receiverValues.Environment === "development" &&
+            receiverValues["Is Test"] === true
+        );
+        const sheetProperties = values => ({
+          getProperty(name) {
+            return values[name] || null;
+          }
+        });
+        check(
+          "Receiver separates development data and defaults unknown environments to testing",
+          receiverApi.sheetName(
+            { environment: "development", is_test: true },
+            sheetProperties({})
+          ) === "Analytics Testing" &&
+            receiverApi.sheetName(
+              { environment: "development", is_test: true },
+              sheetProperties({ ANALYTICS_TEST_SHEET_NAME: "QA Events" })
+            ) === "QA Events" &&
+            receiverApi.sheetName({}, sheetProperties({})) === "Analytics Testing"
+        );
+        check(
+          "Receiver sends only explicit beta non-test payloads to the production sheet",
+          receiverApi.sheetName(
+            { environment: "beta", is_test: false },
+            sheetProperties({})
+          ) === "Analytics" &&
+            receiverApi.sheetName(
+              { environment: "beta", is_test: false },
+              sheetProperties({ ANALYTICS_SHEET_NAME: "Beta Events" })
+            ) === "Beta Events" &&
+            receiverApi.isTest({ environment: "beta", is_test: true }) === true
         );
         check(
           "Receiver preserves existing rows while appending missing headers",
@@ -737,7 +807,10 @@
             const headers = receiverApi.ensure(sheet);
             return JSON.stringify(rows[1]) === originalDataRow &&
               headers.slice(0, 2).join(",") === "Event Name,Legacy Column" &&
-              ["Bonus Count", "Bonus IDs", "Historical", "Feature", "Source"]
+              [
+                "Bonus Count", "Bonus IDs", "Historical", "Feature", "Source",
+                "Environment", "Is Test"
+              ]
                 .every(header => headers.includes(header));
           })()
         );

@@ -1,4 +1,4 @@
-const BUILD_VERSION = "08058";
+const BUILD_VERSION = "08059";
 
 function assetUrl(path) {
   const separator = path.includes("?") ? "&" : "?";
