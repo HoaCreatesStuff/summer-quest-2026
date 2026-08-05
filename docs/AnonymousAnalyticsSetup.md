@@ -1,71 +1,81 @@
-# Anonymous Gameplay Analytics
+# Summer Quest Analytics Spec v1.0
 
-Summer Quest sends anonymous gameplay events to the deployed Google Apps Script endpoint in `data/analytics.js`. The endpoint and shared secret are centralized as `ANALYTICS_ENDPOINT` and `ANALYTICS_SECRET`; do not add page-level analytics config or hardcode the endpoint elsewhere.
+Summer Quest sends anonymous gameplay events to the Google Apps Script endpoint
+configured only in `data/analytics.js`. The client exposes explicit methods for
+the events in this document; arbitrary event names are not accepted.
 
 ## Privacy Boundary
 
-Analytics events may include gameplay fields such as quest IDs, quest titles, completion dates, points, friend counts, bonus points, ranks, display mode, language, build, a random installation ID, and a per-launch session ID.
+Every payload contains `installationId`, `sessionId`, `eventName`, `timestamp`,
+`build`, `platform`, `displayMode`, `language`, `historical`, `feature`, and
+`source`.
 
-Analytics events must never include photos, captions, reflections, names, precise locations, contact-form contents, image metadata, browser fingerprints, user agent strings, email addresses, or viewport dimensions.
+Quest payloads also contain `questId`, `questTitle`, `completedAt`,
+`adventureDate`, `points`, `friendCount`, `bonusEarned`, `bonusCount`, and
+`bonusIds`. Adventure completion contains `totalCompletedQuests`, `totalPoints`,
+`totalFriends`, `finalRank`, and `completedAt`.
 
-## Local Identifiers
+Payload construction must never read or send photos, captions, reflections,
+names, location names, precise locations, blob URLs, keepsake images, feedback
+contents, email addresses, image metadata, user agent strings, or viewport data.
 
-- `summerQuestInstallationId`: random `SQ-XXXXXXXX` ID generated only when analytics first runs.
-- `SESSION-XXXXXX`: in-memory per-launch ID generated on page load and never persisted.
-- `summerQuestAnalyticsDedupe`: local event dedupe flags for one-time events.
-- `summerQuestAnonymousSharingEnabled`: Privacy switch preference; missing means sharing is on.
+## Event Contract
 
-The installation ID is removed by a full board reset through `SummerQuestAnalytics.trackBoardReset()`.
+| Event | Trigger | Dedupe | Historical |
+| --- | --- | --- | --- |
+| `app_first_opened` | First analytics-enabled launch | Installation | Yes |
+| `app_opened` | Analytics-enabled app initialization | Session | No |
+| `app_installed` | Successful browser `appinstalled` event | Installation | Yes |
+| `quest_completed` | Incomplete quest is committed after a successful save | Quest + installation | Yes |
+| `first_quest_completed` | First successful quest completion | Installation | Yes |
+| `adventure_completed` | Successful final-quest completion | Installation | Yes |
+| `journal_first_opened` | First Journal navigation | Installation | Yes |
+| `journal_opened` | First Journal navigation in a session | Session | No |
+| `keepsake_first_opened` | First Keepsake navigation | Installation | Yes |
+| `keepsake_generated` | Every successful PNG generation | None | Yes, once if evidence exists |
+| `privacy_opened` | First Privacy dialog opening | Installation | Yes |
+| `feedback_submitted` | Every successful Formspree response | None | Yes, once if evidence exists |
 
-## Reliability Model
+No other analytics events are permitted.
 
-Analytics is fire-and-forget:
+## Local State
 
-- `navigator.sendBeacon()` is attempted first.
-- `fetch()` with `mode: "no-cors"`, `keepalive`, and a short abort timeout is the fallback.
-- Offline events are skipped.
-- Live events are not queued, retried, or backfilled later.
-- Failures are silent and must never affect gameplay, saving, navigation, animations, journal, keepsake, contact, or finale behavior.
+- `summerQuestInstallationId`: random `SQ-XXXXXXXX` installation ID.
+- `SESSION-XXXXXX`: in-memory ID regenerated on every document launch.
+- `summerQuestAnalyticsDedupe`: installation and historical progress markers.
+- `summerQuestAnalyticsEvidenceV1`: anonymous timestamps for recoverable feature history.
+- `summerQuestAnalyticsBackfillV1`: permanent completed marker for spec v1.0.
+- `summerQuestAnonymousSharingEnabled`: privacy preference; missing means enabled.
 
-Historical quest completions are the sole exception to the no-retry rule. On an
-online launch with sharing enabled, previously saved completed quests are sent
-sequentially and marked only after the fetch resolves. Private memory fields are
-never included.
+A board reset does not reset analytics identity or dedupe state.
 
-## Event Coverage
+## Historical Backfill
 
-Lifecycle:
+An existing installation with no v1.0 completion marker performs one sequential,
+non-blocking backfill while sharing is enabled and the browser is online. It
+sends only events supported by saved quest state, current standalone detection,
+or anonymous local evidence. Each successful event receives its own progress
+marker. The permanent v1.0 marker is written only after every applicable event
+succeeds or was already represented by a live event.
 
-- `app_opened`
-- `mission_briefing_completed`
-- `app_installed`
+Offline and failed uploads do not complete the backfill. Unmarked work retries on
+a future online launch. Session events (`app_opened`, `journal_opened`) are never
+backfilled.
 
-Quest:
+Feature activity from releases that never saved local evidence cannot be
+reconstructed. The client does not infer such activity or upload invented rows.
 
-- `quest_opened`, once per quest per installation
-- `quest_completed`, once per quest per installation
-- `first_quest_completed`, once per installation
-- `adventure_completed`, once after the final quest is newly completed
+## Transport
 
-Feature usage:
-
-- `journal_opened`
-- `keepsake_opened`
-- `keepsake_generated`
-- `privacy_opened`
-- `contact_opened`
-- `install_help_opened`
-- `feedback_submitted`
-- `finale_animation_started`
-- `finale_animation_completed`
-
-Previously completed quests are imported once per installation with
-`historical: true`. New successful completions use `historical: false`.
+Live events attempt `navigator.sendBeacon()` once, followed by one `fetch()`
+fallback only when the beacon is rejected. Historical events use sequential
+`fetch()` calls so progress is marked only after each request resolves. Analytics
+failures never interrupt gameplay or persistence.
 
 ## Google Apps Script Receiver
 
-The receiver source is maintained in `google-apps-script/analytics/Code.gs`.
-Set the Apps Script property `ANALYTICS_SECRET` to the client secret and,
-optionally, `ANALYTICS_SHEET_NAME` to the destination tab name. Deploy a new web
-app version after receiver changes. Missing columns are appended to the header;
-existing data rows are not changed.
+The receiver is maintained in `google-apps-script/analytics/Code.gs`. Set the
+Script Property `ANALYTICS_SECRET` and optionally `ANALYTICS_SHEET_NAME`, then
+deploy a new web app version. The receiver appends missing headers, including
+`Feature`, `Source`, `Bonus Count`, `Bonus IDs`, and `Historical`, without
+changing existing data rows.

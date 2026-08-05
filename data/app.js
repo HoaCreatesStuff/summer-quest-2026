@@ -1,4 +1,11 @@
 const STORAGE_KEY = "nyc-summer-quest-mvp-v1";
+const HAD_STORED_APP_STATE = (() => {
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+})();
 const BRIEFING_STATE_KEY = "nyc-summer-quest-briefing-collapsed";
 const DESKTOP_NOTICE_SESSION_KEY = "nyc-summer-quest-desktop-notice-shown";
 const DESKTOP_NOTICE_MIN_WIDTH = 768;
@@ -1162,6 +1169,7 @@ function getTotals() {
 
 function initializeAnalyticsSync() {
   analyticsSync?.init({
+    hadStoredAppState: HAD_STORED_APP_STATE,
     getState: () => state,
     quests: window.QUESTS,
     boardOrder: window.BOARD_ORDER,
@@ -1258,10 +1266,6 @@ async function playFinalQuestFinale(submission) {
     .filter((rank) => rank.min <= score)
     .map((rank) => rank.title);
 
-  analyticsSync?.trackFeature?.("finale_animation_started", {}, {
-    dedupeKey: `finale_animation_started:${completionKey}`
-  });
-
   const result = await finalQuestFinale.play({
     completionKey,
     entries,
@@ -1270,11 +1274,6 @@ async function playFinalQuestFinale(submission) {
     summaryWrapper: els.modalWrapper,
     summaryClose: els.close
   });
-  if (result?.played === true) {
-    analyticsSync?.trackFeature?.("finale_animation_completed", {}, {
-      dedupeKey: `finale_animation_completed:${completionKey}`
-    });
-  }
   return result;
 }
 
@@ -1894,7 +1893,7 @@ function renderGrid() {
   });
 }
 
-function setBriefingCollapsed(isCollapsed, { track = false } = {}) {
+function setBriefingCollapsed(isCollapsed) {
   els.briefing.classList.toggle("collapsed", isCollapsed);
   els.briefingToggle.setAttribute("aria-expanded", String(!isCollapsed));
   try {
@@ -1902,7 +1901,6 @@ function setBriefingCollapsed(isCollapsed, { track = false } = {}) {
   } catch (error) {
     console.warn("[Quest state] Briefing preference could not be saved.", error);
   }
-  if (track && isCollapsed) analyticsSync?.trackMissionBriefingCompleted?.();
 }
 
 function initBriefing() {
@@ -2071,7 +2069,6 @@ function openSheet(quest) {
   sheetTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
-  analyticsSync?.trackQuestOpened?.(quest.id);
   resetQuestSwipeVisuals({ removeAnimation: true });
   renderQuest(quest);
   els.backdrop.hidden = false;
@@ -2144,16 +2141,9 @@ function setHomeScreenPlatform(platform, moveFocus = false) {
   });
 }
 
-function selectedHomeScreenPlatform() {
-  return els.platformTabs
-    .querySelector("[role='tab'][aria-selected='true']")
-    ?.dataset.platform;
-}
-
 function openHomeScreenHelp(event) {
   event?.preventDefault();
   if (isRunningStandalone()) return;
-  analyticsSync?.trackFeature?.("install_help_opened");
   homeScreenSheetTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
@@ -2189,7 +2179,7 @@ function resetContactStatus() {
 
 function openPrivacyModal(event) {
   event?.preventDefault();
-  analyticsSync?.trackFeature?.("privacy_opened");
+  analyticsSync?.trackPrivacyOpened?.();
   privacyDialogTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : els.openPrivacyModal;
@@ -2213,7 +2203,6 @@ function closePrivacyModal({ restoreFocus = true } = {}) {
 
 function openContactModal(event) {
   event?.preventDefault();
-  analyticsSync?.trackFeature?.("contact_opened");
   contactDialogTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : els.openContactModal;
@@ -2330,7 +2319,7 @@ async function submitContactForm(event) {
       body: formData
     });
     if (!response.ok) throw new Error(`Formspree responded with ${response.status}`);
-    analyticsSync?.trackFeature?.("feedback_submitted");
+    analyticsSync?.trackFeedbackSubmitted?.();
     els.contactForm.reset();
     setContactStatus("Thanks for helping improve Summer Quest!", "success");
     els.contactDone.hidden = false;
@@ -3065,7 +3054,7 @@ els.saveQuest.addEventListener("click", (event) => {
 });
 
 els.briefingToggle.addEventListener("click", () => {
-  setBriefingCollapsed(!els.briefing.classList.contains("collapsed"), { track: true });
+  setBriefingCollapsed(!els.briefing.classList.contains("collapsed"));
 });
 
 els.homeScreenHelpLink.addEventListener("click", openHomeScreenHelp);
@@ -3085,7 +3074,6 @@ els.resetBoard.addEventListener("click", async () => {
     "Start over and remove all completed quests, photos, and saved progress?"
   );
   if (!confirmed) return;
-  const resetSubmissions = { ...state.submissions };
   try {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(BRIEFING_STATE_KEY);
@@ -3099,7 +3087,6 @@ els.resetBoard.addEventListener("click", async () => {
   } catch (error) {
     reportMediaError(error, "reset");
   }
-  analyticsSync?.trackBoardReset(resetSubmissions);
   window.location.reload();
 });
 
@@ -3347,11 +3334,6 @@ async function removeActiveMemory() {
     delete state.submissions[questId];
     delete state.drafts[questId];
     save();
-    analyticsSync?.trackQuestRemoved({
-      questId,
-      submission: removedSubmission || removedDraft || { questId }
-    });
-
     removeInProgress = false;
     closeRemoveConfirmation({ restoreFocus: false });
     activeMediaId = null;
@@ -3435,9 +3417,6 @@ els.sheet.addEventListener("pointercancel", cancelQuestSwipe);
 els.close.addEventListener("click", closeSheet);
 els.closeHomeScreenSheet.addEventListener("click", closeHomeScreenHelp);
 els.confirmHomeScreenHelp.addEventListener("click", () => {
-  if (selectedHomeScreenPlatform() === "iphone") {
-    analyticsSync?.trackAppInstalled?.("ios_install_help_confirmed");
-  }
   closeHomeScreenHelp();
 });
 els.homeScreenModalWrapper.addEventListener("click", (event) => {

@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Summer Quest Analytics Validation</title>
+  <title>Summer Quest Analytics v1.0 Validation</title>
 </head>
 <body>
-  <h1>Summer Quest analytics validation</h1>
+  <h1>Summer Quest Analytics v1.0 validation</h1>
   <pre id="result">Running...</pre>
 
   <script>
@@ -18,30 +18,48 @@
         checks.push({ name, passed: Boolean(condition), details });
       }
 
+      function countEvents(payloads) {
+        return payloads.reduce((counts, payload) => {
+          counts[payload.eventName] = (counts[payload.eventName] || 0) + 1;
+          return counts;
+        }, {});
+      }
+
       try {
-        const [analyticsSource, appSource, versionSource, receiverSource] = await Promise.all([
+        const [
+          analyticsSource,
+          appSource,
+          journalSource,
+          versionSource,
+          receiverSource
+        ] = await Promise.all([
           fetch("../data/analytics.js", { cache: "no-store" }).then(response => response.text()),
           fetch("../data/app.js", { cache: "no-store" }).then(response => response.text()),
+          fetch("../data/journal.js", { cache: "no-store" }).then(response => response.text()),
           fetch("../version.js", { cache: "no-store" }).then(response => response.text()),
           fetch("../google-apps-script/analytics/Code.gs", { cache: "no-store" })
             .then(response => response.text())
         ]);
-        const buildVersion = versionSource.match(
-          /const BUILD_VERSION = "(\d{5})";/
-        )?.[1];
+        const buildVersion = versionSource.match(/const BUILD_VERSION = "(\d{5})";/)?.[1];
+
+        [analyticsSource, appSource, journalSource, versionSource, receiverSource]
+          .forEach(source => new Function(source));
 
         function createHarness({
           store = new Map(),
           online = true,
+          standalone = false,
           storageThrows = false,
           beaconAccepted = true,
           fetchRejects = false,
+          fetchRejectOn = 0,
           fetchThrows = false,
           runTimers = false,
           randomSeed = 1
         } = {}) {
           const sent = [];
           const attempts = { beacon: 0, fetch: 0 };
+          const listeners = {};
           let randomCounter = randomSeed;
           const fakeStorage = {
             getItem(key) {
@@ -51,21 +69,20 @@
             setItem(key, value) {
               if (storageThrows) throw new Error("storage blocked");
               store.set(key, String(value));
-            },
-            removeItem(key) {
-              if (storageThrows) throw new Error("storage blocked");
-              store.delete(key);
             }
           };
           const fakeWindow = {
             location: { search: "" },
             SUMMER_QUEST_BUILD: { version: buildVersion },
             matchMedia(query) {
-              return { matches: query.includes("browser") };
+              return { matches: standalone ? query.includes("standalone") : query.includes("browser") };
             },
-            addEventListener() {},
+            addEventListener(name, listener) {
+              listeners[name] ||= [];
+              listeners[name].push(listener);
+            },
             setTimeout(callback, delay) {
-              return runTimers ? window.setTimeout(callback, Math.min(delay, 10)) : 1;
+              return runTimers ? window.setTimeout(callback, Math.min(delay, 5)) : 1;
             },
             clearTimeout(timer) {
               if (runTimers) window.clearTimeout(timer);
@@ -124,7 +141,9 @@
             (url, options) => {
               attempts.fetch += 1;
               if (fetchThrows) throw new Error("fetch unavailable");
-              if (fetchRejects) return Promise.reject(new Error("network failed"));
+              if (fetchRejects || attempts.fetch === fetchRejectOn) {
+                return Promise.reject(new Error("network failed"));
+              }
               sent.push({ url, body: options?.body });
               return Promise.resolve({ ok: true });
             },
@@ -135,6 +154,9 @@
             api,
             store,
             attempts,
+            dispatch(name) {
+              (listeners[name] || []).forEach(listener => listener());
+            },
             async payloads() {
               return Promise.all(sent.map(async entry =>
                 JSON.parse(entry.blob ? await entry.blob.text() : entry.body)
@@ -143,8 +165,9 @@
           };
         }
 
-        function questContext(state) {
+        function questContext(state, { hadStoredAppState = false } = {}) {
           return {
+            hadStoredAppState,
             appVersion: buildVersion,
             getState: () => state,
             quests: {
@@ -173,213 +196,24 @@
           };
         }
 
-        const state = { submissions: {} };
-        const harness = createHarness();
-        harness.api.init(questContext(state));
-        harness.api.trackMissionBriefingCompleted();
-        harness.api.trackMissionBriefingCompleted();
-        harness.api.trackQuestOpened("first");
-        harness.api.trackQuestOpened("first");
-
         const privateSubmission = {
           completed: true,
           completedAt: "2026-08-05T12:34:56.000Z",
           adventureDate: "2026-08-05",
           friends: 2,
           selectedBonusIds: ["bonus"],
-          caption: "private",
-          reflection: "private",
-          location: "private",
-          name: "private",
+          caption: "private caption",
+          reflection: "private reflection",
+          location: "private location",
+          locationName: "private location name",
+          name: "Private Name",
           email: "private@example.com",
-          mediaId: "private",
+          mediaId: "private-media",
+          blobUrl: "blob:private",
+          keepsakeImage: "data:image/png,private",
+          feedbackMessage: "private feedback",
           metadata: { private: true }
         };
-        state.submissions.first = privateSubmission;
-        harness.api.trackQuestSaved({
-          questId: "first",
-          submission: privateSubmission,
-          previousCompletedCount: 0,
-          wasCompletedBefore: false
-        });
-        harness.api.trackQuestSaved({
-          questId: "first",
-          submission: privateSubmission,
-          previousCompletedCount: 1,
-          wasCompletedBefore: true
-        });
-        const payloads = await harness.payloads();
-        const eventCounts = payloads.reduce((counts, payload) => {
-          counts[payload.eventName] = (counts[payload.eventName] || 0) + 1;
-          return counts;
-        }, {});
-        const forbiddenFields = [
-          "caption", "reflection", "location", "name", "email",
-          "mediaId", "metadata", "photo"
-        ];
-
-        check(
-          "Every event includes the anonymous common fields",
-          payloads.every(payload => [
-            "installationId", "sessionId", "eventName", "timestamp",
-            "build", "platform", "displayMode", "language"
-          ].every(field => payload[field] != null))
-        );
-        check(
-          "Installation and session identifiers use the expected formats",
-          /^SQ-[A-F0-9]{8}$/.test(payloads[0]?.installationId || "") &&
-            /^SESSION-[A-F0-9]{6}$/.test(payloads[0]?.sessionId || "")
-        );
-        check(
-          "One-time and per-quest events are deduplicated",
-          eventCounts.mission_briefing_completed === 1 &&
-            eventCounts.quest_opened === 1 &&
-            eventCounts.quest_completed === 1 &&
-            eventCounts.first_quest_completed === 1,
-          eventCounts
-        );
-        check(
-          "Quest payload excludes private memory fields",
-          payloads.every(payload =>
-            forbiddenFields.every(field => !Object.hasOwn(payload, field))
-          )
-        );
-        const questPayload = payloads.find(
-          payload => payload.eventName === "quest_completed"
-        );
-        check(
-          "Quest completion payload preserves the required gameplay fields",
-          questPayload?.questId === "first" &&
-            questPayload?.questTitle === "First Quest" &&
-            questPayload?.completedAt === privateSubmission.completedAt &&
-            questPayload?.adventureDate === privateSubmission.adventureDate &&
-            questPayload?.points === 17 &&
-            questPayload?.friendCount === 2 &&
-            questPayload?.bonusEarned === true &&
-            questPayload?.bonusCount === 1 &&
-            JSON.stringify(questPayload?.bonusIds) === JSON.stringify(["bonus"]) &&
-            questPayload?.historical === false,
-          questPayload
-        );
-        check(
-          "Accepted beacon and fetch fallback are mutually exclusive",
-          harness.attempts.beacon > 0 && harness.attempts.fetch === 0,
-          harness.attempts
-        );
-
-        const fallback = createHarness({ beaconAccepted: false });
-        const fallbackState = { submissions: { first: privateSubmission } };
-        fallback.api.init(questContext(fallbackState));
-        fallback.api.trackQuestSaved({
-          questId: "first",
-          submission: privateSubmission,
-          previousCompletedCount: 0,
-          wasCompletedBefore: false
-        });
-        await Promise.resolve();
-        check(
-          "Rejected beacon uses one fetch fallback",
-          fallback.attempts.beacon > 0 &&
-            fallback.attempts.fetch === fallback.attempts.beacon,
-          fallback.attempts
-        );
-
-        const failedSend = createHarness({
-          beaconAccepted: false,
-          fetchThrows: true
-        });
-        failedSend.api.init(questContext({ submissions: {} }));
-        failedSend.api.trackQuestSaved({
-          questId: "first",
-          submission: privateSubmission,
-          previousCompletedCount: 0,
-          wasCompletedBefore: false
-        });
-        const failedDedupe = JSON.parse(
-          failedSend.store.get("summerQuestAnalyticsDedupe") || "{}"
-        );
-        check(
-          "Failed initiation does not persist quest completion dedupe",
-          !failedDedupe["quest_completed:first"],
-          failedDedupe
-        );
-
-        const submitBranchStart = appSource.indexOf(
-          'els.form.addEventListener("submit"'
-        );
-        const submitBranch = appSource.slice(
-          submitBranchStart,
-          appSource.indexOf("const obsoleteMediaIds", submitBranchStart)
-        );
-        check(
-          "Completion tracking follows successful local persistence",
-          submitBranchStart >= 0 &&
-            submitBranch.indexOf("save();") >= 0 &&
-            submitBranch.indexOf("analyticsSync?.trackQuestSaved") >
-              submitBranch.indexOf("save();") &&
-            submitBranch.includes("wasCompletedBefore"),
-          submitBranchStart
-        );
-
-        check(
-          "Development-only completion logs cover prepared, skipped, sent, and failed",
-          [
-            "[Analytics] quest_completed prepared",
-            "[Analytics] quest_completed skipped: already completed",
-            "[Analytics] quest_completed skipped: sharing off",
-            "[Analytics] quest_completed sent",
-            "[Analytics] quest_completed failed"
-          ].every(message => analyticsSource.includes(message))
-        );
-
-        check(
-          "Apps Script receiver maps completion and historical columns",
-          [
-            "Event Timestamp", "Event Name", "Installation ID", "Session ID",
-            "Quest ID", "Quest Title", "Completed At", "Adventure Date",
-            "Points", "Friend Count", "Bonus Earned", "Bonus Count",
-            "Bonus IDs", "Build", "Platform", "Display Mode", "Language",
-            "Historical"
-          ].every(header => receiverSource.includes(`"${header}"`)) &&
-            receiverSource.includes("ensureAnalyticsHeaders")
-        );
-
-        const optedOutStore = new Map([
-          ["summerQuestAnonymousSharingEnabled", "false"]
-        ]);
-        const optedOut = createHarness({ store: optedOutStore });
-        const optedOutState = { submissions: { first: privateSubmission } };
-        optedOut.api.init(questContext(optedOutState));
-        optedOut.api.trackFeature("privacy_opened");
-        check(
-          "Opt-out sends nothing and creates no installation ID",
-          (await optedOut.payloads()).length === 0 &&
-            !optedOutStore.has("summerQuestInstallationId")
-        );
-        optedOut.api.setSharingEnabled(true);
-        optedOut.api.trackQuestSaved({
-          questId: "first",
-          submission: privateSubmission,
-          previousCompletedCount: 0,
-          wasCompletedBefore: false
-        });
-        check(
-          "Re-enabling sharing allows future completions",
-          (await optedOut.payloads()).some(
-            payload => payload.eventName === "quest_completed"
-          )
-        );
-
-        const twoQuestState = { submissions: {} };
-        const twoQuestHarness = createHarness({ randomSeed: 20 });
-        twoQuestHarness.api.init(questContext(twoQuestState));
-        twoQuestState.submissions.first = privateSubmission;
-        twoQuestHarness.api.trackQuestSaved({
-          questId: "first",
-          submission: privateSubmission,
-          previousCompletedCount: 0,
-          wasCompletedBefore: false
-        });
         const finalSubmission = {
           completed: true,
           completedAt: "2026-08-05T18:00:00.000Z",
@@ -387,59 +221,233 @@
           friends: 0,
           selectedBonusIds: []
         };
-        twoQuestState.submissions.final = finalSubmission;
-        twoQuestHarness.api.trackQuestSaved({
+
+        const allowedEvents = [
+          "app_first_opened",
+          "app_opened",
+          "app_installed",
+          "quest_completed",
+          "first_quest_completed",
+          "adventure_completed",
+          "journal_first_opened",
+          "journal_opened",
+          "keepsake_first_opened",
+          "keepsake_generated",
+          "privacy_opened",
+          "feedback_submitted"
+        ];
+        const freshState = { submissions: {} };
+        const fresh = createHarness();
+        fresh.api.init(questContext(freshState));
+        fresh.dispatch("appinstalled");
+        fresh.dispatch("appinstalled");
+        fresh.api.trackJournalOpened();
+        fresh.api.trackJournalOpened();
+        fresh.api.trackKeepsakeOpened();
+        fresh.api.trackKeepsakeOpened();
+        fresh.api.trackKeepsakeGenerated();
+        fresh.api.trackKeepsakeGenerated();
+        fresh.api.trackPrivacyOpened();
+        fresh.api.trackPrivacyOpened();
+        fresh.api.trackFeedbackSubmitted();
+        fresh.api.trackFeedbackSubmitted();
+
+        freshState.submissions.first = privateSubmission;
+        fresh.api.trackQuestSaved({
+          questId: "first",
+          submission: privateSubmission,
+          previousCompletedCount: 0,
+          wasCompletedBefore: false
+        });
+        fresh.api.trackQuestSaved({
+          questId: "first",
+          submission: privateSubmission,
+          previousCompletedCount: 1,
+          wasCompletedBefore: true
+        });
+        freshState.submissions.final = finalSubmission;
+        fresh.api.trackQuestSaved({
           questId: "final",
           submission: finalSubmission,
           previousCompletedCount: 1,
           wasCompletedBefore: false
         });
+        fresh.api.trackQuestSaved({
+          questId: "final",
+          submission: finalSubmission,
+          previousCompletedCount: 2,
+          wasCompletedBefore: true
+        });
+
+        const freshPayloads = await fresh.payloads();
+        const freshCounts = countEvents(freshPayloads);
         check(
-          "Different quests create separate completion events",
-          (await twoQuestHarness.payloads())
-            .filter(payload => payload.eventName === "quest_completed")
-            .map(payload => payload.questId)
-            .join(",") === "first,final"
+          "Fresh installation emits every Analytics v1.0 event at the required frequency",
+          freshCounts.app_first_opened === 1 &&
+            freshCounts.app_opened === 1 &&
+            freshCounts.app_installed === 1 &&
+            freshCounts.quest_completed === 2 &&
+            freshCounts.first_quest_completed === 1 &&
+            freshCounts.adventure_completed === 1 &&
+            freshCounts.journal_first_opened === 1 &&
+            freshCounts.journal_opened === 1 &&
+            freshCounts.keepsake_first_opened === 1 &&
+            freshCounts.keepsake_generated === 2 &&
+            freshCounts.privacy_opened === 1 &&
+            freshCounts.feedback_submitted === 2,
+          freshCounts
+        );
+        check(
+          "Only allowlisted Analytics v1.0 events can be emitted",
+          freshPayloads.every(payload => allowedEvents.includes(payload.eventName)) &&
+            allowedEvents.every(eventName => analyticsSource.includes(`${eventName}:`))
         );
 
-        const offlineStore = new Map();
-        const offline = createHarness({ store: offlineStore, online: false });
-        offline.api.init(questContext({ submissions: {} }));
-        offline.api.trackQuestOpened("first");
+        const requiredCommonFields = [
+          "installationId", "sessionId", "eventName", "timestamp", "build",
+          "platform", "displayMode", "language", "historical", "feature", "source"
+        ];
         check(
-          "Offline events are skipped without IDs or dedupe state",
-          (await offline.payloads()).length === 0 &&
-            !offlineStore.has("summerQuestInstallationId") &&
-            !offlineStore.has("summerQuestAnalyticsDedupe")
+          "Every payload contains the complete anonymous common contract",
+          freshPayloads.every(payload => requiredCommonFields.every(
+            field => payload[field] !== undefined && payload[field] !== null && payload[field] !== ""
+          ))
+        );
+        check(
+          "Fresh events are live and identifiers have the required format",
+          freshPayloads.every(payload => payload.historical === false) &&
+            /^SQ-[A-F0-9]{8}$/.test(freshPayloads[0]?.installationId || "") &&
+            /^SESSION-[A-F0-9]{6}$/.test(freshPayloads[0]?.sessionId || "")
         );
 
-        const historicalStore = new Map();
+        const forbiddenFields = [
+          "photo", "photos", "caption", "reflection", "name", "email",
+          "location", "locationName", "preciseLocation", "latitude", "longitude",
+          "mediaId", "blobUrl", "keepsakeImage", "feedbackMessage", "message", "metadata"
+        ];
+        check(
+          "No personal or media data crosses the analytics boundary",
+          freshPayloads.every(payload => forbiddenFields.every(field => !Object.hasOwn(payload, field)))
+        );
+
+        const firstQuestPayload = freshPayloads.find(
+          payload => payload.eventName === "quest_completed" && payload.questId === "first"
+        );
+        check(
+          "Quest completion payload exactly preserves anonymous gameplay fields",
+          firstQuestPayload?.questTitle === "First Quest" &&
+            firstQuestPayload?.completedAt === privateSubmission.completedAt &&
+            firstQuestPayload?.adventureDate === privateSubmission.adventureDate &&
+            firstQuestPayload?.points === 17 &&
+            firstQuestPayload?.friendCount === 2 &&
+            firstQuestPayload?.bonusEarned === true &&
+            firstQuestPayload?.bonusCount === 1 &&
+            JSON.stringify(firstQuestPayload?.bonusIds) === JSON.stringify(["bonus"]),
+          firstQuestPayload
+        );
+        const adventurePayload = freshPayloads.find(
+          payload => payload.eventName === "adventure_completed"
+        );
+        check(
+          "Adventure completion payload contains final anonymous totals",
+          adventurePayload?.totalCompletedQuests === 2 &&
+            adventurePayload?.totalPoints === 42 &&
+            adventurePayload?.totalFriends === 2 &&
+            adventurePayload?.finalRank === "Summer Legend" &&
+            adventurePayload?.completedAt === finalSubmission.completedAt,
+          adventurePayload
+        );
+        check(
+          "Feature and Source values are populated for every event",
+          freshPayloads.every(payload => typeof payload.feature === "string" && payload.feature &&
+            typeof payload.source === "string" && payload.source)
+        );
+
+        const secondSession = createHarness({ store: fresh.store, randomSeed: 20 });
+        secondSession.api.init(questContext(freshState, { hadStoredAppState: true }));
+        secondSession.api.trackJournalOpened();
+        secondSession.api.trackJournalOpened();
+        const secondSessionPayloads = await secondSession.payloads();
+        const secondSessionCounts = countEvents(secondSessionPayloads);
+        check(
+          "Session events reset per session while first events remain installation-deduped",
+          secondSessionCounts.app_opened === 1 &&
+            secondSessionCounts.journal_opened === 1 &&
+            !secondSessionCounts.app_first_opened &&
+            !secondSessionCounts.journal_first_opened,
+          secondSessionCounts
+        );
+        check(
+          "Session IDs change while the installation ID remains stable",
+          secondSessionPayloads[0]?.installationId === freshPayloads[0]?.installationId &&
+            secondSessionPayloads[0]?.sessionId !== freshPayloads[0]?.sessionId
+        );
+        const freshDedupe = JSON.parse(
+          fresh.store.get("summerQuestAnalyticsDedupe") || "{}"
+        );
+        check(
+          "Persistent dedupe entries contain valid timestamps",
+          Object.values(freshDedupe).every(value => !Number.isNaN(Date.parse(value))),
+          freshDedupe
+        );
+
+        const historicalStore = new Map([
+          ["summerQuestInstallationId", "SQ-ABCDEF12"],
+          ["summerQuestAnalyticsEvidenceV1", JSON.stringify({
+            app_installed: { timestamp: "2026-07-01T10:00:00.000Z", source: "browser_install_event" },
+            journal_first_opened: { timestamp: "2026-07-02T10:00:00.000Z", source: "journal_navigation" },
+            keepsake_first_opened: { timestamp: "2026-07-03T10:00:00.000Z", source: "keepsake_navigation" },
+            keepsake_generated: { timestamp: "2026-07-04T10:00:00.000Z", source: "keepsake_generation" },
+            privacy_opened: { timestamp: "2026-07-05T10:00:00.000Z", source: "privacy_dialog" },
+            feedback_submitted: { timestamp: "2026-07-06T10:00:00.000Z", source: "formspree_success" }
+          })]
+        ]);
         const historicalState = {
-          submissions: {
-            first: privateSubmission
-          }
+          submissions: { first: privateSubmission, final: finalSubmission }
         };
         const historical = createHarness({
           store: historicalStore,
           runTimers: true,
           randomSeed: 30
         });
-        historical.api.init(questContext(historicalState));
-        await new Promise(resolve => window.setTimeout(resolve, 60));
+        historical.api.init(questContext(historicalState, { hadStoredAppState: true }));
+        await new Promise(resolve => window.setTimeout(resolve, 180));
         const historicalPayloads = await historical.payloads();
-        const historicalQuestPayloads = historicalPayloads.filter(
-          payload => payload.eventName === "quest_completed"
+        const historicalEvents = historicalPayloads.filter(payload => payload.historical === true);
+        const historicalCounts = countEvents(historicalEvents);
+        check(
+          "Existing installation backfills every recoverable historical event once",
+          historicalCounts.app_first_opened === 1 &&
+            historicalCounts.app_installed === 1 &&
+            historicalCounts.quest_completed === 2 &&
+            historicalCounts.first_quest_completed === 1 &&
+            historicalCounts.adventure_completed === 1 &&
+            historicalCounts.journal_first_opened === 1 &&
+            historicalCounts.keepsake_first_opened === 1 &&
+            historicalCounts.keepsake_generated === 1 &&
+            historicalCounts.privacy_opened === 1 &&
+            historicalCounts.feedback_submitted === 1 &&
+            !historicalCounts.app_opened &&
+            !historicalCounts.journal_opened,
+          historicalCounts
         );
         check(
-          "Saved completions backfill once with original values",
-          historicalQuestPayloads.length === 1 &&
-            historicalQuestPayloads[0].historical === true &&
-            historicalQuestPayloads[0].completedAt === privateSubmission.completedAt &&
-            historicalQuestPayloads[0].adventureDate === privateSubmission.adventureDate &&
-            historicalQuestPayloads[0].points === 17 &&
-            historicalQuestPayloads[0].friendCount === 2 &&
-            historicalQuestPayloads[0].bonusCount === 1,
-          historicalQuestPayloads
+          "Historical quest and adventure payloads retain their original values",
+          historicalEvents.some(payload =>
+            payload.eventName === "quest_completed" &&
+            payload.questId === "first" &&
+            payload.completedAt === privateSubmission.completedAt &&
+            payload.bonusCount === 1 &&
+            JSON.stringify(payload.bonusIds) === JSON.stringify(["bonus"])
+          ) && historicalEvents.some(payload =>
+            payload.eventName === "adventure_completed" &&
+            payload.completedAt === finalSubmission.completedAt &&
+            payload.totalPoints === 42
+          )
+        );
+        check(
+          "Permanent v1.0 backfill marker is written only after completion",
+          historicalStore.get("summerQuestAnalyticsBackfillV1") === "1.0"
         );
 
         const historicalRefresh = createHarness({
@@ -447,81 +455,303 @@
           runTimers: true,
           randomSeed: 60
         });
-        historicalRefresh.api.init(questContext(historicalState));
-        await new Promise(resolve => window.setTimeout(resolve, 60));
+        historicalRefresh.api.init(questContext(historicalState, { hadStoredAppState: true }));
+        historicalRefresh.api.trackJournalOpened();
+        historicalRefresh.api.trackJournalOpened();
+        await new Promise(resolve => window.setTimeout(resolve, 40));
+        const refreshPayloads = await historicalRefresh.payloads();
         check(
-          "Historical completion does not rerun on refresh",
-          (await historicalRefresh.payloads()).every(
-            payload => payload.eventName !== "quest_completed"
-          )
+          "Completed backfill never reruns and session events continue normally",
+          refreshPayloads.every(payload => payload.historical === false) &&
+            countEvents(refreshPayloads).app_opened === 1 &&
+            countEvents(refreshPayloads).journal_opened === 1,
+          countEvents(refreshPayloads)
         );
 
-        const historicalAdventure = createHarness({
-          store: new Map(),
-          runTimers: true,
-          randomSeed: 75
-        });
-        historicalAdventure.api.init(questContext({
-          submissions: {
-            first: privateSubmission,
-            final: finalSubmission
-          }
+        const offlineStore = new Map([
+          ["summerQuestInstallationId", "SQ-OFFLINE1"],
+          ["summerQuestAnalyticsEvidenceV1", JSON.stringify({
+            journal_first_opened: { timestamp: "2026-07-02T10:00:00.000Z", source: "journal_navigation" }
+          })]
+        ]);
+        const offline = createHarness({ store: offlineStore, online: false, runTimers: true });
+        offline.api.init(questContext({ submissions: { first: privateSubmission } }, {
+          hadStoredAppState: true
         }));
-        await new Promise(resolve => window.setTimeout(resolve, 80));
-        const historicalAdventurePayloads = (await historicalAdventure.payloads())
-          .filter(payload => payload.eventName === "adventure_completed");
+        await new Promise(resolve => window.setTimeout(resolve, 30));
         check(
-          "A saved final quest backfills one historical adventure completion",
-          historicalAdventurePayloads.length === 1 &&
-            historicalAdventurePayloads[0].historical === true &&
-            historicalAdventurePayloads[0].totalCompletedQuests === 2 &&
-            historicalAdventurePayloads[0].totalPoints === 42,
-          historicalAdventurePayloads
+          "Offline existing installation sends nothing and does not complete backfill",
+          (await offline.payloads()).length === 0 &&
+            !offlineStore.has("summerQuestAnalyticsBackfillV1")
+        );
+        const onlineRetry = createHarness({ store: offlineStore, runTimers: true, randomSeed: 80 });
+        onlineRetry.api.init(questContext({ submissions: { first: privateSubmission } }, {
+          hadStoredAppState: true
+        }));
+        await new Promise(resolve => window.setTimeout(resolve, 100));
+        check(
+          "Offline backfill retries on a future online launch",
+          (await onlineRetry.payloads()).some(payload => payload.historical === true) &&
+            offlineStore.get("summerQuestAnalyticsBackfillV1") === "1.0"
         );
 
-        const retryStore = new Map();
-        const failedHistorical = createHarness({
-          store: retryStore,
+        const failedBackfillStore = new Map([
+          ["summerQuestInstallationId", "SQ-FAILED12"]
+        ]);
+        const failedBackfill = createHarness({
+          store: failedBackfillStore,
           runTimers: true,
           fetchRejects: true,
-          randomSeed: 90
+          randomSeed: 100
         });
-        failedHistorical.api.init(questContext(historicalState));
-        await new Promise(resolve => window.setTimeout(resolve, 60));
-        const failedHistoricalDedupe = JSON.parse(
-          retryStore.get("summerQuestAnalyticsDedupe") || "{}"
+        failedBackfill.api.init(questContext({ submissions: { first: privateSubmission } }, {
+          hadStoredAppState: true
+        }));
+        await new Promise(resolve => window.setTimeout(resolve, 50));
+        check(
+          "Failed historical upload does not persist completion or event progress",
+          !failedBackfillStore.has("summerQuestAnalyticsBackfillV1") &&
+            !JSON.parse(failedBackfillStore.get("summerQuestAnalyticsDedupe") || "{}")
+              ["historical:app_first_opened"]
         );
-        const retriedHistorical = createHarness({
-          store: retryStore,
+
+        const partialStore = new Map([
+          ["summerQuestInstallationId", "SQ-PARTIAL1"]
+        ]);
+        const partialFailure = createHarness({
+          store: partialStore,
+          runTimers: true,
+          fetchRejectOn: 2,
+          randomSeed: 110
+        });
+        partialFailure.api.init(questContext({ submissions: { first: privateSubmission } }, {
+          hadStoredAppState: true
+        }));
+        await new Promise(resolve => window.setTimeout(resolve, 60));
+        const partialFirstPayloads = await partialFailure.payloads();
+        const partialRetry = createHarness({
+          store: partialStore,
           runTimers: true,
           randomSeed: 120
         });
-        retriedHistorical.api.init(questContext(historicalState));
+        partialRetry.api.init(questContext({ submissions: { first: privateSubmission } }, {
+          hadStoredAppState: true
+        }));
+        await new Promise(resolve => window.setTimeout(resolve, 100));
+        const partialCombined = [
+          ...partialFirstPayloads,
+          ...(await partialRetry.payloads())
+        ].filter(payload => payload.historical === true);
+        check(
+          "Partial backfill resumes without duplicating successful historical rows",
+          countEvents(partialCombined).app_first_opened === 1 &&
+            countEvents(partialCombined).quest_completed === 1 &&
+            partialStore.get("summerQuestAnalyticsBackfillV1") === "1.0",
+          countEvents(partialCombined)
+        );
+
+        const standaloneStore = new Map([
+          ["summerQuestInstallationId", "SQ-STAND123"]
+        ]);
+        const standaloneHistory = createHarness({
+          store: standaloneStore,
+          standalone: true,
+          runTimers: true,
+          randomSeed: 130
+        });
+        standaloneHistory.api.init(questContext({ submissions: {} }, {
+          hadStoredAppState: true
+        }));
         await new Promise(resolve => window.setTimeout(resolve, 60));
         check(
-          "Failed historical fetch stays eligible for a future launch",
-          !failedHistoricalDedupe["historical_quest_completed:first"] &&
-            (await retriedHistorical.payloads()).some(
-              payload => payload.eventName === "quest_completed" &&
-                payload.historical === true
-            ),
-          failedHistoricalDedupe
+          "Standalone mode backfills an installation that predates analytics",
+          (await standaloneHistory.payloads()).some(payload =>
+            payload.eventName === "app_installed" &&
+            payload.historical === true &&
+            payload.source === "standalone_detection"
+          )
+        );
+
+        const fallback = createHarness({ beaconAccepted: false });
+        fallback.api.init(questContext({ submissions: {} }));
+        await Promise.resolve();
+        check(
+          "Rejected beacon uses exactly one fetch fallback per live event",
+          fallback.attempts.beacon === 2 && fallback.attempts.fetch === 2,
+          fallback.attempts
+        );
+        check(
+          "Accepted beacon never also invokes fetch",
+          fresh.attempts.beacon === freshPayloads.length && fresh.attempts.fetch === 0,
+          fresh.attempts
+        );
+
+        const failedSend = createHarness({ beaconAccepted: false, fetchThrows: true });
+        const failedState = { submissions: { first: privateSubmission } };
+        failedSend.api.init(questContext(failedState));
+        failedSend.api.trackQuestSaved({
+          questId: "first",
+          submission: privateSubmission,
+          previousCompletedCount: 0,
+          wasCompletedBefore: false
+        });
+        check(
+          "Failed live transport initiation does not persist quest dedupe",
+          !JSON.parse(failedSend.store.get("summerQuestAnalyticsDedupe") || "{}")
+            ["quest_completed:first"]
+        );
+
+        const optedOutStore = new Map([
+          ["summerQuestAnonymousSharingEnabled", "false"]
+        ]);
+        const optedOut = createHarness({ store: optedOutStore });
+        optedOut.api.init(questContext({ submissions: {} }));
+        optedOut.api.trackPrivacyOpened();
+        check(
+          "Opt-out uploads nothing and creates no installation identifier",
+          (await optedOut.payloads()).length === 0 &&
+            !optedOutStore.has("summerQuestInstallationId") &&
+            optedOutStore.has("summerQuestAnalyticsEvidenceV1")
+        );
+
+        const staleDedupeStore = new Map([
+          ["summerQuestInstallationId", "SQ-STALE123"],
+          ["summerQuestAnalyticsBackfillV1", "1.0"],
+          ["summerQuestAnalyticsDedupe", JSON.stringify({
+            mission_briefing_completed: "old",
+            "quest_opened:first": "old",
+            "finale_animation_started:key": "old",
+            app_first_opened: "keep"
+          })]
+        ]);
+        createHarness({ store: staleDedupeStore }).api.init(
+          questContext({ submissions: {} }, { hadStoredAppState: true })
+        );
+        const cleanedDedupe = JSON.parse(staleDedupeStore.get("summerQuestAnalyticsDedupe"));
+        check(
+          "Obsolete event dedupe entries are pruned while v1.0 entries remain",
+          Object.keys(cleanedDedupe).join(",") === "app_first_opened",
+          cleanedDedupe
+        );
+
+        const productionSources = `${analyticsSource}\n${appSource}\n${journalSource}`;
+        const removedEvents = [
+          "mission_briefing_completed",
+          "quest_opened",
+          "keepsake_opened",
+          "contact_opened",
+          "install_help_opened",
+          "finale_animation_started",
+          "finale_animation_completed"
+        ];
+        check(
+          "Removed and non-spec analytics events have no production definitions or callers",
+          removedEvents.every(eventName => !productionSources.includes(eventName)),
+          removedEvents.filter(eventName => productionSources.includes(eventName))
+        );
+
+        const submitBranchStart = appSource.indexOf('els.form.addEventListener("submit"');
+        const submitBranch = appSource.slice(
+          submitBranchStart,
+          appSource.indexOf("const obsoleteMediaIds", submitBranchStart)
+        );
+        check(
+          "Quest analytics follows successful local state persistence",
+          submitBranchStart >= 0 &&
+            submitBranch.indexOf("save();") >= 0 &&
+            submitBranch.indexOf("analyticsSync?.trackQuestSaved") > submitBranch.indexOf("save();") &&
+            submitBranch.includes("wasCompletedBefore")
+        );
+        const feedbackSuccess = appSource.slice(
+          appSource.indexOf("const response = await fetch(CONTACT_FORM_ENDPOINT"),
+          appSource.indexOf("} catch (error)", appSource.indexOf("const response = await fetch(CONTACT_FORM_ENDPOINT"))
+        );
+        check(
+          "Feedback analytics follows a successful Formspree response and receives no message",
+          feedbackSuccess.indexOf("if (!response.ok)") >= 0 &&
+            feedbackSuccess.indexOf("trackFeedbackSubmitted?.()") >
+              feedbackSuccess.indexOf("if (!response.ok)") &&
+            !feedbackSuccess.includes("trackFeedbackSubmitted?.(els.")
+        );
+        check(
+          "Journal and keepsake trigger locations use the explicit v1.0 API",
+          journalSource.includes("trackJournalOpened?.()") &&
+            journalSource.includes("trackKeepsakeOpened?.()") &&
+            journalSource.includes("trackKeepsakeGenerated?.()")
+        );
+        check(
+          "Only the native appinstalled event records installation",
+          analyticsSource.includes('addEventListener("appinstalled"') &&
+            !appSource.includes("trackAppInstalled")
+        );
+        check(
+          "Board reset cannot reset analytics identity or dedupe",
+          !appSource.includes("trackBoardReset") &&
+            !analyticsSource.includes("resetInstallation")
+        );
+
+        const receiverApi = new Function(
+          `${receiverSource}\nreturn { headers: ANALYTICS_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders };`
+        )();
+        const receiverValues = receiverApi.values(firstQuestPayload);
+        check(
+          "Apps Script receiver maps the complete v1.0 contract",
+          [
+            "Bonus Count", "Bonus IDs", "Historical", "Feature", "Source"
+          ].every(header => receiverApi.headers.includes(header)) &&
+            receiverValues["Bonus Count"] === 1 &&
+            receiverValues["Bonus IDs"] === "bonus" &&
+            receiverValues.Historical === false &&
+            receiverValues.Feature === "gameplay" &&
+            receiverValues.Source === "quest_save"
+        );
+        check(
+          "Receiver preserves existing rows while appending missing headers",
+          (() => {
+            const rows = [
+              ["Event Name", "Legacy Column"],
+              ["app_opened", "preserve me"]
+            ];
+            const originalDataRow = JSON.stringify(rows[1]);
+            const sheet = {
+              getLastColumn: () => rows[0].length,
+              getLastRow: () => rows.length,
+              getRange(row, column, rowCount, columnCount) {
+                return {
+                  getValues: () => Array.from({ length: rowCount }, (_, rowOffset) =>
+                    Array.from({ length: columnCount }, (_, columnOffset) =>
+                      rows[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? ""
+                    )
+                  ),
+                  setValues(values) {
+                    values.forEach((valueRow, rowOffset) => {
+                      rows[row - 1 + rowOffset] ||= [];
+                      valueRow.forEach((value, columnOffset) => {
+                        rows[row - 1 + rowOffset][column - 1 + columnOffset] = value;
+                      });
+                    });
+                  }
+                };
+              }
+            };
+            const headers = receiverApi.ensure(sheet);
+            return JSON.stringify(rows[1]) === originalDataRow &&
+              headers.slice(0, 2).join(",") === "Event Name,Legacy Column" &&
+              ["Bonus Count", "Bonus IDs", "Historical", "Feature", "Source"]
+                .every(header => headers.includes(header));
+          })()
         );
 
         let blockedStorageThrew = false;
         try {
           const blocked = createHarness({ storageThrows: true });
           blocked.api.init(questContext({ submissions: {} }));
-          blocked.api.setSharingEnabled(false);
-          blocked.api.trackFeature("privacy_opened");
+          blocked.api.trackPrivacyOpened();
           blocked.api.debugState();
         } catch {
           blockedStorageThrew = true;
         }
-        check(
-          "Blocked browser storage never throws into gameplay",
-          !blockedStorageThrew
-        );
+        check("Blocked browser storage never interrupts gameplay", !blockedStorageThrew);
 
         const observerHarness = createHarness();
         observerHarness.api.onStatusChange(() => {
@@ -534,16 +764,6 @@
           observerThrew = true;
         }
         check("Analytics observers cannot interrupt gameplay", !observerThrew);
-
-        check(
-          "Android help confirmation does not claim installation",
-          appSource.includes('selectedHomeScreenPlatform() === "iphone"') &&
-            appSource.includes('"ios_install_help_confirmed"')
-        );
-        check(
-          "Finale completion is emitted only after a played animation",
-          appSource.includes("if (result?.played === true)")
-        );
 
         const failed = checks.filter(item => !item.passed);
         result.textContent = JSON.stringify({

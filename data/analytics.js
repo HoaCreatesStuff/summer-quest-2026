@@ -5,22 +5,50 @@
   const INSTALLATION_ID_KEY = "summerQuestInstallationId";
   const SHARING_PREFERENCE_KEY = "summerQuestAnonymousSharingEnabled";
   const DEDUPE_KEY = "summerQuestAnalyticsDedupe";
-  const LEGACY_ANALYTICS_KEYS = Object.freeze([
-    "summerQuestAnalyticsQueue",
-    "summerQuestAnalyticsMeta",
-    "summerQuestAnalyticsMilestones",
-    "summerQuestHistoricalImportVersion",
-    "summerQuestFinalSummarySyncVersion"
-  ]);
+  const EVIDENCE_KEY = "summerQuestAnalyticsEvidenceV1";
+  const BACKFILL_KEY = "summerQuestAnalyticsBackfillV1";
+  const BACKFILL_VERSION = "1.0";
   const FETCH_TIMEOUT_MS = 2500;
   const BACKFILL_START_DELAY_MS = 500;
   const BACKFILL_BETWEEN_EVENTS_MS = 120;
   const DEBUG_PARAM = "summer-quest-analytics-debug";
 
+  const EVENT_FEATURES = Object.freeze({
+    app_first_opened: "app",
+    app_opened: "app",
+    app_installed: "app",
+    quest_completed: "gameplay",
+    first_quest_completed: "gameplay",
+    adventure_completed: "gameplay",
+    journal_first_opened: "journal",
+    journal_opened: "journal",
+    keepsake_first_opened: "keepsake",
+    keepsake_generated: "keepsake",
+    privacy_opened: "privacy",
+    feedback_submitted: "feedback"
+  });
+  const PERSISTENT_DEDUPE_KEYS = new Set([
+    "app_first_opened",
+    "app_installed",
+    "first_quest_completed",
+    "adventure_completed",
+    "journal_first_opened",
+    "keepsake_first_opened",
+    "privacy_opened",
+    "historical_adventure_completed"
+  ]);
+  const PERSISTENT_DEDUPE_PREFIXES = Object.freeze([
+    "quest_completed:",
+    "historical:",
+    "historical_quest_completed:"
+  ]);
+
   const debugMode = new URLSearchParams(window.location.search).has(DEBUG_PARAM);
   const sessionId = `SESSION-${randomHex(6)}`;
+  const sessionEvents = new Set();
 
   let context = null;
+  let initialized = false;
   let statusListeners = [];
   let historicalBackfillScheduled = false;
 
@@ -54,14 +82,6 @@
     }
   }
 
-  function removeStorage(key) {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // Analytics storage must never affect gameplay.
-    }
-  }
-
   function readJson(key, fallback) {
     try {
       const raw = readStorage(key);
@@ -75,9 +95,9 @@
 
   function writeJson(key, value) {
     try {
-      writeStorage(key, JSON.stringify(value));
+      return writeStorage(key, JSON.stringify(value));
     } catch {
-      // Analytics storage must never affect gameplay.
+      return false;
     }
   }
 
@@ -126,15 +146,57 @@
     return Boolean(dedupeKey && getDedupe()[dedupeKey]);
   }
 
-  function markSent(dedupeKey) {
-    if (!dedupeKey) return;
-    writeJson(DEDUPE_KEY, {
+  function markSent(dedupeKey, timestamp = nowIso()) {
+    if (!dedupeKey) return false;
+    return writeJson(DEDUPE_KEY, {
       ...getDedupe(),
-      [dedupeKey]: nowIso()
+      [dedupeKey]: timestamp
     });
   }
 
-  function commonPayload(eventName) {
+  function removeObsoleteDedupe() {
+    const dedupe = getDedupe();
+    let changed = false;
+    Object.keys(dedupe).forEach(key => {
+      const allowed = PERSISTENT_DEDUPE_KEYS.has(key) ||
+        PERSISTENT_DEDUPE_PREFIXES.some(prefix => key.startsWith(prefix));
+      if (!allowed) {
+        delete dedupe[key];
+        changed = true;
+      }
+    });
+    if (changed) writeJson(DEDUPE_KEY, dedupe);
+  }
+
+  function getEvidence() {
+    const evidence = readJson(EVIDENCE_KEY, {});
+    return evidence && typeof evidence === "object" && !Array.isArray(evidence)
+      ? evidence
+      : {};
+  }
+
+  function recordEvidence(eventName, source) {
+    const evidence = getEvidence();
+    if (evidence[eventName]) return evidence[eventName];
+    const item = { timestamp: nowIso(), source };
+    writeJson(EVIDENCE_KEY, { ...evidence, [eventName]: item });
+    return item;
+  }
+
+  function migrateLegacyEvidence() {
+    if (readStorage(SHARING_PREFERENCE_KEY) !== null) {
+      recordEvidence("privacy_opened", "sharing_preference");
+    }
+  }
+
+  function commonPayload(eventName, {
+    historical = false,
+    source,
+    timestamp = nowIso()
+  } = {}) {
+    const feature = EVENT_FEATURES[eventName];
+    if (!feature || !source) return null;
+
     const installationId = getInstallationId({ create: true });
     if (!installationId) return null;
 
@@ -143,11 +205,14 @@
       installationId,
       sessionId,
       eventName,
-      timestamp: nowIso(),
+      timestamp,
       build: appVersion(),
       platform: platform(),
       displayMode: displayMode(),
-      language: navigator.language || "unknown"
+      language: navigator.language || "unknown",
+      historical: Boolean(historical),
+      feature,
+      source
     };
   }
 
@@ -159,7 +224,7 @@
     }
   }
 
-  function send(payload, { onFailure } = {}) {
+  function sendLive(payload, { onFailure } = {}) {
     if (!payload || !isSharingEnabled() || navigator.onLine === false) return false;
 
     let body;
@@ -230,21 +295,26 @@
     }
   }
 
-  function track(
-    eventName,
-    details = {},
-    { dedupeKey = "", additionalDedupeKeys = [], onFailure } = {}
-  ) {
-    if (!isSharingEnabled()) return false;
-    if (navigator.onLine === false) return false;
+  function trackLive(eventName, details = {}, {
+    source,
+    dedupeKey = "",
+    sessionKey = "",
+    additionalDedupeKeys = [],
+    onFailure
+  } = {}) {
+    if (!isSharingEnabled() || navigator.onLine === false) return false;
     if (dedupeKey && hasSent(dedupeKey)) return false;
+    if (sessionKey && sessionEvents.has(sessionKey)) return false;
 
-    const payload = commonPayload(eventName);
-    if (!payload) return false;
-    const initiated = send({ ...details, ...payload }, { onFailure });
+    const common = commonPayload(eventName, { historical: false, source });
+    if (!common) return false;
+    const initiated = sendLive({ ...details, ...common }, { onFailure });
     if (!initiated) return false;
 
-    [dedupeKey, ...additionalDedupeKeys].filter(Boolean).forEach(markSent);
+    [dedupeKey, ...additionalDedupeKeys]
+      .filter(Boolean)
+      .forEach(key => markSent(key));
+    if (sessionKey) sessionEvents.add(sessionKey);
     notifyStatus();
     return true;
   }
@@ -260,6 +330,16 @@
       .filter(({ questId, submission }) => validQuestId(questId) && submission?.completed === true);
   }
 
+  function firstCompletedEntry(entries = completedEntries()) {
+    return [...entries].sort((left, right) => {
+      const leftTime = Date.parse(left.submission?.completedAt || "");
+      const rightTime = Date.parse(right.submission?.completedAt || "");
+      if (Number.isNaN(leftTime)) return 1;
+      if (Number.isNaN(rightTime)) return -1;
+      return leftTime - rightTime;
+    })[0] || null;
+  }
+
   function totalFriends(entries = completedEntries()) {
     return entries.reduce((sum, { questId, submission }) => {
       if (context?.isFinalQuest?.(questId)) return sum;
@@ -267,18 +347,9 @@
     }, 0);
   }
 
-  function questDetails(questId) {
-    const quest = context?.quests?.[questId];
-    if (!quest) return null;
-    return {
-      questId,
-      questTitle: quest.title
-    };
-  }
-
   function completedAt(submission, { fallbackToNow = false } = {}) {
-    const completedAt = Date.parse(submission?.completedAt || "");
-    if (!Number.isNaN(completedAt)) return new Date(completedAt).toISOString();
+    const timestamp = Date.parse(submission?.completedAt || "");
+    if (!Number.isNaN(timestamp)) return new Date(timestamp).toISOString();
     return fallbackToNow ? nowIso() : null;
   }
 
@@ -289,12 +360,13 @@
   }
 
   function questCompletionDetails(questId, submission, { historical }) {
-    const details = questDetails(questId);
-    if (!details || !submission?.completed) return null;
+    const quest = context?.quests?.[questId];
+    if (!quest || !submission?.completed) return null;
 
     const selectedBonusIds = bonusIds(questId, submission);
     return {
-      ...details,
+      questId,
+      questTitle: quest.title,
       completedAt: completedAt(submission, { fallbackToNow: !historical }),
       adventureDate: submission.adventureDate || null,
       points: context?.questPoints?.(submission, questId) || 0,
@@ -303,84 +375,180 @@
         : context.normalizeFriendCount(submission?.friends),
       bonusEarned: selectedBonusIds.length > 0,
       bonusCount: selectedBonusIds.length,
-      bonusIds: selectedBonusIds,
-      historical: Boolean(historical)
+      bonusIds: selectedBonusIds
     };
   }
 
-  function historicalQuestKey(questId) {
-    return `historical_quest_completed:${questId}`;
+  function adventureCompletionDetails(entries, finalEntry) {
+    const totals = context.totalsForSubmissions(context.getState().submissions);
+    return {
+      totalCompletedQuests: totals.completed,
+      totalPoints: totals.score,
+      totalFriends: totalFriends(entries),
+      finalRank: context.rankForScore?.(totals.score)?.title || null,
+      completedAt: completedAt(finalEntry.submission, { fallbackToNow: true })
+    };
+  }
+
+  function historicalKey(eventName, suffix = "") {
+    if (eventName === "quest_completed") {
+      return `historical_quest_completed:${suffix}`;
+    }
+    if (eventName === "adventure_completed") {
+      return "historical_adventure_completed";
+    }
+    return `historical:${eventName}${suffix ? `:${suffix}` : ""}`;
   }
 
   function delay(milliseconds) {
     return new Promise(resolve => window.setTimeout(resolve, milliseconds));
   }
 
-  async function backfillHistoricalQuestCompletions() {
+  async function backfillEvent(eventName, details, {
+    source,
+    progressKey,
+    canonicalKey = "",
+    timestamp
+  }) {
+    if (hasSent(progressKey)) return true;
+    if (canonicalKey && hasSent(canonicalKey)) {
+      markSent(progressKey);
+      return true;
+    }
     if (!isSharingEnabled() || navigator.onLine === false) return false;
-    if (!getInstallationId({ create: true })) return false;
 
-    const entries = completedEntries();
-    for (const { questId, submission } of entries) {
-      if (!isSharingEnabled() || navigator.onLine === false) break;
+    const common = commonPayload(eventName, {
+      historical: true,
+      source,
+      timestamp: timestamp || nowIso()
+    });
+    if (!common) return false;
+    const sent = await sendHistorical({ ...details, ...common });
+    if (!sent) return false;
 
-      const dedupeKey = historicalQuestKey(questId);
-      if (hasSent(dedupeKey)) continue;
-
-      const details = questCompletionDetails(questId, submission, {
-        historical: true
-      });
-      const common = commonPayload("quest_completed");
-      if (!details || !common) continue;
-
-      const sent = await sendHistorical({ ...details, ...common });
-      if (sent) {
-        markSent(dedupeKey);
-        markSent(`quest_completed:${questId}`);
-        notifyStatus();
-      }
-      await delay(BACKFILL_BETWEEN_EVENTS_MS);
-    }
-
-    const finalEntry = entries.find(({ questId }) => context?.isFinalQuest?.(questId));
-    const adventureDedupeKey = "historical_adventure_completed";
-    if (
-      finalEntry &&
-      isSharingEnabled() &&
-      navigator.onLine !== false &&
-      !hasSent(adventureDedupeKey)
-    ) {
-      const totals = context.totalsForSubmissions(context.getState().submissions);
-      const common = commonPayload("adventure_completed");
-      if (common) {
-        const sent = await sendHistorical({
-          totalCompletedQuests: totals.completed,
-          totalPoints: totals.score,
-          totalFriends: totalFriends(entries),
-          finalRank: context.rankForScore?.(totals.score)?.title || null,
-          completedAt: completedAt(finalEntry.submission),
-          historical: true,
-          ...common
-        });
-        if (sent) {
-          markSent(adventureDedupeKey);
-          markSent("adventure_completed");
-          notifyStatus();
-        }
-      }
-    }
+    markSent(progressKey);
+    if (canonicalKey) markSent(canonicalKey);
+    notifyStatus();
+    await delay(BACKFILL_BETWEEN_EVENTS_MS);
     return true;
   }
 
+  function hasHistoricalEvidence() {
+    return Object.keys(getEvidence()).length > 0 || completedEntries().length > 0;
+  }
+
+  function isExistingInstallation() {
+    return Boolean(
+      getInstallationId() ||
+      context?.hadStoredAppState ||
+      hasHistoricalEvidence() ||
+      displayMode() !== "browser"
+    );
+  }
+
+  function backfillComplete() {
+    return readStorage(BACKFILL_KEY) === BACKFILL_VERSION;
+  }
+
+  async function backfillHistoricalEvents() {
+    if (backfillComplete()) return true;
+    if (!isSharingEnabled() || navigator.onLine === false) return false;
+    if (!getInstallationId({ create: true })) return false;
+
+    const evidence = getEvidence();
+    const entries = completedEntries();
+    const firstEntry = firstCompletedEntry(entries);
+    const finalEntry = entries.find(({ questId }) => context?.isFinalQuest?.(questId));
+    const tasks = [];
+
+    tasks.push(() => backfillEvent("app_first_opened", {}, {
+      source: "existing_installation",
+      progressKey: historicalKey("app_first_opened"),
+      canonicalKey: "app_first_opened"
+    }));
+
+    if (evidence.app_installed || hasSent("app_installed") || displayMode() !== "browser") {
+      tasks.push(() => backfillEvent("app_installed", {}, {
+        source: evidence.app_installed?.source || "standalone_detection",
+        progressKey: historicalKey("app_installed"),
+        canonicalKey: "app_installed",
+        timestamp: evidence.app_installed?.timestamp
+      }));
+    }
+
+    entries.forEach(({ questId, submission }) => {
+      tasks.push(() => backfillEvent(
+        "quest_completed",
+        questCompletionDetails(questId, submission, { historical: true }),
+        {
+          source: "saved_state",
+          progressKey: historicalKey("quest_completed", questId),
+          canonicalKey: `quest_completed:${questId}`,
+          timestamp: completedAt(submission)
+        }
+      ));
+    });
+
+    if (firstEntry) {
+      tasks.push(() => backfillEvent(
+        "first_quest_completed",
+        questCompletionDetails(firstEntry.questId, firstEntry.submission, { historical: true }),
+        {
+          source: "saved_state",
+          progressKey: historicalKey("first_quest_completed"),
+          canonicalKey: "first_quest_completed",
+          timestamp: completedAt(firstEntry.submission)
+        }
+      ));
+    }
+
+    if (finalEntry) {
+      tasks.push(() => backfillEvent(
+        "adventure_completed",
+        adventureCompletionDetails(entries, finalEntry),
+        {
+          source: "saved_state",
+          progressKey: historicalKey("adventure_completed"),
+          canonicalKey: "adventure_completed",
+          timestamp: completedAt(finalEntry.submission)
+        }
+      ));
+    }
+
+    [
+      ["journal_first_opened", "journal_first_opened"],
+      ["keepsake_first_opened", "keepsake_first_opened"],
+      ["keepsake_generated", "keepsake_generated"],
+      ["privacy_opened", "privacy_opened"],
+      ["feedback_submitted", "feedback_submitted"]
+    ].forEach(([eventName, evidenceName]) => {
+      const item = evidence[evidenceName];
+      if (!item) return;
+      const repeatable = eventName === "keepsake_generated" || eventName === "feedback_submitted";
+      tasks.push(() => backfillEvent(eventName, {}, {
+        source: item.source || "stored_evidence",
+        progressKey: historicalKey(eventName),
+        canonicalKey: repeatable ? "" : eventName,
+        timestamp: item.timestamp
+      }));
+    });
+
+    for (const task of tasks) {
+      if (!(await task())) return false;
+    }
+
+    return writeStorage(BACKFILL_KEY, BACKFILL_VERSION);
+  }
+
   function scheduleHistoricalBackfill() {
-    if (historicalBackfillScheduled) return false;
+    if (backfillComplete() || historicalBackfillScheduled) return false;
     if (!isSharingEnabled() || navigator.onLine === false) return false;
     if (!getInstallationId({ create: true })) return false;
 
     historicalBackfillScheduled = true;
     window.setTimeout(() => {
-      backfillHistoricalQuestCompletions().catch(() => {
-        // A future online launch may retry any unmarked historical events.
+      backfillHistoricalEvents().catch(() => {
+        // Unmarked events retry on a future online launch.
       });
     }, BACKFILL_START_DELAY_MS);
     return true;
@@ -397,7 +565,9 @@
       installationId: readStorage(INSTALLATION_ID_KEY) || null,
       sessionId,
       sharingEnabled: isSharingEnabled(),
-      dedupe: getDedupe()
+      backfillComplete: backfillComplete(),
+      dedupe: getDedupe(),
+      evidence: getEvidence()
     };
   }
 
@@ -412,33 +582,50 @@
     });
   }
 
+  function startSessionAnalytics() {
+    if (!isSharingEnabled() || navigator.onLine === false) return false;
+
+    if (!isExistingInstallation()) {
+      const firstOpened = trackLive("app_first_opened", {}, {
+        source: "app_init",
+        dedupeKey: "app_first_opened",
+        additionalDedupeKeys: [historicalKey("app_first_opened")]
+      });
+      if (firstOpened) writeStorage(BACKFILL_KEY, BACKFILL_VERSION);
+    } else {
+      scheduleHistoricalBackfill();
+    }
+
+    return trackLive("app_opened", {}, {
+      source: "app_init",
+      sessionKey: "app_opened"
+    });
+  }
+
   function setSharingEnabled(enabled) {
     const sharingEnabled = Boolean(enabled);
     persistSharingPreference(sharingEnabled);
     notifyStatus();
-    if (sharingEnabled) scheduleHistoricalBackfill();
-  }
-
-  function resetInstallation() {
-    removeStorage(INSTALLATION_ID_KEY);
-    removeStorage(DEDUPE_KEY);
-    LEGACY_ANALYTICS_KEYS.forEach(removeStorage);
+    if (sharingEnabled) startSessionAnalytics();
   }
 
   function init(nextContext) {
     context = nextContext;
-    if (isSharingEnabled()) {
-      track("app_opened");
-      scheduleHistoricalBackfill();
+    removeObsoleteDedupe();
+    migrateLegacyEvidence();
+
+    if (!initialized) {
+      initialized = true;
+      window.addEventListener("appinstalled", () => {
+        api.trackAppInstalled("browser_install_event");
+      });
     }
-    window.addEventListener("appinstalled", () => {
-      api.trackAppInstalled("native");
-    });
+
+    startSessionAnalytics();
     if (debugMode) {
       window.SummerQuestAnalyticsDebug = Object.freeze({
         state: debugState,
-        track,
-        resetInstallation
+        backfill: backfillHistoricalEvents
       });
       console.info("[Summer Quest analytics] Debug hooks available at window.SummerQuestAnalyticsDebug.");
     }
@@ -450,31 +637,60 @@
     init,
     isSharingEnabled,
     setSharingEnabled,
-    resetInstallation,
     onStatusChange(listener) {
       statusListeners.push(listener);
       return () => {
         statusListeners = statusListeners.filter(candidate => candidate !== listener);
       };
     },
-    trackFeature(eventName, details = {}, options = {}) {
-      return track(eventName, details, options);
+    trackAppInstalled(source = "browser_install_event") {
+      const evidence = recordEvidence("app_installed", source);
+      return trackLive("app_installed", {}, {
+        source,
+        dedupeKey: "app_installed",
+        additionalDedupeKeys: [historicalKey("app_installed")]
+      }) || Boolean(evidence && hasSent("app_installed"));
     },
-    trackMissionBriefingCompleted() {
-      return track("mission_briefing_completed", {}, {
-        dedupeKey: "mission_briefing_completed"
+    trackJournalOpened() {
+      recordEvidence("journal_first_opened", "journal_navigation");
+      trackLive("journal_first_opened", {}, {
+        source: "journal_navigation",
+        dedupeKey: "journal_first_opened",
+        additionalDedupeKeys: [historicalKey("journal_first_opened")]
+      });
+      return trackLive("journal_opened", {}, {
+        source: "journal_navigation",
+        sessionKey: "journal_opened"
       });
     },
-    trackAppInstalled(source = "manual") {
-      return track("app_installed", { source }, {
-        dedupeKey: "app_installed"
+    trackKeepsakeOpened() {
+      recordEvidence("keepsake_first_opened", "keepsake_navigation");
+      return trackLive("keepsake_first_opened", {}, {
+        source: "keepsake_navigation",
+        dedupeKey: "keepsake_first_opened",
+        additionalDedupeKeys: [historicalKey("keepsake_first_opened")]
       });
     },
-    trackQuestOpened(questId) {
-      const details = questDetails(questId);
-      if (!details) return false;
-      return track("quest_opened", details, {
-        dedupeKey: `quest_opened:${questId}`
+    trackKeepsakeGenerated() {
+      recordEvidence("keepsake_generated", "keepsake_generation");
+      return trackLive("keepsake_generated", {}, {
+        source: "keepsake_generation",
+        additionalDedupeKeys: [historicalKey("keepsake_generated")]
+      });
+    },
+    trackPrivacyOpened() {
+      recordEvidence("privacy_opened", "privacy_dialog");
+      return trackLive("privacy_opened", {}, {
+        source: "privacy_dialog",
+        dedupeKey: "privacy_opened",
+        additionalDedupeKeys: [historicalKey("privacy_opened")]
+      });
+    },
+    trackFeedbackSubmitted() {
+      recordEvidence("feedback_submitted", "formspree_success");
+      return trackLive("feedback_submitted", {}, {
+        source: "formspree_success",
+        additionalDedupeKeys: [historicalKey("feedback_submitted")]
       });
     },
     trackQuestSaved({
@@ -484,31 +700,20 @@
       wasCompletedBefore = false
     } = {}) {
       if (wasCompletedBefore) {
-        debugQuestCompletion(
-          "[Analytics] quest_completed skipped: already completed",
-          questId
-        );
+        debugQuestCompletion("[Analytics] quest_completed skipped: already completed", questId);
         return false;
       }
 
-      const details = questCompletionDetails(questId, submission, {
-        historical: false
-      });
+      const details = questCompletionDetails(questId, submission, { historical: false });
       if (!details) return false;
 
       const dedupeKey = `quest_completed:${questId}`;
       if (hasSent(dedupeKey)) {
-        debugQuestCompletion(
-          "[Analytics] quest_completed skipped: already completed",
-          questId
-        );
+        debugQuestCompletion("[Analytics] quest_completed skipped: already completed", questId);
         return false;
       }
       if (!isSharingEnabled()) {
-        debugQuestCompletion(
-          "[Analytics] quest_completed skipped: sharing off",
-          questId
-        );
+        debugQuestCompletion("[Analytics] quest_completed skipped: sharing off", questId);
         return false;
       }
       if (navigator.onLine === false) {
@@ -518,13 +723,11 @@
 
       const entries = completedEntries();
       debugQuestCompletion("[Analytics] quest_completed prepared", questId);
-      const initiated = track("quest_completed", details, {
+      const initiated = trackLive("quest_completed", details, {
+        source: "quest_save",
         dedupeKey,
-        additionalDedupeKeys: [historicalQuestKey(questId)],
-        onFailure: () => debugQuestCompletion(
-          "[Analytics] quest_completed failed",
-          questId
-        )
+        additionalDedupeKeys: [historicalKey("quest_completed", questId)],
+        onFailure: () => debugQuestCompletion("[Analytics] quest_completed failed", questId)
       });
       if (!initiated) {
         debugQuestCompletion("[Analytics] quest_completed failed", questId);
@@ -533,37 +736,26 @@
       debugQuestCompletion("[Analytics] quest_completed sent", questId);
 
       if (previousCompletedCount === 0 && entries.length === 1) {
-        track("first_quest_completed", { historical: false }, {
-          dedupeKey: "first_quest_completed"
+        trackLive("first_quest_completed", details, {
+          source: "quest_save",
+          dedupeKey: "first_quest_completed",
+          additionalDedupeKeys: [historicalKey("first_quest_completed")]
         });
       }
 
       if (context?.isFinalQuest?.(questId)) {
-        const totals = context.totalsForSubmissions(context.getState().submissions);
-        track("adventure_completed", {
-          totalCompletedQuests: totals.completed,
-          totalPoints: totals.score,
-          totalFriends: totalFriends(entries),
-          finalRank: context.rankForScore?.(totals.score)?.title || null,
-          completedAt: completedAt(submission, { fallbackToNow: true }),
-          historical: false
-        }, {
+        const finalEntry = entries.find(entry => entry.questId === questId) || {
+          questId,
+          submission
+        };
+        trackLive("adventure_completed", adventureCompletionDetails(entries, finalEntry), {
+          source: "quest_save",
           dedupeKey: "adventure_completed",
-          additionalDedupeKeys: ["historical_adventure_completed"]
+          additionalDedupeKeys: [historicalKey("adventure_completed")]
         });
       }
 
       return true;
-    },
-    trackHistoricalQuestCompletions() {
-      return scheduleHistoricalBackfill();
-    },
-    trackQuestRemoved() {
-      return false;
-    },
-    trackBoardReset() {
-      resetInstallation();
-      return false;
     },
     debugState
   };
