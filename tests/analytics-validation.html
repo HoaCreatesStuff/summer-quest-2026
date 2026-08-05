@@ -165,6 +165,7 @@
 
           return {
             api,
+            window: fakeWindow,
             store,
             attempts,
             replacedUrls,
@@ -366,7 +367,7 @@
           "Exact Summer Quest Pages URL is automatically marked as beta production data",
           (await production.payloads()).every(payload =>
             payload.environment === "beta" && payload.is_test === false
-          )
+          ) && production.window.SummerQuestAnalyticsDebug === undefined
         );
 
         const developerStore = new Map();
@@ -387,6 +388,22 @@
             developerStore.get("summerQuestDeveloperMode") === "true" &&
             developerEnabled.replacedUrls.join(",") ===
               "/summer-quest-2026/?source=pwa#journal"
+        );
+        const developerReport = await developerEnabled.window
+          .SummerQuestAnalyticsDebug?.report?.();
+        check(
+          "Developer debug report exposes only operational analytics and cache state",
+          developerReport?.developerMode === "enabled" &&
+            developerReport?.analyticsEnvironment === "development" &&
+            developerReport?.isTest === true &&
+            developerReport?.installationId ===
+              developerStore.get("summerQuestInstallationId") &&
+            developerReport?.currentPathname === "/summer-quest-2026/" &&
+            developerReport?.serviceWorkerVersion === "unavailable" &&
+            developerReport?.controllingServiceWorkerState === "none" &&
+            developerReport?.appVersion === buildVersion &&
+            developerReport?.cacheVersion === "unavailable" &&
+            developerReport?.pendingAnalyticsQueueCount === 0
         );
 
         const developerPersisted = createHarness({
@@ -419,7 +436,8 @@
             payload.environment === "beta" && payload.is_test === false
           ) &&
             developerStore.get("summerQuestDeveloperMode") === "false" &&
-            developerDisabled.replacedUrls.join(",") === "/summer-quest-2026/"
+            developerDisabled.replacedUrls.join(",") === "/summer-quest-2026/" &&
+            developerDisabled.window.SummerQuestAnalyticsDebug === undefined
         );
 
         const forbiddenFields = [
@@ -790,6 +808,28 @@
           "Board reset cannot reset analytics identity or dedupe",
           !appSource.includes("trackBoardReset") &&
             !analyticsSource.includes("resetInstallation")
+        );
+        const analyticsInitStart = appSource.indexOf(
+          "function initializeAnalyticsSync()"
+        );
+        const analyticsInitBlock = appSource.slice(
+          analyticsInitStart,
+          appSource.indexOf("function renderPrivacySharingStatus()", analyticsInitStart)
+        );
+        const initializeAppStart = appSource.indexOf("async function initializeApp()");
+        const initializeAppBlock = appSource.slice(
+          initializeAppStart,
+          appSource.indexOf("if (new URLSearchParams", initializeAppStart)
+        );
+        check(
+          "Analytics initialization failure is isolated from core app startup",
+          analyticsInitStart >= 0 &&
+            analyticsInitBlock.includes("try {") &&
+            analyticsInitBlock.includes("catch (error)") &&
+            analyticsInitBlock.includes("gameplay remains available") &&
+            initializeAppStart >= 0 &&
+            initializeAppBlock.indexOf("initializeAnalyticsSync();") <
+              initializeAppBlock.indexOf("renderGrid();")
         );
 
         const receiverApi = new Function(

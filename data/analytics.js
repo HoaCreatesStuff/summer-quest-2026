@@ -626,6 +626,54 @@
     };
   }
 
+  function serviceWorkerVersion(worker, timeoutMs = 1200) {
+    if (!worker || typeof MessageChannel === "undefined") {
+      return Promise.resolve(null);
+    }
+
+    return new Promise(resolve => {
+      const channel = new MessageChannel();
+      let settled = false;
+      const finish = version => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        channel.port1.close();
+        resolve(version || null);
+      };
+      const timeout = window.setTimeout(() => finish(null), timeoutMs);
+      channel.port1.onmessage = event => finish(event.data?.version);
+
+      try {
+        worker.postMessage(
+          { type: "SUMMER_QUEST_GET_VERSION" },
+          [channel.port2]
+        );
+      } catch {
+        finish(null);
+      }
+    });
+  }
+
+  async function developerReport() {
+    const environment = runtimeEnvironment();
+    const controller = navigator.serviceWorker?.controller || null;
+    const workerVersion = await serviceWorkerVersion(controller);
+
+    return {
+      developerMode: developerModeOverride() === true ? "enabled" : "disabled",
+      analyticsEnvironment: environment.environment,
+      isTest: environment.is_test,
+      installationId: readStorage(INSTALLATION_ID_KEY) || null,
+      currentPathname: window.location.pathname,
+      serviceWorkerVersion: workerVersion || "unavailable",
+      controllingServiceWorkerState: controller?.state || "none",
+      appVersion: appVersion(),
+      cacheVersion: workerVersion ? `summer-quest-app-${workerVersion}` : "unavailable",
+      pendingAnalyticsQueueCount: 0
+    };
+  }
+
   function notifyStatus() {
     const status = debugState();
     statusListeners.forEach(listener => {
@@ -677,12 +725,20 @@
     }
 
     startSessionAnalytics();
-    if (debugMode) {
+    if (debugMode || runtimeEnvironment().is_test) {
       window.SummerQuestAnalyticsDebug = Object.freeze({
         state: debugState,
-        backfill: backfillHistoricalEvents
+        backfill: backfillHistoricalEvents,
+        report: developerReport
       });
-      console.info("[Summer Quest analytics] Debug hooks available at window.SummerQuestAnalyticsDebug.");
+      console.info(
+        "[Summer Quest analytics] Debug hooks available at window.SummerQuestAnalyticsDebug."
+      );
+      developerReport()
+        .then(report => console.info("[Summer Quest developer]", report))
+        .catch(() => {
+          // Debug reporting must never affect gameplay.
+        });
     }
     notifyStatus();
     return api;

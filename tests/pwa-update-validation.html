@@ -125,6 +125,37 @@
         });
       }
 
+      function loadAppFrame(url) {
+        return new Promise((resolve, reject) => {
+          const frame = document.createElement("iframe");
+          frame.hidden = true;
+          const timeout = window.setTimeout(() => {
+            frame.remove();
+            reject(new Error(`App-shell navigation timed out: ${url}`));
+          }, 10000);
+          frame.addEventListener("load", () => {
+            const waitForApp = () => {
+              const ready =
+                !frame.contentWindow.location.search.includes("developer=") &&
+                frame.contentDocument
+                  .querySelector('meta[name="application-version"]')?.content ===
+                    buildVersion &&
+                frame.contentDocument
+                  .querySelectorAll("#questGrid [data-quest-id]").length === 25;
+              if (ready) {
+                window.clearTimeout(timeout);
+                resolve(frame);
+                return;
+              }
+              window.setTimeout(waitForApp, 50);
+            };
+            waitForApp();
+          }, { once: true });
+          frame.src = url;
+          document.body.append(frame);
+        });
+      }
+
       try {
         const [indexSource, versionSource, workerSource, updaterSource, manifest] =
           await Promise.all([
@@ -199,11 +230,14 @@
             workerSource.includes("self.skipWaiting()")
         );
         check(
-          "All same-origin app requests use a cache-first strategy",
-          workerSource.includes('request.mode === "navigate"') &&
-            workerSource.includes('cacheFirst(request, "./index.html")') &&
+          "Navigations use one canonical app shell while static assets remain cache-first",
+          workerSource.includes("APP_SCOPE_PATH") &&
+            workerSource.includes("APP_INDEX_PATH") &&
+            workerSource.includes('request.mode === "navigate"') &&
+            workerSource.includes('cache.match("./index.html"') &&
+            workerSource.includes("appShellNavigation(request)") &&
             workerSource.includes("event.respondWith(cacheFirst(request))") &&
-            !workerSource.includes("networkFirst(request")
+            !workerSource.includes('cacheFirst(request, "./index.html")')
         );
         check(
           "Registration bypasses the HTTP cache and checks automatically",
@@ -301,6 +335,31 @@
           const databaseSentinel = await readDatabaseSentinel(preservedDatabase);
           preservedDatabase.close();
 
+          const previousDeveloperMode = localStorage.getItem("summerQuestDeveloperMode");
+          const expectedAppPath = new URL("../", window.location.href).pathname;
+          const developerFrame = await loadAppFrame(
+            "../?developer=true&pwa-cache-validation=1#journal"
+          );
+          const developerFrameState = {
+            pathname: developerFrame.contentWindow.location.pathname,
+            search: developerFrame.contentWindow.location.search,
+            hash: developerFrame.contentWindow.location.hash,
+            build: developerFrame.contentDocument
+              .querySelector('meta[name="application-version"]')?.content,
+            boardCount: developerFrame.contentDocument
+              .querySelectorAll("#questGrid [data-quest-id]").length
+          };
+          developerFrame.remove();
+          const cacheRequests = await currentCache.keys();
+          const developerCacheEntries = cacheRequests.filter(request =>
+            new URL(request.url).searchParams.has("developer")
+          );
+          if (previousDeveloperMode === null) {
+            localStorage.removeItem("summerQuestDeveloperMode");
+          } else {
+            localStorage.setItem("summerQuestDeveloperMode", previousDeveloperMode);
+          }
+
           check(
             "Installed worker reports the current internal worker build",
             workerVersion === buildVersion,
@@ -316,6 +375,16 @@
             "Current release cache includes analytics.js",
             Boolean(cachedAnalytics),
             expectedCacheName
+          );
+          check(
+            "Developer Mode navigation reuses the canonical shell without path loss or cache variants",
+            developerFrameState.pathname === expectedAppPath &&
+              developerFrameState.search === "?pwa-cache-validation=1" &&
+              developerFrameState.hash === "#journal" &&
+              developerFrameState.build === buildVersion &&
+              developerFrameState.boardCount === 25 &&
+              developerCacheEntries.length === 0,
+            { developerFrameState, developerCacheEntries }
           );
           check(
             "Activation preserves unrelated origin caches",

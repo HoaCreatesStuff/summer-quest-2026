@@ -92,6 +92,12 @@ parameter with `history.replaceState()`. It preserves the complete pathname,
 including `/summer-quest-2026/`, along with any other query parameters and the
 URL fragment.
 
+When Developer Mode is enabled, the console exposes
+`window.SummerQuestAnalyticsDebug.report()`. The asynchronous report contains
+only operational state: Developer Mode, analytics environment, anonymous
+installation ID, pathname, app/cache/service-worker versions, controller state,
+and pending analytics queue count. It never includes quest memories or media.
+
 ## Google Apps Script Receiver
 
 The receiver is maintained in `google-apps-script/analytics/Code.gs`. Set the

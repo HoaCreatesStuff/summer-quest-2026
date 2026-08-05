@@ -3,6 +3,8 @@ importScripts("./version.js");
 const WORKER_VERSION = self.SUMMER_QUEST_BUILD?.version || "unknown";
 const CACHE_PREFIX = "summer-quest-app-";
 const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
+const APP_SCOPE_PATH = new URL("./", self.location.href).pathname;
+const APP_INDEX_PATH = new URL("./index.html", self.location.href).pathname;
 const APP_SHELL_URLS = [
   "./index.html",
   "./style.css",
@@ -128,6 +130,21 @@ async function cacheFirst(request, fallbackUrl) {
   }
 }
 
+async function appShellNavigation(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cachedShell = await cache.match("./index.html", { ignoreSearch: true });
+  if (cachedShell) return cachedShell;
+
+  try {
+    return await fetchFresh(request);
+  } catch {
+    return new Response("", {
+      status: 503,
+      statusText: "Offline"
+    });
+  }
+}
+
 self.addEventListener("install", event => {
   event.waitUntil(cacheAppShell());
 });
@@ -170,8 +187,12 @@ self.addEventListener("fetch", event => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (request.mode === "navigate") {
-    event.respondWith(cacheFirst(request, "./index.html"));
+  const isAppShellNavigation =
+    request.mode === "navigate" &&
+    (url.pathname === APP_SCOPE_PATH || url.pathname === APP_INDEX_PATH);
+
+  if (isAppShellNavigation) {
+    event.respondWith(appShellNavigation(request));
     return;
   }
 

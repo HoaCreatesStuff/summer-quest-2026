@@ -37,16 +37,17 @@ The app checks for a new worker on launch, focus, reconnect, page restore, and
 every 30 minutes while it remains open. A downloaded update waits until the
 player chooses **Restart**, preventing an automatic reload during gameplay.
 The application shell, local WOFF2 fonts, Cropper.js, illustrations, icons,
-home-screen help, and preview artwork use a cache-first strategy. New service
-workers fetch a complete, versioned shell during installation; the player then
-uses **Restart** to activate it without interrupting current gameplay.
+home-screen help, and preview artwork use a cache-first strategy. Controlled app
+navigations reuse the cache's canonical `index.html`, so query parameters do not
+create shell variants or mix edge-cached HTML with another JavaScript build.
+New service workers fetch a complete, versioned shell during installation; the
+player then uses **Restart** to activate it without interrupting current
+gameplay.
 
 For each release:
 
 1. Update the version in `version.js`.
-2. Update the matching `application-version`, local asset query strings, and
-   manifest `start_url` build value in `index.html` and `manifest.json`.
-3. Run `tests/pwa-update-validation.html` with the other browser tests.
+2. Run `tests/pwa-update-validation.html` with the other browser tests.
 
 Run `python3 tests/offline_regression_check.py` before release to confirm that
 runtime assets exist locally, are precached, and do not reference external font

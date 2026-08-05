@@ -1168,28 +1168,37 @@ function getTotals() {
 }
 
 function initializeAnalyticsSync() {
-  analyticsSync?.init({
-    hadStoredAppState: HAD_STORED_APP_STATE,
-    getState: () => state,
-    quests: window.QUESTS,
-    boardOrder: window.BOARD_ORDER,
-    finalQuestId: FINAL_QUEST_ID,
-    appVersion: window.SUMMER_QUEST_BUILD?.version || "unknown",
-    normalizeFriendCount,
-    friendPointsFor,
-    selectedBonusIdsFrom,
-    canonicalSelectedBonusIds,
-    questPoints,
-    totalsForSubmissions,
-    isFinalQuest,
-    rankForScore: currentRank
-  });
+  try {
+    analyticsSync?.init({
+      hadStoredAppState: HAD_STORED_APP_STATE,
+      getState: () => state,
+      quests: window.QUESTS,
+      boardOrder: window.BOARD_ORDER,
+      finalQuestId: FINAL_QUEST_ID,
+      appVersion: window.SUMMER_QUEST_BUILD?.version || "unknown",
+      normalizeFriendCount,
+      friendPointsFor,
+      selectedBonusIdsFrom,
+      canonicalSelectedBonusIds,
+      questPoints,
+      totalsForSubmissions,
+      isFinalQuest,
+      rankForScore: currentRank
+    });
+    analyticsSync?.onStatusChange(renderPrivacySharingStatus);
+  } catch (error) {
+    console.error("[Analytics] Initialization failed; gameplay remains available.", error);
+  }
   renderPrivacySharingStatus();
-  analyticsSync?.onStatusChange(renderPrivacySharingStatus);
 }
 
 function renderPrivacySharingStatus() {
-  els.privacySharingToggle.checked = analyticsSync?.isSharingEnabled?.() !== false;
+  try {
+    els.privacySharingToggle.checked = analyticsSync?.isSharingEnabled?.() !== false;
+  } catch (error) {
+    els.privacySharingToggle.checked = true;
+    console.warn("[Analytics] Privacy status was unavailable.", error);
+  }
 }
 
 function updatePrivacySharingPreference() {

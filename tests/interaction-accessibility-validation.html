@@ -352,11 +352,12 @@
         const savedCropRecord = savedState.drafts?.["bodega-cat"];
         const savedCropBlob = await app.QuestMediaStore.get(savedCropRecord?.mediaId);
         const savedCropBitmap = await app.createImageBitmap(savedCropBlob);
+        const expectedCropSize = app.QuestMediaStore.imageSettings.longestEdge;
         check(
-          "Crop saves one final 1200×1200 JPEG draft and restores the quest layer",
+          "Crop saves one configured square JPEG draft and restores the quest layer",
           savedCropBlob?.type === "image/jpeg" &&
-            savedCropBitmap.width === 1200 &&
-            savedCropBitmap.height === 1200 &&
+            savedCropBitmap.width === expectedCropSize &&
+            savedCropBitmap.height === expectedCropSize &&
             cropModal.hidden &&
             !questWrapper.hasAttribute("inert") &&
             documentUnderTest.activeElement === uploadInput
@@ -787,6 +788,8 @@
 
         const stylesheet = await fetch("../style.css").then(response => response.text());
         const appSource = await fetch("../data/app.js").then(response => response.text());
+        const mediaStorageSource = await fetch("../data/mediaStorage.js")
+          .then(response => response.text());
         check(
           "Mobile board spacing preserves the top safe-area inset",
           /#boardPage\s*\{\s*padding-top:\s*env\(safe-area-inset-top\)/.test(
@@ -800,7 +803,8 @@
           "Crop has one implementation and one lossy JPEG encoding path",
           (appSource.match(/function openCropper\s*\(/g) || []).length === 1 &&
             /getCroppedImageBlob\(\)/.test(appSource) &&
-            /["']image\/jpeg["'],\s*0\.75/.test(appSource) &&
+            appSource.includes("mediaStore.imageSettings.jpegQuality") &&
+            /jpegQuality:\s*0\.75/.test(mediaStorageSource) &&
             !/compressImage\s*\(\s*(?:croppedBlob|await\s+getCroppedImageBlob)/.test(
               appSource
             )
