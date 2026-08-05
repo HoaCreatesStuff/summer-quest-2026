@@ -81,6 +81,17 @@ Every other runtime, including localhost, `127.0.0.1`, local development server
 ports, preview deployments, and alternate hosts, defaults to
 `environment: "development"` and `is_test: true`.
 
+Opening the app with `?developer=true` stores Developer Mode in the current
+browser or installed PWA and overrides analytics to `environment:
+"development"` and `is_test: true`. Opening it with `?developer=false` stores
+the disabled state and overrides analytics to `environment: "beta"` and
+`is_test: false`. The setting remains until one of those URLs changes it.
+
+After a recognized value is stored, the app removes only the `developer`
+parameter with `history.replaceState()`. It preserves the complete pathname,
+including `/summer-quest-2026/`, along with any other query parameters and the
+URL fragment.
+
 ## Google Apps Script Receiver
 
 The receiver is maintained in `google-apps-script/analytics/Code.gs`. Set the

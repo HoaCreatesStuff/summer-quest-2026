@@ -58,11 +58,14 @@
           randomSeed = 1,
           protocol = "http:",
           hostname = "localhost",
-          pathname = "/tests/analytics-validation.html"
+          pathname = "/tests/analytics-validation.html",
+          search = "",
+          hash = ""
         } = {}) {
           const sent = [];
           const attempts = { beacon: 0, fetch: 0 };
           const listeners = {};
+          const replacedUrls = [];
           let randomCounter = randomSeed;
           const fakeStorage = {
             getItem(key) {
@@ -75,7 +78,14 @@
             }
           };
           const fakeWindow = {
-            location: { search: "", protocol, hostname, pathname },
+            location: { search, protocol, hostname, pathname, hash },
+            history: {
+              state: null,
+              replaceState(state, title, url) {
+                this.state = state;
+                replacedUrls.push(url);
+              }
+            },
             SUMMER_QUEST_BUILD: { version: buildVersion },
             matchMedia(query) {
               return { matches: standalone ? query.includes("standalone") : query.includes("browser") };
@@ -157,6 +167,7 @@
             api,
             store,
             attempts,
+            replacedUrls,
             dispatch(name) {
               (listeners[name] || []).forEach(listener => listener());
             },
@@ -356,6 +367,59 @@
           (await production.payloads()).every(payload =>
             payload.environment === "beta" && payload.is_test === false
           )
+        );
+
+        const developerStore = new Map();
+        const developerEnabled = createHarness({
+          store: developerStore,
+          protocol: "https:",
+          hostname: "hoacreatesstuff.github.io",
+          pathname: "/summer-quest-2026/",
+          search: "?developer=true&source=pwa",
+          hash: "#journal"
+        });
+        developerEnabled.api.init(questContext({ submissions: {} }));
+        check(
+          "developer=true enables test analytics and preserves the Pages path during URL cleanup",
+          (await developerEnabled.payloads()).every(payload =>
+            payload.environment === "development" && payload.is_test === true
+          ) &&
+            developerStore.get("summerQuestDeveloperMode") === "true" &&
+            developerEnabled.replacedUrls.join(",") ===
+              "/summer-quest-2026/?source=pwa#journal"
+        );
+
+        const developerPersisted = createHarness({
+          store: developerStore,
+          protocol: "https:",
+          hostname: "hoacreatesstuff.github.io",
+          pathname: "/summer-quest-2026/",
+          randomSeed: 15
+        });
+        developerPersisted.api.init(questContext({ submissions: {} }));
+        check(
+          "Developer Mode persists in the browser without another query parameter",
+          (await developerPersisted.payloads()).every(payload =>
+            payload.environment === "development" && payload.is_test === true
+          ) && developerPersisted.replacedUrls.length === 0
+        );
+
+        const developerDisabled = createHarness({
+          store: developerStore,
+          protocol: "https:",
+          hostname: "hoacreatesstuff.github.io",
+          pathname: "/summer-quest-2026/",
+          search: "?developer=false",
+          randomSeed: 25
+        });
+        developerDisabled.api.init(questContext({ submissions: {} }));
+        check(
+          "developer=false disables test analytics until explicitly changed",
+          (await developerDisabled.payloads()).every(payload =>
+            payload.environment === "beta" && payload.is_test === false
+          ) &&
+            developerStore.get("summerQuestDeveloperMode") === "false" &&
+            developerDisabled.replacedUrls.join(",") === "/summer-quest-2026/"
         );
 
         const forbiddenFields = [

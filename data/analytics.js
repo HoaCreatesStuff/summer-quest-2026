@@ -4,6 +4,8 @@
 
   const INSTALLATION_ID_KEY = "summerQuestInstallationId";
   const SHARING_PREFERENCE_KEY = "summerQuestAnonymousSharingEnabled";
+  const DEVELOPER_MODE_KEY = "summerQuestDeveloperMode";
+  const DEVELOPER_PARAM = "developer";
   const DEDUPE_KEY = "summerQuestAnalyticsDedupe";
   const EVIDENCE_KEY = "summerQuestAnalyticsEvidenceV1";
   const BACKFILL_KEY = "summerQuestAnalyticsBackfillV1";
@@ -54,6 +56,7 @@
   let initialized = false;
   let statusListeners = [];
   let historicalBackfillScheduled = false;
+  let sessionDeveloperMode = null;
 
   function randomHex(length) {
     const bytes = new Uint8Array(Math.ceil(length / 2));
@@ -104,6 +107,34 @@
     }
   }
 
+  function developerModeOverride() {
+    if (sessionDeveloperMode !== null) return sessionDeveloperMode;
+    const storedValue = readStorage(DEVELOPER_MODE_KEY);
+    if (storedValue === "true") return true;
+    if (storedValue === "false") return false;
+    return null;
+  }
+
+  function applyDeveloperModeFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const requestedValue = params.get(DEVELOPER_PARAM);
+    if (requestedValue !== "true" && requestedValue !== "false") return;
+
+    sessionDeveloperMode = requestedValue === "true";
+    writeStorage(DEVELOPER_MODE_KEY, requestedValue);
+    params.delete(DEVELOPER_PARAM);
+
+    const query = params.toString();
+    const pathname = window.location.pathname || "/";
+    const hash = window.location.hash || "";
+    const cleanedUrl = `${pathname}${query ? `?${query}` : ""}${hash}`;
+    try {
+      window.history.replaceState(window.history.state, "", cleanedUrl);
+    } catch {
+      // Developer Mode still applies when URL cleanup is unavailable.
+    }
+  }
+
   function appVersion() {
     return (
       context?.appVersion ||
@@ -124,6 +155,13 @@
   }
 
   function runtimeEnvironment() {
+    const developerMode = developerModeOverride();
+    if (developerMode !== null) {
+      return developerMode
+        ? { environment: "development", is_test: true }
+        : { environment: "beta", is_test: false };
+    }
+
     const pathname = window.location.pathname || "/";
     const isProduction =
       window.location.protocol === PRODUCTION_PROTOCOL &&
@@ -777,5 +815,6 @@
     debugState
   };
 
+  applyDeveloperModeFromUrl();
   window.SummerQuestAnalytics = api;
 })();
