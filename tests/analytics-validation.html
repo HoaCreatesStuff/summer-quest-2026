@@ -166,7 +166,14 @@
                 return Promise.reject(new Error("network failed"));
               }
               sent.push({ url, body: options?.body });
-              return Promise.resolve({ ok: true });
+              return Promise.resolve({
+                ok: true,
+                status: 200,
+                text: () => Promise.resolve(JSON.stringify({
+                  ok: true,
+                  receiverVersion: "8"
+                }))
+              });
             },
             { info() {}, warn() {}, error() {} }
           );
@@ -577,7 +584,7 @@
         );
         check(
           "Permanent v1.0 backfill marker is written only after completion",
-          historicalStore.get("summerQuestAnalyticsBackfillV1") === "1.0"
+          historicalStore.get("summerQuestAnalyticsBackfillV1") === "1.1"
         );
 
         const historicalRefresh = createHarness({
@@ -622,7 +629,7 @@
         check(
           "Offline backfill retries on a future online launch",
           (await onlineRetry.payloads()).some(payload => payload.historical === true) &&
-            offlineStore.get("summerQuestAnalyticsBackfillV1") === "1.0"
+            offlineStore.get("summerQuestAnalyticsBackfillV1") === "1.1"
         );
 
         const failedBackfillStore = new Map([
@@ -657,7 +664,7 @@
         partialFailure.api.init(questContext({ submissions: { first: privateSubmission } }, {
           hadStoredAppState: true
         }));
-        await new Promise(resolve => window.setTimeout(resolve, 60));
+        await new Promise(resolve => window.setTimeout(resolve, 120));
         const partialFirstPayloads = await partialFailure.payloads();
         const partialRetry = createHarness({
           store: partialStore,
@@ -676,7 +683,7 @@
           "Partial backfill resumes without duplicating successful historical rows",
           countEvents(partialCombined).app_first_opened === 1 &&
             countEvents(partialCombined).quest_completed === 1 &&
-            partialStore.get("summerQuestAnalyticsBackfillV1") === "1.0",
+            partialStore.get("summerQuestAnalyticsBackfillV1") === "1.1",
           countEvents(partialCombined)
         );
 
@@ -692,14 +699,16 @@
         standaloneHistory.api.init(questContext({ submissions: {} }, {
           hadStoredAppState: true
         }));
-        await new Promise(resolve => window.setTimeout(resolve, 60));
+        await new Promise(resolve => window.setTimeout(resolve, 120));
+        const standalonePayloads = await standaloneHistory.payloads();
         check(
           "Standalone mode backfills an installation that predates analytics",
-          (await standaloneHistory.payloads()).some(payload =>
+          standalonePayloads.some(payload =>
             payload.eventName === "app_installed" &&
             payload.historical === true &&
             payload.source === "standalone_detection"
-          )
+          ),
+          countEvents(standalonePayloads)
         );
 
         const fallback = createHarness({ beaconAccepted: false });
@@ -742,6 +751,61 @@
           (await optedOut.payloads()).length === 0 &&
             !optedOutStore.has("summerQuestInstallationId") &&
             optedOutStore.has("summerQuestAnalyticsEvidenceV1")
+        );
+
+        const staleMigrationStore = new Map([
+          ["summerQuestInstallationId", "d232f08c-eda5-4d08-9c0a-fba807e206e0"],
+          ["summerQuestAnalyticsBackfillV1", "1.0"],
+          ["summerQuestAnalyticsBackfillStateV2", JSON.stringify({
+            version: "1.0",
+            status: "completed",
+            completed: true,
+            completedQuestCount: 1,
+            normalizedHistoricalRecordCount: 1
+          })],
+          ["summerQuestFirstOpenMigrationV1", JSON.stringify({
+            version: "1.0",
+            status: "completed"
+          })],
+          ["summerQuestAnalyticsDedupe", JSON.stringify({
+            "quest_completed:first": "2026-07-25T12:00:00.000Z",
+            "historical_quest_completed:first": "2026-07-25T12:00:00.000Z",
+            first_quest_completed: "2026-07-25T12:00:00.000Z",
+            "historical:first_quest_completed": "2026-07-25T12:00:00.000Z"
+          })]
+        ]);
+        const staleMigration = createHarness({
+          store: staleMigrationStore,
+          runTimers: true,
+          randomSeed: 145
+        });
+        staleMigration.api.init(questContext({
+          submissions: { first: privateSubmission }
+        }, { hadStoredAppState: true }));
+        await new Promise(resolve => window.setTimeout(resolve, 100));
+        const staleMigrationPayloads = await staleMigration.payloads();
+        const repairedMigrationState = JSON.parse(
+          staleMigrationStore.get("summerQuestAnalyticsBackfillStateV2") || "{}"
+        );
+        const repairedMigrationStatus = staleMigration.api.migrationStatus();
+        check(
+          "Stale migration and dedupe state cannot suppress saved quest repair",
+          staleMigrationPayloads.some(payload =>
+            payload.historical === true &&
+            payload.eventName === "quest_completed" &&
+            payload.questId === "first" &&
+            payload.eventKey ===
+              "d232f08c-eda5-4d08-9c0a-fba807e206e0:quest_completed:first"
+          ) &&
+            staleMigrationStore.get("summerQuestAnalyticsBackfillV1") === "1.1" &&
+            repairedMigrationState.status === "completed" &&
+            repairedMigrationState.completed === true &&
+            repairedMigrationState.lastReceiverStatus === 200 &&
+            repairedMigrationState.deployedReceiverVersion === "8" &&
+            repairedMigrationState.recordsQueued === repairedMigrationState.recordsUploaded &&
+            repairedMigrationStatus.pendingQueueCount === 0 &&
+            repairedMigrationStatus.completedSubmissionCount === 1,
+          { repairedMigrationState, repairedMigrationStatus }
         );
 
         const staleDedupeStore = new Map([
@@ -842,11 +906,14 @@
         );
 
         const receiverApi = new Function(
-          `${receiverSource}\nreturn { headers: ANALYTICS_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields };`
+          `${receiverSource}\nreturn { version: RECEIVER_VERSION, headers: ANALYTICS_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields };`
         )();
         const receiverValues = receiverApi.values(firstQuestPayload);
         check(
           "Apps Script receiver maps the complete v1.0 contract",
+          receiverApi.version === "8" &&
+          receiverApi.headers[0] === "Received At" &&
+          !Number.isNaN(Date.parse(receiverValues["Received At"])) &&
           [
             "Bonus Count", "Bonus IDs", "Historical", "Feature", "Source",
             "Environment", "Is Test"

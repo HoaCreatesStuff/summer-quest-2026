@@ -1,4 +1,5 @@
 const ANALYTICS_HEADERS = Object.freeze([
+  "Received At",
   "Event Timestamp",
   "Event Name",
   "Event Key",
@@ -33,6 +34,7 @@ const ANALYTICS_HEADERS = Object.freeze([
   "Total Friends",
   "Final Rank"
 ]);
+const RECEIVER_VERSION = "8";
 const FALLBACK_ANALYTICS_SECRET = "sq_8Fz3mQ7pL2xN9vK4cR6tY1wX5bD8eM";
 const DEFAULT_ANALYTICS_SHEET_NAME = "Events";
 const DEFAULT_ANALYTICS_TEST_SHEET_NAME = "Analytics Testing";
@@ -251,6 +253,7 @@ function writeAnalyticsRow(sheet, rowNumber, headers, values) {
 function analyticsValues(payload) {
   const eventKey = analyticsEventKey(payload);
   return {
+    "Received At": new Date().toISOString(),
     "Event Timestamp": cellValue(payload.timestamp),
     "Event Name": cellValue(payload.eventName),
     "Event Key": cellValue(eventKey),
@@ -382,6 +385,6 @@ function cellValue(value) {
 
 function jsonResponse(value) {
   return ContentService
-    .createTextOutput(JSON.stringify(value))
+    .createTextOutput(JSON.stringify({ ...value, receiverVersion: RECEIVER_VERSION }))
     .setMimeType(ContentService.MimeType.JSON);
 }

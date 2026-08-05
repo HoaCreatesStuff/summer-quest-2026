@@ -10,7 +10,7 @@
   const EVIDENCE_KEY = "summerQuestAnalyticsEvidenceV1";
   const BACKFILL_KEY = "summerQuestAnalyticsBackfillV1";
   const BACKFILL_STATE_KEY = "summerQuestAnalyticsBackfillStateV2";
-  const BACKFILL_VERSION = "1.0";
+  const BACKFILL_VERSION = "1.1";
   const FIRST_OPENED_AT_KEY = "summerQuestFirstOpenedAt";
   const FEATURE_FIRST_OPEN_KEY = "summerQuestFeatureFirstOpenedV1";
   const FIRST_OPEN_MIGRATION_KEY = "summerQuestFirstOpenMigrationV1";
@@ -66,6 +66,7 @@
   let initialized = false;
   let statusListeners = [];
   let historicalBackfillScheduled = false;
+  let existingHistoryAtInitialization = false;
   let sessionDeveloperMode = null;
   let receiverRepairStats = {
     duplicateFirstOpenEventsDetected: 0,
@@ -512,10 +513,14 @@
       normalizedHistoricalRecordCount: 0,
       recordsQueued: 0,
       recordsUploaded: 0,
+      confirmedHistoricalProgressKeys: [],
       lastAttemptAt: null,
       lastError: null,
       failureStage: null,
       failureReason: null,
+      lastReceiverStatus: null,
+      lastReceiverBody: null,
+      deployedReceiverVersion: null,
       completed: false,
       completedAt: null
     };
@@ -545,6 +550,24 @@
     writeJson(BACKFILL_STATE_KEY, nextState);
     notifyStatus();
     return nextState;
+  }
+
+  function historicalProgressConfirmed(progressKey) {
+    const confirmed = getBackfillState().confirmedHistoricalProgressKeys;
+    return Array.isArray(confirmed) && confirmed.includes(progressKey);
+  }
+
+  function markHistoricalProgressConfirmed(progressKey) {
+    if (!progressKey) return false;
+    const state = getBackfillState();
+    const confirmed = Array.isArray(state.confirmedHistoricalProgressKeys)
+      ? state.confirmedHistoricalProgressKeys
+      : [];
+    if (confirmed.includes(progressKey)) return true;
+    writeBackfillState({
+      confirmedHistoricalProgressKeys: [...confirmed, progressKey]
+    });
+    return true;
   }
 
   function migrationLog(message, details = {}) {
@@ -698,8 +721,19 @@
         body,
         signal: controller.signal
       });
+      const responseBody = await response.text().catch(() => "");
+      let result = null;
+      try {
+        result = responseBody ? JSON.parse(responseBody) : null;
+      } catch {
+        result = null;
+      }
+      writeBackfillState({
+        lastReceiverStatus: response.status,
+        lastReceiverBody: responseBody.slice(0, 1000) || null,
+        deployedReceiverVersion: result?.receiverVersion || null
+      });
       if (!response.ok) return false;
-      const result = await response.json().catch(() => null);
       if (result?.ok === true) {
         receiverRepairStats = {
           duplicateFirstOpenEventsDetected:
@@ -712,6 +746,10 @@
       }
       return result?.ok === true;
     } catch (error) {
+      writeBackfillState({
+        lastReceiverStatus: null,
+        lastReceiverBody: String(error?.message || error || "network_error").slice(0, 1000)
+      });
       return false;
     } finally {
       window.clearTimeout(timeout);
@@ -833,14 +871,9 @@
     source,
     progressKey,
     canonicalKey = "",
-    timestamp,
-    forceUpload = false
+    timestamp
   }) {
-    if (hasSent(progressKey) && !forceUpload) return true;
-    if (canonicalKey && hasSent(canonicalKey) && !forceUpload) {
-      markSent(progressKey);
-      return true;
-    }
+    if (historicalProgressConfirmed(progressKey)) return true;
     if (!isSharingEnabled() || navigator.onLine === false) return false;
 
     const common = commonPayload(eventName, {
@@ -852,6 +885,7 @@
     const sent = await sendHistorical(analyticsPayload(eventName, details, common));
     if (!sent) return false;
 
+    markHistoricalProgressConfirmed(progressKey);
     markSent(progressKey);
     if (canonicalKey) markSent(canonicalKey);
     notifyStatus();
@@ -874,15 +908,26 @@
 
   function hasBackfillableHistory() {
     return Boolean(
+      existingHistoryAtInitialization ||
       context?.hadStoredAppState ||
-      hasHistoricalEvidence() ||
-      readStorage(BACKFILL_KEY) === BACKFILL_VERSION
+      completedEntries().length > 0 ||
+      readStorage(BACKFILL_KEY) !== null ||
+      getBackfillState().status !== "not_started"
     );
   }
 
   function backfillComplete() {
     const state = getBackfillState();
-    return state.version === BACKFILL_VERSION && state.status === "completed" && state.completed === true;
+    if (
+      state.version !== BACKFILL_VERSION ||
+      state.status !== "completed" ||
+      state.completed !== true
+    ) {
+      return false;
+    }
+
+    return state.completedQuestCount >= completedQuestRecordCount() &&
+      state.normalizedHistoricalRecordCount >= normalizedHistoricalRecordCount();
   }
 
   async function backfillHistoricalEvents() {
@@ -957,7 +1002,12 @@
       return false;
     }
 
-    if (savedCount === 0 && Object.keys(evidence).length === 0 && !hasSent("app_installed")) {
+    if (
+      savedCount === 0 &&
+      Object.keys(evidence).length === 0 &&
+      !hasSent("app_installed") &&
+      displayMode() === "browser"
+    ) {
       migrationLog("Records queued", { count: 0 });
       migrationLog("Records uploaded", { count: 0 });
       migrationLog("Migration completed: false", {
@@ -984,8 +1034,7 @@
           source: resolved.source,
           progressKey: historicalKey(eventName),
           canonicalKey: eventName,
-          timestamp: resolved.timestamp,
-          forceUpload: resolved.source === "historical_import" || resolved.historicalStatus === "inferred"
+          timestamp: resolved.timestamp
         });
         if (uploaded) writeFeatureFirstOpen(eventName, resolved);
         return uploaded;
@@ -1136,6 +1185,33 @@
     console.info(message, { questId });
   }
 
+  function migrationAuditState() {
+    const backfillState = getBackfillState();
+    const firstOpenMigration = getFirstOpenMigrationState();
+    return {
+      consentState: isSharingEnabled()
+        ? "anonymous_sharing_enabled"
+        : "anonymous_sharing_disabled",
+      backfillState: backfillState.status,
+      backfillVersion: backfillState.version,
+      firstOpenMigrationState: firstOpenMigration.status,
+      savedSubmissionCount: savedQuestRecordCount(),
+      completedSubmissionCount: completedQuestRecordCount(),
+      normalizedHistoricalRecordCount: normalizedHistoricalRecordCount(),
+      queuedHistoricalRecordCount: backfillState.recordsQueued || 0,
+      uploadedHistoricalRecordCount: backfillState.recordsUploaded || 0,
+      pendingQueueCount: Math.max(
+        (backfillState.recordsQueued || 0) - (backfillState.recordsUploaded || 0),
+        0
+      ),
+      lastMigrationFailureStage: backfillState.failureStage,
+      lastMigrationError: backfillState.lastError,
+      lastReceiverResponseStatus: backfillState.lastReceiverStatus,
+      lastReceiverResponseBody: backfillState.lastReceiverBody,
+      deployedReceiverVersion: backfillState.deployedReceiverVersion
+    };
+  }
+
   function debugState() {
     const backfillState = getBackfillState();
     return {
@@ -1145,6 +1221,7 @@
       sharingEnabled: isSharingEnabled(),
       backfillComplete: backfillComplete(),
       historicalMigration: backfillState,
+      migrationAudit: migrationAuditState(),
       dedupe: getDedupe(),
       evidence: getEvidence()
     };
@@ -1202,9 +1279,18 @@
       savedQuestRecordCount: savedQuestRecordCount(),
       completedQuestCount: completedQuestRecordCount(),
       normalizedHistoricalRecordCount: normalizedHistoricalRecordCount(),
-      pendingAnalyticsQueueCount: 0,
+      queuedHistoricalRecordCount: backfillState.recordsQueued || 0,
+      uploadedHistoricalRecordCount: backfillState.recordsUploaded || 0,
+      pendingAnalyticsQueueCount: Math.max(
+        (backfillState.recordsQueued || 0) - (backfillState.recordsUploaded || 0),
+        0
+      ),
       lastMigrationAttempt: backfillState.lastAttemptAt,
+      lastMigrationFailureStage: backfillState.failureStage,
       lastMigrationError: backfillState.lastError,
+      lastReceiverResponseStatus: backfillState.lastReceiverStatus,
+      lastReceiverResponseBody: backfillState.lastReceiverBody,
+      deployedReceiverVersion: backfillState.deployedReceiverVersion,
       persistedFirstOpenTimestamp: persistedFirstOpenedAt(),
       resolvedFirstOpenTimestamp: resolvedFirstOpened.timestamp,
       firstOpenEventSource: resolvedFirstOpened.source,
@@ -1303,6 +1389,14 @@
 
   function init(nextContext) {
     context = nextContext;
+    if (!initialized) {
+      existingHistoryAtInitialization = Boolean(
+        getInstallationId() ||
+        context?.hadStoredAppState ||
+        hasHistoricalEvidence() ||
+        displayMode() !== "browser"
+      );
+    }
     removeObsoleteDedupe();
     migrateLegacyEvidence();
 
@@ -1312,6 +1406,8 @@
         api.trackAppInstalled("browser_install_event");
       });
       window.addEventListener("online", () => {
+        existingHistoryAtInitialization = existingHistoryAtInitialization ||
+          hasHistoricalEvidence();
         historicalBackfillScheduled = false;
         startSessionAnalytics();
       });
@@ -1341,6 +1437,7 @@
     init,
     isSharingEnabled,
     setSharingEnabled,
+    migrationStatus: migrationAuditState,
     onStatusChange(listener) {
       statusListeners.push(listener);
       return () => {

@@ -46,7 +46,8 @@ No other analytics events are permitted.
 - `SESSION-XXXXXX`: in-memory ID regenerated on every document launch.
 - `summerQuestAnalyticsDedupe`: installation and historical progress markers.
 - `summerQuestAnalyticsEvidenceV1`: anonymous timestamps for recoverable feature history.
-- `summerQuestAnalyticsBackfillV1`: legacy completed marker for spec v1.0.
+- `summerQuestAnalyticsBackfillV1`: completed marker for migration v1.1. Older
+  values are repairable and never suppress the confirmed migration.
 - `summerQuestAnalyticsBackfillStateV2`: current historical migration state,
   including `not_started`, `queued`, `partially_synced`, `completed`, `failed`,
   or `no_records`.
@@ -61,14 +62,17 @@ A board reset does not reset analytics identity or dedupe state.
 
 ## Historical Backfill
 
-An existing installation with no completed v2 migration state performs one
+An existing installation with no completed v1.1 migration state performs one
 sequential, non-blocking backfill while sharing is enabled and the browser is
 online. It sends only events supported by saved quest state, current standalone
 detection, or anonymous local evidence. Each successful event receives its own
 progress marker. The completed state is written only after every applicable event
-receives a readable `{ "ok": true }` response from the receiver or was already
-represented by a live event. A legacy `summerQuestAnalyticsBackfillV1` marker
-without the v2 state is treated as repairable and does not suppress reruns.
+receives a readable `{ "ok": true }` response from the receiver. A legacy
+`summerQuestAnalyticsBackfillV1` marker, completed migration object, or dedupe
+entry is treated as repairable and does not suppress a v1.1 rerun. Stable event
+keys make every confirmed retry an idempotent receiver upsert. Partial retries
+skip only progress keys confirmed by a readable response during migration v1.1;
+legacy live-event dedupe markers are never treated as receiver confirmation.
 
 The historical `app_first_opened` timestamp is resolved in this order:
 persisted first-open timestamp, earliest stored app timestamp, earliest quest
@@ -138,6 +142,11 @@ so an incomplete deployment cannot disable all analytics. Optional properties
 are `ANALYTICS_SPREADSHEET_ID`, `ANALYTICS_SHEET_NAME`, and
 `ANALYTICS_TEST_SHEET_NAME`. `ANALYTICS_DIAGNOSTICS=true` enables detailed error
 responses and should be used only during receiver development.
+
+Every accepted request receives a server-generated `Received At` timestamp.
+Every JSON response includes `receiverVersion`, including readable errors, so a
+client can persist the exact deployed receiver version and response status for
+migration diagnostics.
 
 Only payloads with the boolean `is_test: true` go to `Analytics Testing` (or
 the configured test sheet). Every other payload goes to the single production
