@@ -24,8 +24,13 @@ Analytics is fire-and-forget:
 - `navigator.sendBeacon()` is attempted first.
 - `fetch()` with `mode: "no-cors"`, `keepalive`, and a short abort timeout is the fallback.
 - Offline events are skipped.
-- Events are not queued, retried, or backfilled later.
+- Live events are not queued, retried, or backfilled later.
 - Failures are silent and must never affect gameplay, saving, navigation, animations, journal, keepsake, contact, or finale behavior.
+
+Historical quest completions are the sole exception to the no-retry rule. On an
+online launch with sharing enabled, previously saved completed quests are sent
+sequentially and marked only after the fetch resolves. Private memory fields are
+never included.
 
 ## Event Coverage
 
@@ -54,4 +59,13 @@ Feature usage:
 - `finale_animation_started`
 - `finale_animation_completed`
 
-Existing players are not historically imported. Only events that happen after this analytics implementation is running can be sent.
+Previously completed quests are imported once per installation with
+`historical: true`. New successful completions use `historical: false`.
+
+## Google Apps Script Receiver
+
+The receiver source is maintained in `google-apps-script/analytics/Code.gs`.
+Set the Apps Script property `ANALYTICS_SECRET` to the client secret and,
+optionally, `ANALYTICS_SHEET_NAME` to the destination tab name. Deploy a new web
+app version after receiver changes. Missing columns are appended to the header;
+existing data rows are not changed.

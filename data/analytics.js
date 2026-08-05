@@ -13,6 +13,8 @@
     "summerQuestFinalSummarySyncVersion"
   ]);
   const FETCH_TIMEOUT_MS = 2500;
+  const BACKFILL_START_DELAY_MS = 500;
+  const BACKFILL_BETWEEN_EVENTS_MS = 120;
   const DEBUG_PARAM = "summer-quest-analytics-debug";
 
   const debugMode = new URLSearchParams(window.location.search).has(DEBUG_PARAM);
@@ -20,6 +22,7 @@
 
   let context = null;
   let statusListeners = [];
+  let historicalBackfillScheduled = false;
 
   function randomHex(length) {
     const bytes = new Uint8Array(Math.ceil(length / 2));
@@ -148,23 +151,35 @@
     };
   }
 
-  function send(payload) {
-    if (!payload || !isSharingEnabled() || navigator.onLine === false) return;
+  function invokeFailureHandler(handler) {
+    try {
+      handler?.();
+    } catch {
+      // Debug callbacks must never affect gameplay.
+    }
+  }
+
+  function send(payload, { onFailure } = {}) {
+    if (!payload || !isSharingEnabled() || navigator.onLine === false) return false;
 
     let body;
     try {
       body = JSON.stringify(payload);
     } catch {
-      return;
+      invokeFailureHandler(onFailure);
+      return false;
     }
+
+    let beaconAccepted = false;
     try {
-      if (navigator.sendBeacon) {
+      if (typeof navigator.sendBeacon === "function") {
         const beaconBody = new Blob([body], { type: "text/plain;charset=UTF-8" });
-        if (navigator.sendBeacon(ANALYTICS_ENDPOINT, beaconBody)) return;
+        beaconAccepted = navigator.sendBeacon(ANALYTICS_ENDPOINT, beaconBody) === true;
       }
     } catch {
-      // Fall through to fetch.
+      beaconAccepted = false;
     }
+    if (beaconAccepted) return true;
 
     try {
       const controller = new AbortController();
@@ -177,22 +192,59 @@
         body,
         signal: controller.signal
       })
-        .catch(() => {})
+        .catch(() => invokeFailureHandler(onFailure))
         .finally(() => window.clearTimeout(timeout));
+      return true;
     } catch {
-      // Silent by design.
+      invokeFailureHandler(onFailure);
+      return false;
     }
   }
 
-  function track(eventName, details = {}, { dedupeKey = "" } = {}) {
+  async function sendHistorical(payload) {
+    if (!payload || !isSharingEnabled() || navigator.onLine === false) return false;
+
+    let body;
+    try {
+      body = JSON.stringify(payload);
+    } catch {
+      return false;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      await fetch(ANALYTICS_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        keepalive: true,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        body,
+        signal: controller.signal
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  function track(
+    eventName,
+    details = {},
+    { dedupeKey = "", additionalDedupeKeys = [], onFailure } = {}
+  ) {
     if (!isSharingEnabled()) return false;
     if (navigator.onLine === false) return false;
     if (dedupeKey && hasSent(dedupeKey)) return false;
 
     const payload = commonPayload(eventName);
     if (!payload) return false;
-    if (dedupeKey) markSent(dedupeKey);
-    send({ ...payload, ...details });
+    const initiated = send({ ...details, ...payload }, { onFailure });
+    if (!initiated) return false;
+
+    [dedupeKey, ...additionalDedupeKeys].filter(Boolean).forEach(markSent);
     notifyStatus();
     return true;
   }
@@ -215,10 +267,6 @@
     }, 0);
   }
 
-  function totalPoints() {
-    return context?.totalsForSubmissions?.(context.getState().submissions).score || 0;
-  }
-
   function questDetails(questId) {
     const quest = context?.quests?.[questId];
     if (!quest) return null;
@@ -228,18 +276,119 @@
     };
   }
 
-  function completionTimestamp(submission) {
+  function completedAt(submission, { fallbackToNow = false } = {}) {
     const completedAt = Date.parse(submission?.completedAt || "");
-    return Number.isNaN(completedAt) ? nowIso() : new Date(completedAt).toISOString();
+    if (!Number.isNaN(completedAt)) return new Date(completedAt).toISOString();
+    return fallbackToNow ? nowIso() : null;
   }
 
-  function bonusEarned(questId, submission) {
+  function bonusIds(questId, submission) {
     const quest = context?.quests?.[questId];
     const selected = context?.canonicalSelectedBonusIds?.(quest, submission) || [];
-    return selected.reduce((total, bonusId) => {
-      const bonus = quest?.bonuses?.find(candidate => candidate.id === bonusId);
-      return total + (Number.isFinite(bonus?.points) ? bonus.points : 0);
-    }, 0);
+    return selected.filter(bonusId => typeof bonusId === "string" && bonusId);
+  }
+
+  function questCompletionDetails(questId, submission, { historical }) {
+    const details = questDetails(questId);
+    if (!details || !submission?.completed) return null;
+
+    const selectedBonusIds = bonusIds(questId, submission);
+    return {
+      ...details,
+      completedAt: completedAt(submission, { fallbackToNow: !historical }),
+      adventureDate: submission.adventureDate || null,
+      points: context?.questPoints?.(submission, questId) || 0,
+      friendCount: context?.isFinalQuest?.(questId)
+        ? 0
+        : context.normalizeFriendCount(submission?.friends),
+      bonusEarned: selectedBonusIds.length > 0,
+      bonusCount: selectedBonusIds.length,
+      bonusIds: selectedBonusIds,
+      historical: Boolean(historical)
+    };
+  }
+
+  function historicalQuestKey(questId) {
+    return `historical_quest_completed:${questId}`;
+  }
+
+  function delay(milliseconds) {
+    return new Promise(resolve => window.setTimeout(resolve, milliseconds));
+  }
+
+  async function backfillHistoricalQuestCompletions() {
+    if (!isSharingEnabled() || navigator.onLine === false) return false;
+    if (!getInstallationId({ create: true })) return false;
+
+    const entries = completedEntries();
+    for (const { questId, submission } of entries) {
+      if (!isSharingEnabled() || navigator.onLine === false) break;
+
+      const dedupeKey = historicalQuestKey(questId);
+      if (hasSent(dedupeKey)) continue;
+
+      const details = questCompletionDetails(questId, submission, {
+        historical: true
+      });
+      const common = commonPayload("quest_completed");
+      if (!details || !common) continue;
+
+      const sent = await sendHistorical({ ...details, ...common });
+      if (sent) {
+        markSent(dedupeKey);
+        markSent(`quest_completed:${questId}`);
+        notifyStatus();
+      }
+      await delay(BACKFILL_BETWEEN_EVENTS_MS);
+    }
+
+    const finalEntry = entries.find(({ questId }) => context?.isFinalQuest?.(questId));
+    const adventureDedupeKey = "historical_adventure_completed";
+    if (
+      finalEntry &&
+      isSharingEnabled() &&
+      navigator.onLine !== false &&
+      !hasSent(adventureDedupeKey)
+    ) {
+      const totals = context.totalsForSubmissions(context.getState().submissions);
+      const common = commonPayload("adventure_completed");
+      if (common) {
+        const sent = await sendHistorical({
+          totalCompletedQuests: totals.completed,
+          totalPoints: totals.score,
+          totalFriends: totalFriends(entries),
+          finalRank: context.rankForScore?.(totals.score)?.title || null,
+          completedAt: completedAt(finalEntry.submission),
+          historical: true,
+          ...common
+        });
+        if (sent) {
+          markSent(adventureDedupeKey);
+          markSent("adventure_completed");
+          notifyStatus();
+        }
+      }
+    }
+    return true;
+  }
+
+  function scheduleHistoricalBackfill() {
+    if (historicalBackfillScheduled) return false;
+    if (!isSharingEnabled() || navigator.onLine === false) return false;
+    if (!getInstallationId({ create: true })) return false;
+
+    historicalBackfillScheduled = true;
+    window.setTimeout(() => {
+      backfillHistoricalQuestCompletions().catch(() => {
+        // A future online launch may retry any unmarked historical events.
+      });
+    }, BACKFILL_START_DELAY_MS);
+    return true;
+  }
+
+  function debugQuestCompletion(message, questId) {
+    if (!debugMode) return;
+    console.info(message, { questId });
   }
 
   function debugState() {
@@ -264,8 +413,10 @@
   }
 
   function setSharingEnabled(enabled) {
-    persistSharingPreference(Boolean(enabled));
+    const sharingEnabled = Boolean(enabled);
+    persistSharingPreference(sharingEnabled);
     notifyStatus();
+    if (sharingEnabled) scheduleHistoricalBackfill();
   }
 
   function resetInstallation() {
@@ -278,6 +429,7 @@
     context = nextContext;
     if (isSharingEnabled()) {
       track("app_opened");
+      scheduleHistoricalBackfill();
     }
     window.addEventListener("appinstalled", () => {
       api.trackAppInstalled("native");
@@ -325,29 +477,63 @@
         dedupeKey: `quest_opened:${questId}`
       });
     },
-    trackQuestSaved({ questId, submission, previousCompletedCount = 0, isNewCompletion = false } = {}) {
-      const details = questDetails(questId);
-      if (!details || !submission?.completed || !isNewCompletion) return false;
+    trackQuestSaved({
+      questId,
+      submission,
+      previousCompletedCount = 0,
+      wasCompletedBefore = false
+    } = {}) {
+      if (wasCompletedBefore) {
+        debugQuestCompletion(
+          "[Analytics] quest_completed skipped: already completed",
+          questId
+        );
+        return false;
+      }
+
+      const details = questCompletionDetails(questId, submission, {
+        historical: false
+      });
+      if (!details) return false;
+
+      const dedupeKey = `quest_completed:${questId}`;
+      if (hasSent(dedupeKey)) {
+        debugQuestCompletion(
+          "[Analytics] quest_completed skipped: already completed",
+          questId
+        );
+        return false;
+      }
+      if (!isSharingEnabled()) {
+        debugQuestCompletion(
+          "[Analytics] quest_completed skipped: sharing off",
+          questId
+        );
+        return false;
+      }
+      if (navigator.onLine === false) {
+        debugQuestCompletion("[Analytics] quest_completed failed", questId);
+        return false;
+      }
 
       const entries = completedEntries();
-      const points = context?.questPoints?.(submission, questId) || 0;
-      const friendCount = context?.isFinalQuest?.(questId)
-        ? 0
-        : context.normalizeFriendCount(submission?.friends);
-
-      track("quest_completed", {
-        ...details,
-        completionTimestamp: completionTimestamp(submission),
-        adventureDate: submission.adventureDate || null,
-        points,
-        friendCount,
-        bonusEarned: bonusEarned(questId, submission)
-      }, {
-        dedupeKey: `quest_completed:${questId}`
+      debugQuestCompletion("[Analytics] quest_completed prepared", questId);
+      const initiated = track("quest_completed", details, {
+        dedupeKey,
+        additionalDedupeKeys: [historicalQuestKey(questId)],
+        onFailure: () => debugQuestCompletion(
+          "[Analytics] quest_completed failed",
+          questId
+        )
       });
+      if (!initiated) {
+        debugQuestCompletion("[Analytics] quest_completed failed", questId);
+        return false;
+      }
+      debugQuestCompletion("[Analytics] quest_completed sent", questId);
 
       if (previousCompletedCount === 0 && entries.length === 1) {
-        track("first_quest_completed", {}, {
+        track("first_quest_completed", { historical: false }, {
           dedupeKey: "first_quest_completed"
         });
       }
@@ -359,13 +545,18 @@
           totalPoints: totals.score,
           totalFriends: totalFriends(entries),
           finalRank: context.rankForScore?.(totals.score)?.title || null,
-          completionTimestamp: completionTimestamp(submission)
+          completedAt: completedAt(submission, { fallbackToNow: true }),
+          historical: false
         }, {
-          dedupeKey: "adventure_completed"
+          dedupeKey: "adventure_completed",
+          additionalDedupeKeys: ["historical_adventure_completed"]
         });
       }
 
       return true;
+    },
+    trackHistoricalQuestCompletions() {
+      return scheduleHistoricalBackfill();
     },
     trackQuestRemoved() {
       return false;

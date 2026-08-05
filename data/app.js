@@ -3190,7 +3190,8 @@ els.form.addEventListener("submit", async (event) => {
     return;
   }
   saveInProgress = true;
-  const isNewCompletion = !questIsCompleted(activeQuest.id);
+  const wasCompletedBefore = questIsCompleted(activeQuest.id);
+  const isNewCompletion = !wasCompletedBefore;
   const totalsBeforeSave = getTotals();
   const completionStage =
     isNewCompletion && !finalQuest
@@ -3246,7 +3247,7 @@ els.form.addEventListener("submit", async (event) => {
       questId,
       submission: nextSubmission,
       previousCompletedCount: totalsBeforeSave.completed,
-      isNewCompletion
+      wasCompletedBefore
     });
       } 
     catch (error) {
