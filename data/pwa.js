@@ -1,10 +1,9 @@
 (() => {
   const buildVersion = globalThis.SUMMER_QUEST_BUILD?.version || "unknown";
-  const workerBuildVersion = globalThis.SUMMER_QUEST_BUILD?.workerVersion || buildVersion;
   const buildVersionElements = document.querySelectorAll("[data-build-version]");
   const updateNotice = document.querySelector("#pwaUpdateNotice");
   const updateButton = document.querySelector("#pwaUpdateButton");
-  const workerUrl = `./sw.js?v=${encodeURIComponent(workerBuildVersion)}`;
+  const workerUrl = `./sw.js?v=${encodeURIComponent(buildVersion)}`;
   const UPDATE_INTERVAL_MS = 30 * 60 * 1000;
   const MIN_CHECK_GAP_MS = 60 * 1000;
   const LAST_ACTIVE_BUILD_KEY = "summerQuestLastActiveWorkerBuild";

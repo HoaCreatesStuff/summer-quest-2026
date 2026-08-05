@@ -1,7 +1,6 @@
 importScripts("./version.js");
 
-const BUILD_VERSION = self.SUMMER_QUEST_BUILD?.version || "unknown";
-const WORKER_VERSION = self.SUMMER_QUEST_BUILD?.workerVersion || BUILD_VERSION;
+const WORKER_VERSION = self.SUMMER_QUEST_BUILD?.version || "unknown";
 const CACHE_PREFIX = "summer-quest-app-";
 const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
 const APP_SHELL_URLS = [

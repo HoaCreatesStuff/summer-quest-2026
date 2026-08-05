@@ -126,9 +126,10 @@
       }
 
       try {
-        const [indexSource, workerSource, updaterSource, manifest] =
+        const [indexSource, versionSource, workerSource, updaterSource, manifest] =
           await Promise.all([
             fetch("../index.html", { cache: "no-store" }).then(response => response.text()),
+            fetch("../version.js", { cache: "no-store" }).then(response => response.text()),
             fetch("../sw.js", { cache: "no-store" }).then(response => response.text()),
             fetch("../data/pwa.js", { cache: "no-store" }).then(response => response.text()),
             fetch("../manifest.json", { cache: "no-store" }).then(response => response.json())
@@ -138,32 +139,42 @@
           indexSource,
           "text/html"
         );
-        const applicationVersion = indexDocument
+        const applicationVersionMeta = indexDocument
           .querySelector('meta[name="application-version"]')
           ?.getAttribute("content");
-        const localVersionedAssets = Array.from(
-          indexDocument.querySelectorAll(
-            'link[rel="stylesheet"][href^="style.css"], link[rel="manifest"], script[src^="version.js"], script[src^="data/"]'
-          )
-        ).map(element => element.getAttribute("href") || element.getAttribute("src"));
+        const footerBuildElement = indexDocument.querySelector("#footerBuildText");
+        const duplicatedBuildPattern = /(?:\b\d{5}\b|\b\d{4}\.\d{2}\.\d{2}\.\d+\b)/;
 
         check(
-          "A public build version is defined",
-          /^\d{4}\.\d{2}\.\d{2}\.\d+$/.test(buildVersion || ""),
+          "version.js defines the single compact build value",
+          /^\d{5}$/.test(buildVersion || "") &&
+            /const BUILD_VERSION = "\d{5}";/.test(versionSource) &&
+            versionSource.includes("version: BUILD_VERSION"),
           buildVersion
         );
         check(
-          "HTML, manifest start URL, and local asset URLs use the same build",
-          applicationVersion === buildVersion &&
-            manifest.start_url.includes(`build=${buildVersion}`) &&
-            localVersionedAssets.every(url => url.includes(`v=${buildVersion}`)),
-          { applicationVersion, startUrl: manifest.start_url, localVersionedAssets }
+          "HTML metadata and asset URLs are populated from version.js",
+          applicationVersionMeta === "" &&
+            versionSource.includes('meta[name="application-version"]') &&
+            indexSource.includes('SUMMER_QUEST_BUILD.assetUrl("style.css")') &&
+            indexSource.includes('SUMMER_QUEST_BUILD.assetUrl("./manifest.json")') &&
+            indexSource.includes('versioned("data/app.js")'),
+          { applicationVersionMeta, startUrl: manifest.start_url }
         );
         check(
-          "Footer displays the compact, non-interactive build identifier",
-          indexDocument.querySelector("#footerBuildText")?.textContent.trim() ===
-            "Build 08055" &&
-            indexDocument.querySelector("#footerBuildText")?.tagName === "SPAN"
+          "Footer renders its build through the shared data hook",
+          footerBuildElement?.textContent.trim() === "Build" &&
+            footerBuildElement?.tagName === "SPAN" &&
+            Boolean(footerBuildElement?.querySelector("[data-build-version]")) &&
+            versionSource.includes('[data-build-version]')
+        );
+        check(
+          "HTML, manifest, worker, and updater contain no duplicate build literal",
+          !duplicatedBuildPattern.test(indexSource) &&
+            !duplicatedBuildPattern.test(JSON.stringify(manifest)) &&
+            !duplicatedBuildPattern.test(workerSource) &&
+            !duplicatedBuildPattern.test(updaterSource) &&
+            !manifest.start_url.includes("build=")
         );
         check(
           "Update notice uses the release copy and exposes a Restart action",
@@ -176,6 +187,7 @@
         check(
           "Worker uses versioned caches and removes only obsolete app caches",
           workerSource.includes('const CACHE_PREFIX = "summer-quest-app-"') &&
+            workerSource.includes("self.SUMMER_QUEST_BUILD?.version") &&
             workerSource.includes("WORKER_VERSION") &&
             workerSource.includes("name.startsWith(CACHE_PREFIX)") &&
             workerSource.includes("name !== CACHE_NAME")
@@ -196,7 +208,7 @@
         check(
           "Registration bypasses the HTTP cache and checks automatically",
           updaterSource.includes('updateViaCache: "none"') &&
-            updaterSource.includes("encodeURIComponent(workerBuildVersion)") &&
+            updaterSource.includes("encodeURIComponent(buildVersion)") &&
             updaterSource.includes("registration.update()") &&
             updaterSource.includes('"updatefound"') &&
             updaterSource.includes('"visibilitychange"')
@@ -281,13 +293,17 @@
           const workerVersion = await requestWorkerVersion(controller);
           const expectedCacheName = `summer-quest-app-${workerVersion}`;
           const cacheNames = await caches.keys();
+          const currentCache = await caches.open(expectedCacheName);
+          const cachedAnalytics = await currentCache.match(
+            new URL("../data/analytics.js", window.location.href).href
+          );
           const preservedDatabase = await openTestDatabase();
           const databaseSentinel = await readDatabaseSentinel(preservedDatabase);
           preservedDatabase.close();
 
           check(
             "Installed worker reports the current internal worker build",
-            workerVersion !== "unknown" && workerVersion.startsWith(buildVersion),
+            workerVersion === buildVersion,
             { workerVersion, publicBuildVersion: buildVersion }
           );
           check(
@@ -295,6 +311,11 @@
             cacheNames.includes(expectedCacheName) &&
               !cacheNames.includes(oldCacheName),
             cacheNames
+          );
+          check(
+            "Current release cache includes analytics.js",
+            Boolean(cachedAnalytics),
+            expectedCacheName
           );
           check(
             "Activation preserves unrelated origin caches",
