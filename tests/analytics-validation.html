@@ -40,7 +40,7 @@
           fetch("../google-apps-script/analytics/Code.gs", { cache: "no-store" })
             .then(response => response.text())
         ]);
-        const buildVersion = versionSource.match(/const BUILD_VERSION = "(\d{5})";/)?.[1];
+        const buildVersion = versionSource.match(/const BUILD_VERSION = "(\d{6})";/)?.[1];
 
         [analyticsSource, appSource, journalSource, versionSource, receiverSource]
           .forEach(source => new Function(source));

@@ -28,10 +28,12 @@ can replace this layer with managed object storage. See
 
 ## PWA updates
 
-`version.js` contains the public build version. The service worker uses that
-version for its app-shell cache and removes only obsolete
-`summer-quest-app-*` caches during activation. It never clears localStorage or
-IndexedDB.
+`version.js` contains the public build version in `MMDDNN` format: month, day,
+and the two-digit release number for that day. For example, releases on August
+5 use `080501`, `080502`, and so on; the first release on August 6 is `080601`.
+The service worker uses that version for its app-shell cache and removes only
+obsolete `summer-quest-app-*` caches during activation. It never clears
+localStorage or IndexedDB.
 
 The app checks for a new worker on launch, focus, reconnect, page restore, and
 every 30 minutes while it remains open. A downloaded update waits until the
@@ -46,8 +48,10 @@ gameplay.
 
 For each release:
 
-1. Update the version in `version.js`.
-2. Run `tests/pwa-update-validation.html` with the other browser tests.
+1. Set the version in `version.js` to today's `MMDD` plus `01`, or increment
+   `NN` when another release has already been made that day.
+2. Confirm `sw.js` changes byte-for-byte so installed PWAs detect the release.
+3. Run `tests/pwa-update-validation.html` with the other browser tests.
 
 Run `python3 tests/offline_regression_check.py` before release to confirm that
 runtime assets exist locally, are precached, and do not reference external font

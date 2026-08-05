@@ -1,4 +1,4 @@
-/* After changing this file, bump the build in version.js and index.html. */
+/* After changing this file, bump the MMDDNN build in version.js. */
 @font-face {
   font-family: "Montserrat";
   src: url("./assets/fonts/Montserrat-Variable.woff2") format("woff2");
@@ -533,6 +533,10 @@ line-height: normal;
   font-weight: 400;
 }
 
+.site-footer-credit-separator {
+  display: none;
+}
+
 .site-footer-links {
   display: flex;
   align-items: center;
@@ -572,16 +576,58 @@ line-height: normal;
 
 @media (max-width: 560px) {
   .site-footer {
-    display: grid;
-    justify-items: center;
+    width: calc(100% + 28px);
+    margin: 22px -14px 0;
+    padding: 0 0 max(2px, env(safe-area-inset-bottom));
     justify-content: center;
-    gap: 5px;
+    flex-wrap: nowrap;
+    gap: 3px;
+    font-size: .66rem;
+    line-height: 1.2;
     text-align: center;
+    white-space: nowrap;
+  }
+
+  .site-footer-credit {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .site-footer-credit-separator {
+    display: inline;
+    color: var(--muted);
   }
 
   .site-footer-links {
+    flex-wrap: nowrap;
+    gap: 0 3px;
     justify-content: center;
     text-align: center;
+  }
+
+  .site-footer-install-item {
+    display: none;
+  }
+
+  .site-footer-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 319px) {
+  .site-footer {
+    width: 100%;
+    margin-inline: 0;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .site-footer-links {
+    flex-wrap: wrap;
   }
 }
 .text-button {

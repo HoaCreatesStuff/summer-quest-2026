@@ -1,6 +1,9 @@
 importScripts("./version.js");
 
 const WORKER_VERSION = self.SUMMER_QUEST_BUILD?.version || "unknown";
+if (!self.SUMMER_QUEST_BUILD?.isValid?.(WORKER_VERSION)) {
+  console.warn(`[PWA] Invalid MMDDNN worker version: ${WORKER_VERSION}`);
+}
 const CACHE_PREFIX = "summer-quest-app-";
 const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
 const APP_SCOPE_PATH = new URL("./", self.location.href).pathname;

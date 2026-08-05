@@ -1,5 +1,6 @@
 (() => {
   const buildVersion = globalThis.SUMMER_QUEST_BUILD?.version || "unknown";
+  const compareBuildVersions = globalThis.SUMMER_QUEST_BUILD?.compare;
   const buildVersionElements = document.querySelectorAll("[data-build-version]");
   const updateNotice = document.querySelector("#pwaUpdateNotice");
   const updateButton = document.querySelector("#pwaUpdateButton");
@@ -99,6 +100,13 @@
     writeStorage(localStorage, LAST_ACTIVE_BUILD_KEY, version);
   }
 
+  function buildsMatch(left, right) {
+    const comparison = compareBuildVersions?.(left, right);
+    return comparison === null || comparison === undefined
+      ? left === right
+      : comparison === 0;
+  }
+
   async function syncActiveBuild() {
     const version = await workerVersion(navigator.serviceWorker?.controller);
     if (version) rememberActiveBuild(version);
@@ -118,7 +126,8 @@
 
     if (
       waitingVersion &&
-      (waitingVersion === activeVersion || waitingVersion === lastActiveVersion)
+      (buildsMatch(waitingVersion, activeVersion) ||
+        buildsMatch(waitingVersion, lastActiveVersion))
     ) {
       if (announcedWorker === worker) {
         announcedWorker = null;

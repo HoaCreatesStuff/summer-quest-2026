@@ -174,14 +174,23 @@
           .querySelector('meta[name="application-version"]')
           ?.getAttribute("content");
         const footerBuildElement = indexDocument.querySelector("#footerBuildText");
-        const duplicatedBuildPattern = /(?:\b\d{5}\b|\b\d{4}\.\d{2}\.\d{2}\.\d+\b)/;
+        const duplicatedBuildPattern = /(?:\b\d{5,6}\b|\b\d{4}\.\d{2}\.\d{2}\.\d+\b)/;
 
         check(
-          "version.js defines the single compact build value",
-          /^\d{5}$/.test(buildVersion || "") &&
-            /const BUILD_VERSION = "\d{5}";/.test(versionSource) &&
-            versionSource.includes("version: BUILD_VERSION"),
+          "version.js defines one valid MMDDNN build value",
+          /^\d{6}$/.test(buildVersion || "") &&
+            /const BUILD_VERSION = "\d{6}";/.test(versionSource) &&
+            versionSource.includes("version: BUILD_VERSION") &&
+            globalThis.SUMMER_QUEST_BUILD?.isValid?.(buildVersion),
           buildVersion
+        );
+        check(
+          "MMDDNN builds compare by date and daily release number",
+          globalThis.SUMMER_QUEST_BUILD?.compare?.("080501", "080502") === -1 &&
+            globalThis.SUMMER_QUEST_BUILD?.compare?.("080502", "080502") === 0 &&
+            globalThis.SUMMER_QUEST_BUILD?.compare?.("080503", "080502") === 1 &&
+            globalThis.SUMMER_QUEST_BUILD?.compare?.("080504", "080601") === -1 &&
+            globalThis.SUMMER_QUEST_BUILD?.isValid?.("080600") === false
         );
         check(
           "HTML metadata and asset URLs are populated from version.js",
@@ -219,6 +228,7 @@
           "Worker uses versioned caches and removes only obsolete app caches",
           workerSource.includes('const CACHE_PREFIX = "summer-quest-app-"') &&
             workerSource.includes("self.SUMMER_QUEST_BUILD?.version") &&
+            workerSource.includes("self.SUMMER_QUEST_BUILD?.isValid") &&
             workerSource.includes("WORKER_VERSION") &&
             workerSource.includes("name.startsWith(CACHE_PREFIX)") &&
             workerSource.includes("name !== CACHE_NAME")
@@ -276,8 +286,9 @@
         check(
           "Waiting and active builds are compared before prompting",
           updaterSource.includes("LAST_ACTIVE_BUILD_KEY") &&
-            updaterSource.includes("waitingVersion === activeVersion") &&
-            updaterSource.includes("waitingVersion === lastActiveVersion") &&
+            updaterSource.includes("compareBuildVersions") &&
+            updaterSource.includes("buildsMatch(waitingVersion, activeVersion)") &&
+            updaterSource.includes("buildsMatch(waitingVersion, lastActiveVersion)") &&
             workerSource.includes("event.ports?.[0]")
         );
         check(

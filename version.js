@@ -1,4 +1,25 @@
-const BUILD_VERSION = "08061";
+const BUILD_VERSION = "080502";
+const BUILD_VERSION_PATTERN = /^(\d{2})(\d{2})(\d{2})$/;
+
+function isValidBuildVersion(value) {
+  const match = BUILD_VERSION_PATTERN.exec(String(value || ""));
+  if (!match) return false;
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const release = Number(match[3]);
+  if (release < 1) return false;
+
+  const calendarDate = new Date(Date.UTC(2000, month - 1, day));
+  return calendarDate.getUTCMonth() === month - 1 &&
+    calendarDate.getUTCDate() === day;
+}
+
+function compareBuildVersions(left, right) {
+  if (!isValidBuildVersion(left) || !isValidBuildVersion(right)) return null;
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
 
 function assetUrl(path) {
   const separator = path.includes("?") ? "&" : "?";
@@ -18,6 +39,8 @@ function renderBuildVersion(root = globalThis.document) {
 
 globalThis.SUMMER_QUEST_BUILD = Object.freeze({
   version: BUILD_VERSION,
+  isValid: isValidBuildVersion,
+  compare: compareBuildVersions,
   assetUrl,
   render: renderBuildVersion
 });
