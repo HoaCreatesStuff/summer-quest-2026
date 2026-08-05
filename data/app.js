@@ -1270,9 +1270,11 @@ async function playFinalQuestFinale(submission) {
     summaryWrapper: els.modalWrapper,
     summaryClose: els.close
   });
-  analyticsSync?.trackFeature?.("finale_animation_completed", {}, {
-    dedupeKey: `finale_animation_completed:${completionKey}`
-  });
+  if (result?.played === true) {
+    analyticsSync?.trackFeature?.("finale_animation_completed", {}, {
+      dedupeKey: `finale_animation_completed:${completionKey}`
+    });
+  }
   return result;
 }
 
@@ -2140,6 +2142,12 @@ function setHomeScreenPlatform(platform, moveFocus = false) {
   els.platformPanels.forEach(panel => {
     panel.hidden = panel.id !== `${nextPlatform}Instructions`;
   });
+}
+
+function selectedHomeScreenPlatform() {
+  return els.platformTabs
+    .querySelector("[role='tab'][aria-selected='true']")
+    ?.dataset.platform;
 }
 
 function openHomeScreenHelp(event) {
@@ -3426,7 +3434,9 @@ els.sheet.addEventListener("pointercancel", cancelQuestSwipe);
 els.close.addEventListener("click", closeSheet);
 els.closeHomeScreenSheet.addEventListener("click", closeHomeScreenHelp);
 els.confirmHomeScreenHelp.addEventListener("click", () => {
-  analyticsSync?.trackAppInstalled?.("install_help_confirmed");
+  if (selectedHomeScreenPlatform() === "iphone") {
+    analyticsSync?.trackAppInstalled?.("ios_install_help_confirmed");
+  }
   closeHomeScreenHelp();
 });
 els.homeScreenModalWrapper.addEventListener("click", (event) => {

@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Summer Quest Analytics Validation</title>
+</head>
+<body>
+  <h1>Summer Quest analytics validation</h1>
+  <pre id="result">Running...</pre>
+
+  <script>
+    (async () => {
+      const result = document.querySelector("#result");
+      const checks = [];
+
+      function check(name, condition, details = "") {
+        checks.push({ name, passed: Boolean(condition), details });
+      }
+
+      try {
+        const [analyticsSource, appSource, versionSource] = await Promise.all([
+          fetch("../data/analytics.js", { cache: "no-store" }).then(response => response.text()),
+          fetch("../data/app.js", { cache: "no-store" }).then(response => response.text()),
+          fetch("../version.js", { cache: "no-store" }).then(response => response.text())
+        ]);
+        const buildVersion = versionSource.match(
+          /const BUILD_VERSION = "(\d{5})";/
+        )?.[1];
+
+        function createHarness({
+          store = new Map(),
+          online = true,
+          storageThrows = false,
+          randomSeed = 1
+        } = {}) {
+          const sent = [];
+          let randomCounter = randomSeed;
+          const fakeStorage = {
+            getItem(key) {
+              if (storageThrows) throw new Error("storage blocked");
+              return store.has(key) ? store.get(key) : null;
+            },
+            setItem(key, value) {
+              if (storageThrows) throw new Error("storage blocked");
+              store.set(key, String(value));
+            },
+            removeItem(key) {
+              if (storageThrows) throw new Error("storage blocked");
+              store.delete(key);
+            }
+          };
+          const fakeWindow = {
+            location: { search: "" },
+            SUMMER_QUEST_BUILD: { version: buildVersion },
+            matchMedia(query) {
+              return { matches: query.includes("browser") };
+            },
+            addEventListener() {},
+            setTimeout,
+            clearTimeout
+          };
+          const fakeNavigator = {
+            onLine: online,
+            platform: "QA Platform",
+            language: "en-US",
+            sendBeacon(url, blob) {
+              sent.push({ url, blob });
+              return true;
+            }
+          };
+          const fakeDocument = {
+            querySelector(selector) {
+              return selector.includes("application-version")
+                ? { content: buildVersion }
+                : null;
+            }
+          };
+          const fakeCrypto = {
+            getRandomValues(bytes) {
+              for (let index = 0; index < bytes.length; index += 1) {
+                bytes[index] = (randomCounter + index * 31) % 256;
+              }
+              randomCounter += 17;
+              return bytes;
+            }
+          };
+          const loadAnalytics = new Function(
+            "window",
+            "navigator",
+            "localStorage",
+            "document",
+            "crypto",
+            "URLSearchParams",
+            "Date",
+            "Blob",
+            "AbortController",
+            "fetch",
+            "console",
+            `${analyticsSource}\nreturn window.SummerQuestAnalytics;`
+          );
+          const api = loadAnalytics(
+            fakeWindow,
+            fakeNavigator,
+            fakeStorage,
+            fakeDocument,
+            fakeCrypto,
+            URLSearchParams,
+            Date,
+            Blob,
+            AbortController,
+            () => Promise.resolve({ ok: true }),
+            { info() {}, warn() {}, error() {} }
+          );
+
+          return {
+            api,
+            store,
+            async payloads() {
+              return Promise.all(sent.map(async entry =>
+                JSON.parse(await entry.blob.text())
+              ));
+            }
+          };
+        }
+
+        function questContext(state) {
+          return {
+            appVersion: buildVersion,
+            getState: () => state,
+            quests: {
+              first: {
+                title: "First Quest",
+                basePoints: 10,
+                bonuses: [{ id: "bonus", points: 3 }]
+              },
+              final: { title: "Final Quest", basePoints: 25, bonuses: [] }
+            },
+            boardOrder: ["first", "final"],
+            normalizeFriendCount: value => Number(value) || 0,
+            canonicalSelectedBonusIds: (quest, submission) =>
+              submission?.selectedBonusIds || [],
+            questPoints: (submission, questId) => questId === "first" ? 17 : 25,
+            totalsForSubmissions: submissions => ({
+              completed: Object.values(submissions).filter(item => item?.completed).length,
+              score: Object.entries(submissions).reduce(
+                (sum, [questId, submission]) =>
+                  sum + (submission?.completed ? (questId === "first" ? 17 : 25) : 0),
+                0
+              )
+            }),
+            isFinalQuest: questId => questId === "final",
+            rankForScore: score => ({ title: score >= 40 ? "Summer Legend" : "Summer Rookie" })
+          };
+        }
+
+        const state = { submissions: {} };
+        const harness = createHarness();
+        harness.api.init(questContext(state));
+        harness.api.trackMissionBriefingCompleted();
+        harness.api.trackMissionBriefingCompleted();
+        harness.api.trackQuestOpened("first");
+        harness.api.trackQuestOpened("first");
+
+        const privateSubmission = {
+          completed: true,
+          completedAt: "2026-08-05T12:34:56.000Z",
+          adventureDate: "2026-08-05",
+          friends: 2,
+          selectedBonusIds: ["bonus"],
+          caption: "private",
+          reflection: "private",
+          location: "private",
+          name: "private",
+          email: "private@example.com",
+          mediaId: "private",
+          metadata: { private: true }
+        };
+        state.submissions.first = privateSubmission;
+        harness.api.trackQuestSaved({
+          questId: "first",
+          submission: privateSubmission,
+          previousCompletedCount: 0,
+          isNewCompletion: true
+        });
+        const payloads = await harness.payloads();
+        const eventCounts = payloads.reduce((counts, payload) => {
+          counts[payload.eventName] = (counts[payload.eventName] || 0) + 1;
+          return counts;
+        }, {});
+        const forbiddenFields = [
+          "caption", "reflection", "location", "name", "email",
+          "mediaId", "metadata", "photo"
+        ];
+
+        check(
+          "Every event includes the anonymous common fields",
+          payloads.every(payload => [
+            "installationId", "sessionId", "eventName", "timestamp",
+            "build", "platform", "displayMode", "language"
+          ].every(field => payload[field] != null))
+        );
+        check(
+          "Installation and session identifiers use the expected formats",
+          /^SQ-[A-F0-9]{8}$/.test(payloads[0]?.installationId || "") &&
+            /^SESSION-[A-F0-9]{6}$/.test(payloads[0]?.sessionId || "")
+        );
+        check(
+          "One-time and per-quest events are deduplicated",
+          eventCounts.mission_briefing_completed === 1 &&
+            eventCounts.quest_opened === 1 &&
+            eventCounts.quest_completed === 1 &&
+            eventCounts.first_quest_completed === 1,
+          eventCounts
+        );
+        check(
+          "Quest payload excludes private memory fields",
+          payloads.every(payload =>
+            forbiddenFields.every(field => !Object.hasOwn(payload, field))
+          )
+        );
+
+        const optedOutStore = new Map([
+          ["summerQuestAnonymousSharingEnabled", "false"]
+        ]);
+        const optedOut = createHarness({ store: optedOutStore });
+        optedOut.api.init(questContext({ submissions: {} }));
+        optedOut.api.trackFeature("privacy_opened");
+        check(
+          "Opt-out sends nothing and creates no installation ID",
+          (await optedOut.payloads()).length === 0 &&
+            !optedOutStore.has("summerQuestInstallationId")
+        );
+
+        const offlineStore = new Map();
+        const offline = createHarness({ store: offlineStore, online: false });
+        offline.api.init(questContext({ submissions: {} }));
+        offline.api.trackQuestOpened("first");
+        check(
+          "Offline events are skipped without IDs or dedupe state",
+          (await offline.payloads()).length === 0 &&
+            !offlineStore.has("summerQuestInstallationId") &&
+            !offlineStore.has("summerQuestAnalyticsDedupe")
+        );
+
+        let blockedStorageThrew = false;
+        try {
+          const blocked = createHarness({ storageThrows: true });
+          blocked.api.init(questContext({ submissions: {} }));
+          blocked.api.setSharingEnabled(false);
+          blocked.api.trackFeature("privacy_opened");
+          blocked.api.debugState();
+        } catch {
+          blockedStorageThrew = true;
+        }
+        check(
+          "Blocked browser storage never throws into gameplay",
+          !blockedStorageThrew
+        );
+
+        const observerHarness = createHarness();
+        observerHarness.api.onStatusChange(() => {
+          throw new Error("observer failure");
+        });
+        let observerThrew = false;
+        try {
+          observerHarness.api.init(questContext({ submissions: {} }));
+        } catch {
+          observerThrew = true;
+        }
+        check("Analytics observers cannot interrupt gameplay", !observerThrew);
+
+        check(
+          "Android help confirmation does not claim installation",
+          appSource.includes('selectedHomeScreenPlatform() === "iphone"') &&
+            appSource.includes('"ios_install_help_confirmed"')
+        );
+        check(
+          "Finale completion is emitted only after a played animation",
+          appSource.includes("if (result?.played === true)")
+        );
+
+        const failed = checks.filter(item => !item.passed);
+        result.textContent = JSON.stringify({
+          status: failed.length ? "FAIL" : "PASS",
+          buildVersion,
+          passed: checks.length - failed.length,
+          failed: failed.length,
+          checks
+        }, null, 2);
+      } catch (error) {
+        result.textContent = JSON.stringify({
+          status: "ERROR",
+          message: error.message,
+          stack: error.stack
+        }, null, 2);
+      }
+    })();
+  </script>
+</body>
+</html>

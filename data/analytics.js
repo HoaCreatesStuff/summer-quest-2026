@@ -34,9 +34,34 @@
     return new Date().toISOString();
   }
 
+  function readStorage(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStorage(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function removeStorage(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Analytics storage must never affect gameplay.
+    }
+  }
+
   function readJson(key, fallback) {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = readStorage(key);
       if (!raw) return fallback;
       const parsed = JSON.parse(raw);
       return parsed && typeof parsed === "object" ? parsed : fallback;
@@ -47,7 +72,7 @@
 
   function writeJson(key, value) {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      writeStorage(key, JSON.stringify(value));
     } catch {
       // Analytics storage must never affect gameplay.
     }
@@ -73,26 +98,18 @@
   }
 
   function isSharingEnabled() {
-    return localStorage.getItem(SHARING_PREFERENCE_KEY) !== "false";
+    return readStorage(SHARING_PREFERENCE_KEY) !== "false";
   }
 
   function persistSharingPreference(enabled) {
-    try {
-      localStorage.setItem(SHARING_PREFERENCE_KEY, enabled ? "true" : "false");
-    } catch {
-      // Ignore analytics preference write failures.
-    }
+    writeStorage(SHARING_PREFERENCE_KEY, enabled ? "true" : "false");
   }
 
   function getInstallationId({ create = false } = {}) {
-    let id = localStorage.getItem(INSTALLATION_ID_KEY);
+    let id = readStorage(INSTALLATION_ID_KEY);
     if (!id && create) {
       id = `SQ-${randomHex(8)}`;
-      try {
-        localStorage.setItem(INSTALLATION_ID_KEY, id);
-      } catch {
-        return "";
-      }
+      if (!writeStorage(INSTALLATION_ID_KEY, id)) return "";
     }
     return id || "";
   }
@@ -134,7 +151,12 @@
   function send(payload) {
     if (!payload || !isSharingEnabled() || navigator.onLine === false) return;
 
-    const body = JSON.stringify(payload);
+    let body;
+    try {
+      body = JSON.stringify(payload);
+    } catch {
+      return;
+    }
     try {
       if (navigator.sendBeacon) {
         const beaconBody = new Blob([body], { type: "text/plain;charset=UTF-8" });
@@ -223,7 +245,7 @@
   function debugState() {
     return {
       endpointConfigured: Boolean(ANALYTICS_ENDPOINT),
-      installationId: localStorage.getItem(INSTALLATION_ID_KEY) || null,
+      installationId: readStorage(INSTALLATION_ID_KEY) || null,
       sessionId,
       sharingEnabled: isSharingEnabled(),
       dedupe: getDedupe()
@@ -232,7 +254,13 @@
 
   function notifyStatus() {
     const status = debugState();
-    statusListeners.forEach(listener => listener(status));
+    statusListeners.forEach(listener => {
+      try {
+        listener(status);
+      } catch {
+        // Analytics observers must never affect gameplay.
+      }
+    });
   }
 
   function setSharingEnabled(enabled) {
@@ -241,13 +269,9 @@
   }
 
   function resetInstallation() {
-    try {
-      localStorage.removeItem(INSTALLATION_ID_KEY);
-      localStorage.removeItem(DEDUPE_KEY);
-      LEGACY_ANALYTICS_KEYS.forEach(key => localStorage.removeItem(key));
-    } catch {
-      // Ignore analytics reset failures.
-    }
+    removeStorage(INSTALLATION_ID_KEY);
+    removeStorage(DEDUPE_KEY);
+    LEGACY_ANALYTICS_KEYS.forEach(removeStorage);
   }
 
   function init(nextContext) {
