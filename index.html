@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#F35F59" />
-  <meta name="application-version" content="2026.07.30.22" />
+  <meta name="application-version" content="2026.08.05.4" />
   
   <meta property="og:type" content="website">
   <meta property="og:title" content="NYC Summer Quest">
@@ -22,9 +22,9 @@
 <meta name="twitter:image" content="https://hoacreatesstuff.github.io/summer-quest-2026/assets/link-preview.jpg">
   
   <title>NYC Summer Quest</title>
-  <link rel="stylesheet" href="style.css?v=2026.07.30.22" />
+  <link rel="stylesheet" href="style.css?v=2026.08.05.4" />
   <link rel="stylesheet" href="assets/vendor/cropperjs/cropper.min.css?v=1.6.2"/>
-  <link rel="manifest" href="./manifest.json?v=2026.07.30.22">
+  <link rel="manifest" href="./manifest.json?v=2026.08.05.4">
   <link rel="icon" href="./assets/favicon/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon/favicon-16x16.png">
@@ -88,7 +88,7 @@
     to share your favorite moments and hang out with the Summer Quest squad.
   </span>
 </li>
-            <li id="homeScreenHelpItem"><span class="material-symbols-outlined" aria-hidden="true">install_mobile</span><span>Save the <a id="homeScreenHelpLink" href="#save-to-home-screen">Summer Quest web app</a> to your home screen to start playing!</span>
+            <li id="homeScreenHelpItem"><span class="material-symbols-outlined" aria-hidden="true">install_mobile</span><span>Save the <a id="homeScreenHelpLink" href="#save-to-home-screen">Summer Quest web app</a> to your home screen for the best experience!</span>
 </li>
           </ul>
           <!--
@@ -100,13 +100,6 @@
             <p>Bryant Park • <a class="briefing-inline-link" href="https://partiful.com/e/O38rSNjmcQWjphAEI98O?c=4zeCvvke" target="_blank" rel="noopener noreferrer"> RSVP on Partiful</a></p>
           </div> -->
           <p class="closing">Most importantly: have fun, explore somewhere new, and make this your best NYC summer yet.</p>
-          <details class="settings-about">
-            <summary>Settings &amp; About</summary>
-            <div class="settings-about-content">
-              <p>Build version <strong data-build-version>2026.07.30.22</strong></p>
-              <p id="pwaUpdateStatus">Updates check automatically.</p>
-            </div>
-          </details>
         </div>
       </div>
     </section>
@@ -131,6 +124,18 @@
         </div>
       </div>
     </section>
+    <footer class="site-footer" aria-label="Summer Quest utility links">
+      <p class="site-footer-credit">Created by Hoa Nguyen</p>
+      <nav class="site-footer-links" aria-label="Footer">
+        <button id="openPrivacyModal" class="site-footer-link" type="button">Privacy</button>
+        <span aria-hidden="true">•</span>
+        <button id="openContactModal" class="site-footer-link" type="button">Contact</button>
+        <span aria-hidden="true">•</span>
+        <button id="footerInstallApp" class="site-footer-link" type="button">Install App</button>
+        <span aria-hidden="true">•</span>
+        <span id="footerBuildText">Build 08054</span>
+      </nav>
+    </footer>
   </main>
 
   <main id="storyPage" class="app-shell app-page story-page" data-page="story" hidden>
@@ -359,73 +364,70 @@
   </button>
   </div>
 
-  <div id="homeScreenModalWrapper" class="quest-modal-wrapper home-screen-modal-wrapper" hidden>
-    <section id="homeScreenSheet" class="bottom-sheet home-screen-help-sheet" aria-modal="true" role="dialog" aria-labelledby="homeScreenTitle" hidden>
-      <div class="sheet-handle"></div>
-      <button id="closeHomeScreenSheet" class="close-button" type="button" aria-label="Close"><span class="material-symbols-outlined">close</span></button>
+  <div id="homeScreenModalWrapper" class="crop-modal info-modal install-modal" hidden>
+    <section id="homeScreenSheet" class="crop-dialog info-dialog install-dialog" aria-modal="true" role="dialog" aria-labelledby="homeScreenTitle" hidden>
+      <header class="crop-header info-modal-header">
+        <div>
+          <p class="label">App</p>
+          <h2 id="homeScreenTitle">Install Summer Quest</h2>
+        </div>
+        <button id="closeHomeScreenSheet" class="close-button" type="button" aria-label="Close install instructions">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+      </header>
 
-      <div class="quest-modal-scroll home-screen-help-scroll">
-        <div class="home-screen-help-content">
-          <header class="quest-detail-header home-screen-help-header">
-            <div class="quest-detail-copy">
-              <h2 id="homeScreenTitle">Save to Home</h2>
-              <p class="sheet-description home-screen-help-subtitle">Summer Quest works best when saved to your phone like a real app.</p>
-              <p class="home-screen-help-supporting">It only takes about 10 seconds.</p>
-            </div>
-            <div class="sheet-icon-wrap home-screen-app-icon-wrap" aria-hidden="true">
-              <img class="sheet-quest-icon home-screen-app-icon" src="assets/favicon/icon-512.png" alt="" />
-            </div>
-          </header>
+      <div class="install-modal-body">
+        <p class="info-modal-intro home-screen-help-subtitle">Summer Quest works best when saved to your phone like a real app.</p>
+        <p class="home-screen-help-supporting">It only takes about 10 seconds.</p>
 
-          <div class="platform-tabs" role="tablist" aria-label="Choose your phone">
-            <button id="iphoneHelpTab" class="platform-tab" type="button" role="tab" aria-selected="true" aria-controls="iphoneInstructions" data-platform="iphone">iPhone</button>
-            <button id="androidHelpTab" class="platform-tab" type="button" role="tab" aria-selected="false" aria-controls="androidInstructions" data-platform="android" tabindex="-1">Android</button>
-          </div>
+        <div class="platform-tabs" role="tablist" aria-label="Choose your phone">
+          <button id="iphoneHelpTab" class="platform-tab" type="button" role="tab" aria-selected="true" aria-controls="iphoneInstructions" data-platform="iphone">iPhone</button>
+          <button id="androidHelpTab" class="platform-tab" type="button" role="tab" aria-selected="false" aria-controls="androidInstructions" data-platform="android" tabindex="-1">Android</button>
+        </div>
 
-          <div class="platform-instructions">
-            <section id="iphoneInstructions" class="platform-panel" role="tabpanel" aria-labelledby="iphoneHelpTab">
-              <ol class="install-steps">
-                <li class="install-step-card">
-                  <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-1.png" alt="" data-placeholder-illustration />
-                  <div class="install-step-copy"><span>Step 1</span><p>Tap the Share button on the bottom of your screen.</p></div>
-                </li>
-                <li class="install-step-card">
-                  <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-2.png" alt="" data-placeholder-illustration />
-                  <div class="install-step-copy"><span>Step 2</span><p>Tap "See more", scroll down and select "Add to Home Screen".</p></div>
-                </li>
-                <li class="install-step-card">
-                  <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-3.png" alt="" data-placeholder-illustration />
-                  <div class="install-step-copy"><span>Step 3</span><p>Tap "Add" and make sure you enable "Open as Web App".</p></div>
-                </li>
-              </ol>
-            </section>
+        <div class="platform-instructions">
+          <section id="iphoneInstructions" class="platform-panel" role="tabpanel" aria-labelledby="iphoneHelpTab">
+            <ol class="install-steps">
+              <li class="install-step-card">
+                <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-1.png" alt="" data-placeholder-illustration />
+                <div class="install-step-copy"><span>Step 1</span><p>Tap the Share button on the bottom of your screen.</p></div>
+              </li>
+              <li class="install-step-card">
+                <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-2.png" alt="" data-placeholder-illustration />
+                <div class="install-step-copy"><span>Step 2</span><p>Tap "See more", scroll down and select "Add to Home Screen".</p></div>
+              </li>
+              <li class="install-step-card">
+                <img class="install-step-illustration" src="assets/home-screen-help/iphone-step-3.png" alt="" data-placeholder-illustration />
+                <div class="install-step-copy"><span>Step 3</span><p>Tap "Add" and make sure you enable "Open as Web App".</p></div>
+              </li>
+            </ol>
+          </section>
 
-            <section id="androidInstructions" class="platform-panel" role="tabpanel" aria-labelledby="androidHelpTab" hidden>
-              <ol class="install-steps">
-                <li class="install-step-card">
-                  <img class="install-step-illustration" src="assets/home-screen-help/android-step-1.png" alt="" data-placeholder-illustration />
-                  <div class="install-step-copy"><span>Step 1</span><p>Tap the browser menu (⋮) on the top right of your screen.</p></div>
-                </li>
-                <li class="install-step-card">
-                  <img class="install-step-illustration" src="assets/home-screen-help/android-step-2.png" alt="" data-placeholder-illustration />
-                  <div class="install-step-copy"><span>Step 2</span><p>Tap "Add to Home Screen", "Install App", or "Add Page to" depending on your browser.</p></div>
-                </li>
-                <li class="install-step-card">
-                  <img class="install-step-illustration" src="assets/home-screen-help/android-step-3.png" alt="" data-placeholder-illustration />
-                  <div class="install-step-copy"><span>Step 3</span><p>Tap "Add" to save it to your phone.</p></div>
-                </li>
-              </ol>
-            </section>
-          </div>
-
-          <footer class="home-screen-help-footer">
-            <p>You’ll only need to do this once.</p>
-            <button id="confirmHomeScreenHelp" class="primary-button" type="button">Got it</button>
-          </footer>
+          <section id="androidInstructions" class="platform-panel" role="tabpanel" aria-labelledby="androidHelpTab" hidden>
+            <ol class="install-steps">
+              <li class="install-step-card">
+                <img class="install-step-illustration" src="assets/home-screen-help/android-step-1.png" alt="" data-placeholder-illustration />
+                <div class="install-step-copy"><span>Step 1</span><p>Tap the browser menu (⋮) on the top right of your screen.</p></div>
+              </li>
+              <li class="install-step-card">
+                <img class="install-step-illustration" src="assets/home-screen-help/android-step-2.png" alt="" data-placeholder-illustration />
+                <div class="install-step-copy"><span>Step 2</span><p>Tap "Add to Home Screen", "Install App", or "Add Page to" depending on your browser.</p></div>
+              </li>
+              <li class="install-step-card">
+                <img class="install-step-illustration" src="assets/home-screen-help/android-step-3.png" alt="" data-placeholder-illustration />
+                <div class="install-step-copy"><span>Step 3</span><p>Tap "Add" to save it to your phone.</p></div>
+              </li>
+            </ol>
+          </section>
         </div>
       </div>
+
+      <footer class="info-modal-actions install-modal-actions">
+        <p>You’ll only need to do this once.</p>
+        <button id="confirmHomeScreenHelp" class="primary-button" type="button">Got it</button>
+      </footer>
     </section>
-</div>
+  </div>
 
 <!-- Remove-memory confirmation dialog -->
 <div id="removeMemoryModal" class="crop-modal confirmation-modal" hidden>
@@ -445,6 +447,83 @@
       <button id="keepMemory" class="secondary-button" type="button">Keep Memory</button>
       <button id="confirmRemoveMemory" class="primary-button" type="button">Remove Memory</button>
     </div>
+  </section>
+</div>
+
+<!-- Privacy dialog -->
+<div id="privacyModal" class="crop-modal info-modal privacy-modal" hidden>
+  <section
+    class="crop-dialog info-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="privacyTitle"
+  >
+    <header class="crop-header info-modal-header">
+      <div>
+        <p class="label">Privacy</p>
+        <h2 id="privacyTitle">Privacy &amp; Your Data</h2>
+      </div>
+      <button id="closePrivacyModal" class="close-button" type="button" aria-label="Close privacy details">
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
+      </button>
+    </header>
+    <div class="info-modal-body">
+      <p>Your Summer Quest memories <strong>stay on your device</strong>.</p>
+      <ul class="info-modal-list">
+        <li>Photos, captions, reflections, names, and precise locations are stored locally and never uploaded.</li>
+        <li>If you opt in, anonymous usage data (such as quest completions, points, and friend counts) may be shared to help improve Summer Quest.</li>
+        <li>Messages sent through the Contact form are emailed to me (Hoa) so I can respond and improve the app.</li>
+      </ul>
+    </div>
+    <footer class="info-modal-actions privacy-actions">
+      <p id="privacySharingStatus" class="privacy-sharing-status" aria-live="polite">Anonymous data sharing: Off</p>
+      <button id="confirmPrivacyModal" class="primary-button" type="button">Got It</button>
+    </footer>
+  </section>
+</div>
+
+<!-- Contact dialog -->
+<div id="contactModal" class="crop-modal info-modal contact-modal" hidden>
+  <section
+    class="crop-dialog info-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="contactTitle"
+    aria-describedby="contactIntro"
+  >
+    <header class="crop-header info-modal-header">
+      <div>
+        <p class="label">Feedback</p>
+        <h2 id="contactTitle">Contact Hoa</h2>
+      </div>
+      <button id="closeContactModal" class="close-button" type="button" aria-label="Close contact form">
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
+      </button>
+    </header>
+    <form id="contactForm" class="contact-form" novalidate>
+      <p id="contactIntro" class="info-modal-intro">Have feedback, found a bug, or have an idea? I’d love to hear from you.</p>
+      <input id="contactHoneypot" class="contact-honeypot" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true" />
+      <label class="field">
+        <span>Name <small>Optional</small></span>
+        <input id="contactName" class="text-input" type="text" name="name" autocomplete="name" maxlength="80" />
+      </label>
+      <label class="field">
+        <span>Email <small>Optional</small></span>
+        <input id="contactEmail" class="text-input" type="email" name="email" autocomplete="email" aria-describedby="contactEmailHelp contactEmailError" />
+      </label>
+      <p id="contactEmailHelp" class="contact-helper">Your email will only be used to reply to your message.</p>
+      <p id="contactEmailError" class="field-error" role="alert" hidden></p>
+      <label class="field">
+        <span>Message</span>
+        <textarea id="contactMessage" class="text-input" name="message" rows="6" maxlength="2000" required aria-required="true" aria-describedby="contactMessageError"></textarea>
+      </label>
+      <p id="contactMessageError" class="field-error" role="alert" hidden></p>
+      <p id="contactStatus" class="contact-status" role="status" aria-live="polite"></p>
+      <footer class="info-modal-actions contact-actions">
+        <button id="contactDone" class="secondary-button" type="button" hidden>Done</button>
+        <button id="sendContact" class="primary-button" type="submit">Send Feedback</button>
+      </footer>
+    </form>
   </section>
 </div>
 
@@ -531,6 +610,24 @@
   </section>
 </div>
 
+<!-- Anonymous analytics consent -->
+<div id="analyticsConsentModal" class="crop-modal analytics-consent-modal" hidden>
+  <section
+    class="crop-dialog analytics-consent-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="analyticsConsentTitle"
+  >
+    <h2 id="analyticsConsentTitle">Can you help me improve Summer Quest?</h2>
+    <p>Hi! I'm Hoa, the creator of Summer Quest. Would you help me improve the app by anonymously sharing gameplay data?</p>
+    <p>Your photos, captions, reflections, name, and precise location are never shared.</p>
+    <footer class="confirmation-actions">
+      <button class="secondary-button" type="button" data-analytics-consent="postpone">Maybe Later</button>
+      <button class="primary-button" type="button" data-analytics-consent="grant">Happy to Help</button>
+    </footer>
+  </section>
+</div>
+
   <aside
     id="pwaUpdateNotice"
     class="pwa-update-notice"
@@ -543,15 +640,23 @@
     <button id="pwaUpdateButton" class="secondary-button" type="button">Restart</button>
   </aside>
 
-  <script src="version.js?v=2026.07.30.22"></script>
-  <script src="data/iconFonts.js?v=2026.07.30.22"></script>
-  <script src="data/pwa.js?v=2026.07.30.22"></script>
-  <script src="data/quests.js?v=2026.07.30.22"></script>
-  <script src="data/boardConfig.js?v=2026.07.30.22"></script>
-  <script src="data/mediaStorage.js?v=2026.07.30.22"></script>
-  <script src="data/finale.js?v=2026.07.30.22"></script>
+  <script src="version.js?v=2026.08.05.4"></script>
+  <script src="data/iconFonts.js?v=2026.08.05.4"></script>
+  <script src="data/pwa.js?v=2026.08.05.4"></script>
+  <script src="data/quests.js?v=2026.08.05.4"></script>
+  <script src="data/boardConfig.js?v=2026.08.05.4"></script>
+  <script src="data/mediaStorage.js?v=2026.08.05.4"></script>
+  <script src="data/finale.js?v=2026.08.05.4"></script>
+  <script>
+    window.SUMMER_QUEST_ANALYTICS_CONFIG = {
+      enabled: false,
+      endpointUrl: "",
+      supabaseAnonKey: ""
+    };
+  </script>
+  <script src="data/analytics.js?v=2026.08.05.4"></script>
   <script src="assets/vendor/cropperjs/cropper.min.js?v=1.6.2"></script>
-  <script src="data/app.js?v=2026.07.30.22"></script>
-  <script src="data/journal.js?v=2026.07.30.22"></script>
+  <script src="data/app.js?v=2026.08.05.4"></script>
+  <script src="data/journal.js?v=2026.08.05.4"></script>
 </body>
 </html>

@@ -14,6 +14,7 @@ const APP_SHELL_URLS = [
   "./data/boardConfig.js",
   "./data/mediaStorage.js",
   "./data/finale.js",
+  "./data/analytics.js",
   "./data/app.js",
   "./data/journal.js",
   "./assets/vendor/cropperjs/cropper.min.css",

@@ -6,6 +6,7 @@ const DESKTOP_NOTICE_MIN_HEIGHT = 480;
 const QUEST_DATA_MIGRATION_VERSION = 3;
 const MEDIA_MIGRATION_VERSION = 1;
 const FINAL_QUEST_ID = "party-time";
+const CONTACT_FORM_ENDPOINT = "https://formspree.io/f/mvkppjvo";
 const FRIEND_SCORING = Object.freeze({
   pointsPerFriend: 2,
   maxFriends: 5
@@ -25,6 +26,7 @@ const CAPTION_VISIBLE_LINES = Object.freeze({
 });
 const mediaStore = window.QuestMediaStore;
 const finalQuestFinale = window.SummerQuestFinale;
+const analyticsSync = window.SummerQuestAnalytics;
 
 window.validateBoardConfig();
 window.validateQuestData();
@@ -321,8 +323,11 @@ let sheetTrigger = null;
 let homeScreenSheetTrigger = null;
 let removeDialogTrigger = null;
 let desktopNoticeTrigger = null;
+let privacyDialogTrigger = null;
+let contactDialogTrigger = null;
 let desktopNoticeShownThisDocument = false;
 let desktopNoticeResizeTimer = 0;
+let contactSubmitInProgress = false;
 let captionViewportActive = false;
 let captionViewportBaselineHeight = 0;
 let captionViewportReleaseTimer = 0;
@@ -448,6 +453,25 @@ const els = {
   removeMemoryError: document.querySelector("#removeMemoryError"),
   desktopNoticeModal: document.querySelector("#desktopNoticeModal"),
   continueOnDesktop: document.querySelector("#continueOnDesktop"),
+  openPrivacyModal: document.querySelector("#openPrivacyModal"),
+  privacyModal: document.querySelector("#privacyModal"),
+  closePrivacyModal: document.querySelector("#closePrivacyModal"),
+  confirmPrivacyModal: document.querySelector("#confirmPrivacyModal"),
+  privacySharingStatus: document.querySelector("#privacySharingStatus"),
+  openContactModal: document.querySelector("#openContactModal"),
+  contactModal: document.querySelector("#contactModal"),
+  closeContactModal: document.querySelector("#closeContactModal"),
+  contactForm: document.querySelector("#contactForm"),
+  contactName: document.querySelector("#contactName"),
+  contactEmail: document.querySelector("#contactEmail"),
+  contactEmailError: document.querySelector("#contactEmailError"),
+  contactMessage: document.querySelector("#contactMessage"),
+  contactMessageError: document.querySelector("#contactMessageError"),
+  contactHoneypot: document.querySelector("#contactHoneypot"),
+  contactStatus: document.querySelector("#contactStatus"),
+  contactDone: document.querySelector("#contactDone"),
+  sendContact: document.querySelector("#sendContact"),
+  footerInstallApp: document.querySelector("#footerInstallApp"),
   viewBoard: document.querySelector("#viewBoardBtn"),
   saveBoard: document.querySelector("#saveBoardBtn"),
   resetBoard: document.querySelector("#resetBoard"),
@@ -1047,23 +1071,39 @@ async function migrateLegacyMediaState() {
 }
 
 function mediaErrorMessage(error, action = "save") {
-  if (error?.code === "indexeddb-unavailable") {
-    return "Photo storage isn't available in this browser. Try a current browser with private browsing turned off.";
+  const diagnosis = mediaStore.diagnoseError(error);
+  const browserErrorName = diagnosis.causeName || (
+    diagnosis.name !== "MediaStorageError" ? diagnosis.name : null
+  );
+  const errorLabel = browserErrorName ? ` (${browserErrorName})` : "";
+
+  if (diagnosis.code === "indexeddb-unavailable") {
+    return "The browser blocked access to Summer Quest photo storage. Your existing memories are unchanged. Reopen Summer Quest and try again.";
   }
-  if (error?.code === "compression-failure") {
+  if (diagnosis.code === "quota-exceeded") {
+    return "The browser reached the storage allowance available to Summer Quest, so this photo wasn't saved. Your existing memories are unchanged. Please try again later.";
+  }
+  if (diagnosis.code === "transaction-aborted") {
+    return "The browser interrupted the photo save before it finished. Your existing memories are unchanged. Please try again.";
+  }
+  if (diagnosis.code === "compression-failure") {
     return "We couldn't prepare that image. Please choose a different photo and try again.";
   }
   if (action === "load") {
-    return "We couldn't load this photo from device storage. It may have been removed by the browser.";
+    return `The browser couldn't load this saved photo${errorLabel}. Your quest details are still available. Reload Summer Quest and try again.`;
   }
   if (action === "reset") {
-    return "We couldn't fully reset photos stored on this device. Close other Summer Quest tabs and try again.";
+    return `The browser couldn't finish removing the saved photos${errorLabel}. Summer Quest will retry cleanup the next time it opens.`;
   }
-  return "We couldn't save this photo on your device. Free up some browser storage and try again.";
+  return `The browser couldn't complete the photo save${errorLabel}. Your existing memories are unchanged. Please try again.`;
 }
 
 function reportMediaError(error, action = "save") {
-  console.error(`[Media storage] ${action} failed.`, error);
+  const diagnosis = mediaStore.diagnoseError(error);
+  console.error(`[Media storage] ${action} failed.`, diagnosis, error);
+  mediaStore.estimateStorage().then(estimate => {
+    console.error(`[Media storage] ${action} storage estimate.`, estimate);
+  });
   window.alert(mediaErrorMessage(error, action));
 }
 
@@ -1117,6 +1157,30 @@ function totalsForSubmissions(savedSubmissions = {}) {
 
 function getTotals() {
   return totalsForSubmissions(state.submissions);
+}
+
+function initializeAnalyticsSync() {
+  analyticsSync?.init({
+    getState: () => state,
+    quests: window.QUESTS,
+    boardOrder: window.BOARD_ORDER,
+    finalQuestId: FINAL_QUEST_ID,
+    appVersion: window.SUMMER_QUEST_BUILD?.version || "unknown",
+    normalizeFriendCount,
+    friendPointsFor,
+    selectedBonusIdsFrom,
+    canonicalSelectedBonusIds,
+    questPoints,
+    totalsForSubmissions,
+    isFinalQuest
+  });
+  renderPrivacySharingStatus();
+  analyticsSync?.onStatusChange(renderPrivacySharingStatus);
+}
+
+function renderPrivacySharingStatus() {
+  const status = analyticsSync?.hasConsent() ? "On" : "Off";
+  els.privacySharingStatus.textContent = `Anonymous data sharing: ${status}`;
 }
 
 function currentRank(score) {
@@ -2068,10 +2132,9 @@ function openHomeScreenHelp(event) {
   homeScreenSheetTrigger = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
-  els.backdrop.hidden = false;
   els.homeScreenModalWrapper.hidden = false;
   els.homeScreenSheet.hidden = false;
-  document.body.classList.add("sheet-open");
+  document.body.classList.add("info-modal-open");
   requestAnimationFrame(() => els.closeHomeScreenSheet.focus());
 }
 
@@ -2080,9 +2143,179 @@ function closeHomeScreenHelp() {
   homeScreenSheetTrigger = null;
   els.homeScreenSheet.hidden = true;
   els.homeScreenModalWrapper.hidden = true;
-  els.backdrop.hidden = true;
-  document.body.classList.remove("sheet-open");
+  document.body.classList.remove("info-modal-open");
   focusTarget?.focus({ preventScroll: true });
+}
+
+function resetContactStatus() {
+  els.contactStatus.textContent = "";
+  els.contactStatus.classList.remove("is-error", "is-success");
+  els.contactEmailError.hidden = true;
+  els.contactEmailError.textContent = "";
+  els.contactEmail.removeAttribute("aria-invalid");
+  els.contactMessageError.hidden = true;
+  els.contactMessageError.textContent = "";
+  els.contactMessage.removeAttribute("aria-invalid");
+  els.contactDone.hidden = true;
+  els.sendContact.hidden = false;
+  els.sendContact.disabled = false;
+  els.sendContact.textContent = "Send Feedback";
+}
+
+function openPrivacyModal(event) {
+  event?.preventDefault();
+  privacyDialogTrigger = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : els.openPrivacyModal;
+  els.privacyModal.hidden = false;
+  document.body.classList.add("info-modal-open");
+  requestAnimationFrame(() => els.closePrivacyModal.focus({ preventScroll: true }));
+}
+
+function closePrivacyModal({ restoreFocus = true } = {}) {
+  const wasOpen = !els.privacyModal.hidden;
+  const focusTarget = privacyDialogTrigger;
+  privacyDialogTrigger = null;
+  els.privacyModal.hidden = true;
+  document.body.classList.remove("info-modal-open");
+
+  if (wasOpen && restoreFocus && focusTarget?.isConnected) {
+    requestAnimationFrame(() => focusTarget.focus({ preventScroll: true }));
+  }
+}
+
+function openContactModal(event) {
+  event?.preventDefault();
+  contactDialogTrigger = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : els.openContactModal;
+  resetContactStatus();
+  els.contactModal.hidden = false;
+  document.body.classList.add("info-modal-open");
+  requestAnimationFrame(() => els.contactMessage.focus({ preventScroll: true }));
+}
+
+function closeContactModal({ restoreFocus = true } = {}) {
+  if (contactSubmitInProgress) return;
+  const wasOpen = !els.contactModal.hidden;
+  const focusTarget = contactDialogTrigger;
+  contactDialogTrigger = null;
+  els.contactModal.hidden = true;
+  document.body.classList.remove("info-modal-open");
+
+  if (wasOpen && restoreFocus && focusTarget?.isConnected) {
+    requestAnimationFrame(() => focusTarget.focus({ preventScroll: true }));
+  }
+}
+
+function contactMetadata() {
+  const userAgentData = navigator.userAgentData;
+  return {
+    app_version: window.SUMMER_QUEST_BUILD?.version || "unknown",
+    user_agent_summary: userAgentData?.brands
+      ?.map(brand => `${brand.brand} ${brand.version}`)
+      .join(", ") || navigator.userAgent || "unknown",
+    platform: userAgentData?.platform || navigator.platform || "unknown",
+    viewport: `${window.innerWidth}x${window.innerHeight}`,
+    language: navigator.language || "unknown",
+    standalone_pwa: isRunningStandalone() ? "yes" : "no",
+    online_status: navigator.onLine ? "online" : "offline",
+    submitted_at: new Date().toISOString()
+  };
+}
+
+function validateContactForm() {
+  let valid = true;
+  const email = els.contactEmail.value.trim();
+  const message = els.contactMessage.value.trim();
+
+  els.contactEmailError.hidden = true;
+  els.contactEmailError.textContent = "";
+  els.contactEmail.removeAttribute("aria-invalid");
+  if (email && !els.contactEmail.validity.valid) {
+    valid = false;
+    els.contactEmailError.textContent = "Enter a valid email address or leave it blank.";
+    els.contactEmailError.hidden = false;
+    els.contactEmail.setAttribute("aria-invalid", "true");
+  }
+
+  els.contactMessageError.hidden = true;
+  els.contactMessageError.textContent = "";
+  els.contactMessage.removeAttribute("aria-invalid");
+  if (!message) {
+    valid = false;
+    els.contactMessageError.textContent = "Add a message before sending.";
+    els.contactMessageError.hidden = false;
+    els.contactMessage.setAttribute("aria-invalid", "true");
+  }
+
+  return valid;
+}
+
+function setContactStatus(message, type = "") {
+  els.contactStatus.textContent = message;
+  els.contactStatus.classList.toggle("is-error", type === "error");
+  els.contactStatus.classList.toggle("is-success", type === "success");
+}
+
+async function submitContactForm(event) {
+  event.preventDefault();
+  if (contactSubmitInProgress) return;
+  resetContactStatus();
+  if (!validateContactForm()) return;
+
+  if (els.contactHoneypot.value.trim()) {
+    setContactStatus("Thanks for helping improve Summer Quest!", "success");
+    els.contactDone.hidden = false;
+    els.sendContact.hidden = true;
+    return;
+  }
+
+  if (!navigator.onLine) {
+    setContactStatus("You’re offline. Reconnect to send your message.", "error");
+    return;
+  }
+
+  if (!CONTACT_FORM_ENDPOINT || CONTACT_FORM_ENDPOINT.includes("PASTE_FORMSPREE_ENDPOINT_HERE")) {
+    setContactStatus("Contact form setup is missing. Add the Formspree endpoint before sending.", "error");
+    return;
+  }
+
+  contactSubmitInProgress = true;
+  els.sendContact.disabled = true;
+  els.sendContact.textContent = "Sending…";
+  els.contactModal.querySelector("[role='dialog']")?.setAttribute("aria-busy", "true");
+
+  const formData = new FormData();
+  formData.set("name", els.contactName.value.trim());
+  formData.set("email", els.contactEmail.value.trim());
+  formData.set("message", els.contactMessage.value.trim());
+  formData.set("_subject", "Summer Quest feedback");
+  Object.entries(contactMetadata()).forEach(([key, value]) => {
+    formData.set(`metadata_${key}`, value);
+  });
+
+  try {
+    const response = await fetch(CONTACT_FORM_ENDPOINT, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: formData
+    });
+    if (!response.ok) throw new Error(`Formspree responded with ${response.status}`);
+    els.contactForm.reset();
+    setContactStatus("Thanks for helping improve Summer Quest!", "success");
+    els.contactDone.hidden = false;
+    els.sendContact.hidden = true;
+    requestAnimationFrame(() => els.contactDone.focus({ preventScroll: true }));
+  } catch (error) {
+    console.warn("[Contact form] Submission failed.", error);
+    setContactStatus("Your message couldn’t be sent. Please check your connection and try again.", "error");
+    els.sendContact.disabled = false;
+    els.sendContact.textContent = "Send Feedback";
+  } finally {
+    contactSubmitInProgress = false;
+    els.contactModal.querySelector("[role='dialog']")?.removeAttribute("aria-busy");
+  }
 }
 
 function closeRemoveConfirmation({ restoreFocus = true } = {}) {
@@ -2152,6 +2385,8 @@ function anotherDialogIsOpen() {
   return (
     !els.removeMemoryModal.hidden ||
     !els.cropModal.hidden ||
+    !els.privacyModal.hidden ||
+    !els.contactModal.hidden ||
     !els.homeScreenSheet.hidden ||
     !els.sheet.hidden
   );
@@ -2206,6 +2441,20 @@ function reevaluateDesktopNotice() {
 }
 
 function activeModalContext() {
+  if (!els.contactModal.hidden) {
+    return {
+      wrapper: els.contactModal,
+      close: closeContactModal,
+      isQuest: false
+    };
+  }
+  if (!els.privacyModal.hidden) {
+    return {
+      wrapper: els.privacyModal,
+      close: closePrivacyModal,
+      isQuest: false
+    };
+  }
   if (!els.desktopNoticeModal.hidden) {
     return {
       wrapper: els.desktopNoticeModal,
@@ -2350,35 +2599,41 @@ els.cropModal.addEventListener("click", (event) => {
 
 function getCroppedImageBlob() {
   return new Promise((resolve, reject) => {
+    const rejectCompression = (message, cause) => {
+      const error = new Error(message, cause ? { cause } : undefined);
+      error.code = "compression-failure";
+      reject(error);
+    };
+
     if (!cropper) {
-      reject(new Error("Cropper is not ready."));
+      rejectCompression("Cropper is not ready.");
       return;
     }
 
     const canvas = cropper.getCroppedCanvas({
-      width: 1200,
-      height: 1200,
+      width: mediaStore.imageSettings.longestEdge,
+      height: mediaStore.imageSettings.longestEdge,
       imageSmoothingEnabled: true,
       imageSmoothingQuality: "high"
     });
 
     if (!canvas) {
-      reject(new Error("The cropped image could not be created."));
+      rejectCompression("The cropped image could not be created.");
       return;
     }
 
     // This is the crop path's only lossy encoding step: Cropper supplies the
-    // final 1200×1200 pixels, which are stored at the intended JPEG quality.
+    // final square pixels, which are stored at the intended JPEG quality.
     canvas.toBlob(
       (blob) => {
         if (blob) {
           resolve(blob);
         } else {
-          reject(new Error("The cropped image could not be exported."));
+          rejectCompression("The cropped image could not be exported.");
         }
       },
       "image/jpeg",
-      0.75
+      mediaStore.imageSettings.jpegQuality
     );
   });
 }
@@ -2438,7 +2693,7 @@ els.confirmCrop.addEventListener("click", async () => {
       }
 
       window.alert(
-        "We couldn't save this photo draft on your device. Check browser storage access and try again."
+        "The browser couldn't save this photo's quest details. The new photo wasn't kept, and your existing memory is unchanged. Please try again."
       );
 
       els.mediaInput.value = "";
@@ -2664,7 +2919,7 @@ els.mediaInput.addEventListener("change", async (event) => {
       } else {
         renderMediaPreview(null, null);
       }
-      window.alert("We couldn't save this photo draft on your device. Check browser storage access and try again.");
+      window.alert("The browser couldn't save this photo's quest details. The new photo wasn't kept, and your existing memory is unchanged. Please try again.");
       els.mediaInput.value = "";
       return;
     }
@@ -2801,12 +3056,13 @@ els.resetBoard.addEventListener("click", async () => {
     "Start over and remove all completed quests, photos, and saved progress?"
   );
   if (!confirmed) return;
+  const resetSubmissions = { ...state.submissions };
   try {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(BRIEFING_STATE_KEY);
   } catch (error) {
     console.error("[Quest state] Reset metadata failed.", error);
-    window.alert("We couldn't reset saved progress in this browser. Check storage access and try again.");
+    window.alert("The browser couldn't reset the saved quest details. Nothing was removed. Please try again.");
     return;
   }
   try {
@@ -2814,6 +3070,7 @@ els.resetBoard.addEventListener("click", async () => {
   } catch (error) {
     reportMediaError(error, "reset");
   }
+  analyticsSync?.trackBoardReset(resetSubmissions);
   window.location.reload();
 });
 
@@ -2905,6 +3162,7 @@ els.form.addEventListener("submit", async (event) => {
   }
   saveInProgress = true;
   const isNewCompletion = !questIsCompleted(activeQuest.id);
+  const totalsBeforeSave = getTotals();
   const completionStage =
     isNewCompletion && !finalQuest
       ? beginCompletionFocus()
@@ -2955,6 +3213,12 @@ els.form.addEventListener("submit", async (event) => {
     state.submissions[questId] = nextSubmission;
     delete state.drafts[questId];
     save();
+    analyticsSync?.trackQuestSaved({
+      questId,
+      submission: nextSubmission,
+      previousCompletedCount: totalsBeforeSave.completed,
+      isNewCompletion
+    });
       } 
     catch (error) {
     if (previousSubmission) state.submissions[questId] = previousSubmission;
@@ -3012,9 +3276,18 @@ els.form.addEventListener("submit", async (event) => {
     window.pendingStoryQuestId = questId;
 
     closeSheet(false);
+    analyticsSync?.maybePromptAfterQuestCompletion({
+      previousCompletedCount: totalsBeforeSave.completed,
+      isNewCompletion
+    });
 
     requestAnimationFrame(() => {
       els.viewBoard.click();
+    });
+  } else {
+    analyticsSync?.maybePromptAfterQuestCompletion({
+      previousCompletedCount: totalsBeforeSave.completed,
+      isNewCompletion
     });
   }
 });
@@ -3053,6 +3326,10 @@ async function removeActiveMemory() {
     delete state.submissions[questId];
     delete state.drafts[questId];
     save();
+    analyticsSync?.trackQuestRemoved({
+      questId,
+      submission: removedSubmission || removedDraft || { questId }
+    });
 
     removeInProgress = false;
     closeRemoveConfirmation({ restoreFocus: false });
@@ -3111,6 +3388,23 @@ els.desktopNoticeModal.addEventListener("click", (event) => {
     closeDesktopNotice();
   }
 });
+els.openPrivacyModal.addEventListener("click", openPrivacyModal);
+els.closePrivacyModal.addEventListener("click", closePrivacyModal);
+els.confirmPrivacyModal.addEventListener("click", closePrivacyModal);
+els.privacyModal.addEventListener("click", (event) => {
+  if (event.target === els.privacyModal) closePrivacyModal();
+});
+els.openContactModal.addEventListener("click", openContactModal);
+els.closeContactModal.addEventListener("click", closeContactModal);
+els.contactDone.addEventListener("click", closeContactModal);
+els.contactForm.addEventListener("submit", submitContactForm);
+els.contactModal.addEventListener("click", (event) => {
+  if (event.target === els.contactModal) closeContactModal();
+});
+els.footerInstallApp.addEventListener("click", (event) => {
+  if (isRunningStandalone()) return;
+  openHomeScreenHelp(event);
+});
 
 els.sheet.addEventListener("pointerdown", beginQuestSwipe);
 els.sheet.addEventListener("pointermove", moveQuestSwipe);
@@ -3119,9 +3413,11 @@ els.sheet.addEventListener("pointercancel", cancelQuestSwipe);
 els.close.addEventListener("click", closeSheet);
 els.closeHomeScreenSheet.addEventListener("click", closeHomeScreenHelp);
 els.confirmHomeScreenHelp.addEventListener("click", closeHomeScreenHelp);
+els.homeScreenModalWrapper.addEventListener("click", (event) => {
+  if (event.target === els.homeScreenModalWrapper) closeHomeScreenHelp();
+});
 els.backdrop.addEventListener("click", () => {
-  if (!els.homeScreenSheet.hidden) closeHomeScreenHelp();
-  else closeSheet();
+  closeSheet();
 });
 
 document.addEventListener("keydown", (event) => {
@@ -3169,8 +3465,13 @@ window.addEventListener("resize", () => {
 document.addEventListener("summerquest:pagechange", reevaluateDesktopNotice);
 
 async function initializeApp() {
+  initializeAnalyticsSync();
   els.homeScreenHelpItem.hidden = isRunningStandalone();
   setHomeScreenPlatform(detectedHomeScreenPlatform());
+
+  mediaStore.requestPersistence().then(status => {
+    console.info("[Media storage] Persistence status.", status);
+  });
 
   let mediaReady = true;
   try {
@@ -3182,7 +3483,10 @@ async function initializeApp() {
 
   if (mediaReady) {
     try {
-      await mediaStore.removeUnreferenced(referencedMediaIds());
+      const removedCount = await mediaStore.removeUnreferenced(referencedMediaIds());
+      if (removedCount) {
+        console.info(`[Media storage] Removed ${removedCount} unreferenced media record(s).`);
+      }
     } catch (error) {
       reportMediaError(error, "save");
     }
@@ -3212,6 +3516,12 @@ if (new URLSearchParams(window.location.search).has("release-critical-validation
     migrations: Object.freeze({
       version: QUEST_DATA_MIGRATION_VERSION,
       migrateSavedState
+    }),
+    storage: Object.freeze({
+      referencedMediaIds: () => Array.from(referencedMediaIds()),
+      audit: () => mediaStore.audit(referencedMediaIds()),
+      estimate: mediaStore.estimateStorage,
+      lastFailure: mediaStore.lastFailure
     }),
     dates: Object.freeze({
       localCalendarDate,

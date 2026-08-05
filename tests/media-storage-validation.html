@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Summer Quest media storage validation</title>
 </head>
 <body>
@@ -10,22 +11,83 @@
 
   <script src="../data/mediaStorage.js"></script>
   <script>
-    (async () => {
-      const result = document.querySelector("#result");
+    (() => {
+      const PHASE_KEY = "summer-quest-media-validation";
+      const PHOTO_COUNT = 25;
+      const REPLACEMENT_COUNT = 12;
+      const REMOVAL_COUNT = 5;
       const store = window.QuestMediaStore;
+      const PHOTO_SIZE = store.imageSettings.longestEdge;
+      const JPEG_QUALITY = store.imageSettings.jpegQuality;
+      const SOURCE_PATHS = [
+        "../assets/hero-park-clean.png",
+        "../assets/hero-summer-journal.png",
+        "../assets/link-preview.jpg",
+        "../assets/home-screen-help/iphone-step-1.png",
+        "../assets/home-screen-help/iphone-step-2.png",
+        "../assets/home-screen-help/android-step-1.png"
+      ];
 
-      try {
-        await store.clearDatabase();
-        const response = await fetch("../assets/hero-park-clean.png");
-        const sourceBlob = await response.blob();
-        const pipelineBlob = await store.compressImage(sourceBlob);
-        const pipelineImage = await createImageBitmap(pipelineBlob);
-        const capacityCanvas = document.createElement("canvas");
-        capacityCanvas.width = 1400;
-        capacityCanvas.height = 900;
-        const capacityContext = capacityCanvas.getContext("2d");
-        const pixels = capacityContext.createImageData(capacityCanvas.width, capacityCanvas.height);
-        let seed = 20260724;
+      const result = document.querySelector("#result");
+
+      function assert(condition, message) {
+        if (!condition) throw new Error(message);
+      }
+
+      function jpegFromCanvas(canvas) {
+        return new Promise((resolve, reject) => {
+          canvas.toBlob(
+            blob => blob ? resolve(blob) : reject(new Error("JPEG encoding failed.")),
+            "image/jpeg",
+            JPEG_QUALITY
+          );
+        });
+      }
+
+      async function loadBitmap(path) {
+        const response = await fetch(path);
+        if (!response.ok) throw new Error(`Source image failed to load: ${path}`);
+        return createImageBitmap(await response.blob());
+      }
+
+      async function makeQuestPhoto(bitmap, index) {
+        const canvas = document.createElement("canvas");
+        canvas.width = PHOTO_SIZE;
+        canvas.height = PHOTO_SIZE;
+        const context = canvas.getContext("2d", { alpha: false });
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+
+        const baseScale = Math.max(
+          PHOTO_SIZE / bitmap.width,
+          PHOTO_SIZE / bitmap.height
+        );
+        const zoom = 1 + ((index % 5) * 0.025);
+        const drawWidth = bitmap.width * baseScale * zoom;
+        const drawHeight = bitmap.height * baseScale * zoom;
+        const travelX = Math.max(0, drawWidth - PHOTO_SIZE);
+        const travelY = Math.max(0, drawHeight - PHOTO_SIZE);
+        const x = -travelX * ((index * 37 % 100) / 100);
+        const y = -travelY * ((index * 61 % 100) / 100);
+        context.drawImage(bitmap, x, y, drawWidth, drawHeight);
+
+        // A faint translucent overlay makes repeated source crops byte-distinct
+        // without materially changing their photo-like compression profile.
+        const gradient = context.createLinearGradient(0, 0, PHOTO_SIZE, PHOTO_SIZE);
+        gradient.addColorStop(0, `hsla(${index * 29}, 55%, 55%, 0.025)`);
+        gradient.addColorStop(1, `hsla(${index * 47}, 55%, 45%, 0.04)`);
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, PHOTO_SIZE, PHOTO_SIZE);
+        return jpegFromCanvas(canvas);
+      }
+
+      function makeHighDetailStressCanvas() {
+        const canvas = document.createElement("canvas");
+        canvas.width = PHOTO_SIZE;
+        canvas.height = PHOTO_SIZE;
+        const context = canvas.getContext("2d", { alpha: false });
+        const pixels = context.createImageData(PHOTO_SIZE, PHOTO_SIZE);
+        let seed = 20260804;
         for (let offset = 0; offset < pixels.data.length; offset += 4) {
           seed = (seed * 1664525 + 1013904223) >>> 0;
           pixels.data[offset] = seed & 255;
@@ -33,58 +95,233 @@
           pixels.data[offset + 2] = (seed >>> 16) & 255;
           pixels.data[offset + 3] = 255;
         }
-        capacityContext.putImageData(pixels, 0, 0);
+        context.putImageData(pixels, 0, 0);
+        return canvas;
+      }
+
+      async function initialWritePhase() {
+        await store.clearDatabase();
+        const estimateBefore = await store.estimateStorage();
+        const persistence = await store.requestPersistence();
+        const bitmaps = await Promise.all(SOURCE_PATHS.map(loadBitmap));
         const mediaIds = [];
         const sizes = [];
 
-        for (let index = 0; index < 25; index += 1) {
-          capacityContext.fillStyle = `hsl(${index * 31} 85% 50%)`;
-          capacityContext.fillRect(index * 47 % 1300, index * 29 % 800, 100, 100);
-          const uniqueBlob = await new Promise((resolve, reject) => {
-            capacityCanvas.toBlob(
-              blob => blob ? resolve(blob) : reject(new Error("JPEG encoding failed.")),
-              "image/jpeg",
-              0.75
-            );
-          });
-          const mediaId = `capacity-photo-${index + 1}`;
-          await store.put(mediaId, uniqueBlob);
-          mediaIds.push(mediaId);
-          sizes.push(uniqueBlob.size);
+        try {
+          for (let index = 0; index < PHOTO_COUNT; index += 1) {
+            const blob = await makeQuestPhoto(bitmaps[index % bitmaps.length], index);
+            const mediaId = `full-playthrough-photo-${index + 1}`;
+            await store.put(mediaId, blob);
+            mediaIds.push(mediaId);
+            sizes.push(blob.size);
+          }
+        } finally {
+          bitmaps.forEach(bitmap => bitmap.close());
         }
 
-        const restored = await Promise.all(mediaIds.map(mediaId => store.get(mediaId)));
-        const firstImage = await createImageBitmap(restored[0]);
-        const legacyCanvas = document.createElement("canvas");
-        legacyCanvas.width = 12;
-        legacyCanvas.height = 8;
-        legacyCanvas.getContext("2d").fillRect(0, 0, 12, 8);
-        const legacyBlob = store.dataUrlToBlob(legacyCanvas.toDataURL("image/png"));
+        const auditBeforeRefresh = await store.audit(mediaIds);
+        assert(auditBeforeRefresh.recordCount === PHOTO_COUNT, "Initial write count is not 25.");
+        assert(auditBeforeRefresh.orphanIds.length === 0, "Initial write created an orphan.");
+        assert(auditBeforeRefresh.missingIds.length === 0, "Initial write is missing a photo.");
 
+        sessionStorage.setItem(PHASE_KEY, JSON.stringify({
+          mediaIds,
+          sizes,
+          estimateBefore,
+          estimateAfterWrite: auditBeforeRefresh.estimate,
+          persistence,
+          auditBeforeRefresh: {
+            recordCount: auditBeforeRefresh.recordCount,
+            totalBlobBytes: auditBeforeRefresh.totalBlobBytes,
+            averageBlobBytes: auditBeforeRefresh.averageBlobBytes,
+            smallestBlobBytes: auditBeforeRefresh.smallestBlobBytes,
+            largestBlobBytes: auditBeforeRefresh.largestBlobBytes
+          }
+        }));
+
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set("phase", "verify-refresh");
+        window.location.replace(nextUrl);
+      }
+
+      async function verificationPhase() {
+        const saved = JSON.parse(sessionStorage.getItem(PHASE_KEY) || "null");
+        assert(saved, "The pre-refresh validation state is missing.");
+        const sourceBitmap = await loadBitmap(SOURCE_PATHS[0]);
+        let mediaIds = [...saved.mediaIds];
+
+        const restored = await Promise.all(mediaIds.map(mediaId => store.get(mediaId)));
+        assert(restored.every(blob => blob instanceof Blob), "Refresh did not restore every Blob.");
+        const restoredImage = await createImageBitmap(restored[0]);
+        assert(
+          restoredImage.width === PHOTO_SIZE && restoredImage.height === PHOTO_SIZE,
+          "Stored photo dimensions changed after refresh."
+        );
+        restoredImage.close();
+
+        let replacementStable = true;
+        for (let index = 0; index < REPLACEMENT_COUNT; index += 1) {
+          const oldMediaId = mediaIds[0];
+          const newMediaId = `replacement-photo-${index + 1}`;
+          const blob = await makeQuestPhoto(sourceBitmap, 100 + index);
+          await store.put(newMediaId, blob);
+          mediaIds[0] = newMediaId;
+          await store.remove(oldMediaId);
+          const audit = await store.audit(mediaIds);
+          replacementStable = replacementStable &&
+            audit.recordCount === PHOTO_COUNT &&
+            audit.orphanIds.length === 0 &&
+            audit.missingIds.length === 0;
+        }
+        sourceBitmap.close();
+        assert(replacementStable, "Repeated replacement changed the stable record count.");
+
+        const beforeRemoval = await store.audit(mediaIds);
+        const removedIds = mediaIds.splice(-REMOVAL_COUNT);
+        await Promise.all(removedIds.map(mediaId => store.remove(mediaId)));
+        const afterRemoval = await store.audit(mediaIds);
+        assert(
+          afterRemoval.recordCount === PHOTO_COUNT - REMOVAL_COUNT,
+          "Removing submissions did not remove their Blobs."
+        );
+        assert(
+          afterRemoval.totalBlobBytes < beforeRemoval.totalBlobBytes,
+          "Removing submissions did not reclaim Blob bytes."
+        );
+
+        const orphanBlob = new Blob(["intentional orphan"], { type: "text/plain" });
+        await store.put("intentional-orphan", orphanBlob);
+        const withOrphan = await store.audit(mediaIds);
+        assert(
+          withOrphan.orphanIds.includes("intentional-orphan"),
+          "The audit did not detect an orphaned record."
+        );
+        const cleanedCount = await store.removeUnreferenced(mediaIds);
+        const afterCleanup = await store.audit(mediaIds);
+        assert(cleanedCount === 1, "Automatic orphan cleanup removed the wrong count.");
+        assert(afterCleanup.orphanIds.length === 0, "Automatic orphan cleanup left an orphan.");
+
+        const countBeforeFailedWrite = afterCleanup.recordCount;
+        let invalidWriteError = null;
+        try {
+          await store.put("", new Blob(["invalid"]));
+        } catch (error) {
+          invalidWriteError = store.diagnoseError(error);
+        }
+        const afterFailedWrite = await store.audit(mediaIds);
+        assert(invalidWriteError, "The invalid write unexpectedly succeeded.");
+        assert(
+          afterFailedWrite.recordCount === countBeforeFailedWrite,
+          "A failed write left a partial media record."
+        );
+
+        const quotaDiagnosis = store.diagnoseError(
+          new DOMException("Validation quota failure", "QuotaExceededError")
+        );
+        assert(
+          quotaDiagnosis.code === "quota-exceeded",
+          "QuotaExceededError was not classified accurately."
+        );
+
+        // Run a second, deliberately hard-to-compress profile. It is not a
+        // claim about a specific phone camera; it gives the 25-photo capacity
+        // check a conservative ceiling above the bundled-image proxy.
+        await store.clearDatabase();
+        const stressCanvas = makeHighDetailStressCanvas();
+        const stressContext = stressCanvas.getContext("2d");
+        const stressIds = [];
+        const stressSizes = [];
+        for (let index = 0; index < PHOTO_COUNT; index += 1) {
+          stressContext.fillStyle = `hsla(${index * 31}, 90%, 50%, 0.3)`;
+          stressContext.fillRect(
+            index * 47 % (PHOTO_SIZE - 120),
+            index * 71 % (PHOTO_SIZE - 120),
+            120,
+            120
+          );
+          const blob = await jpegFromCanvas(stressCanvas);
+          const mediaId = `high-detail-stress-photo-${index + 1}`;
+          await store.put(mediaId, blob);
+          stressIds.push(mediaId);
+          stressSizes.push(blob.size);
+        }
+        const stressAudit = await store.audit(stressIds);
+        assert(stressAudit.recordCount === PHOTO_COUNT, "High-detail profile did not store 25 photos.");
+        assert(stressAudit.orphanIds.length === 0, "High-detail profile created an orphan.");
+        assert(stressAudit.missingIds.length === 0, "High-detail profile is missing a photo.");
+
+        const finalEstimate = stressAudit.estimate;
+        await store.clearDatabase();
+        const afterReset = await store.audit([]);
+        assert(afterReset.recordCount === 0, "Reset did not clear IndexedDB.");
+        assert(afterReset.orphanIds.length === 0, "Reset left orphaned media.");
+
+        const totalBytes = saved.sizes.reduce((sum, size) => sum + size, 0);
         const report = {
-          status: restored.every(blob => blob instanceof Blob) ? "PASS" : "FAIL",
-          recordsStored: restored.length,
-          totalBytes: sizes.reduce((total, size) => total + size, 0),
-          mediaType: restored[0]?.type,
-          width: firstImage.width,
-          height: firstImage.height,
-          pipelineWidth: pipelineImage.width,
-          pipelineHeight: pipelineImage.height,
-          legacyDataUrlConvertedToBlob: legacyBlob instanceof Blob,
+          status: "PASS",
+          compression: {
+            questPhotoDimensions: `${PHOTO_SIZE}x${PHOTO_SIZE}`,
+            format: "image/jpeg",
+            quality: JPEG_QUALITY,
+            uncroppedFallbackLongestEdge: 1400
+          },
+          fullPlaythrough: {
+            photos: PHOTO_COUNT,
+            profile: "bundled-image proxy",
+            averageBlobBytes: Math.round(totalBytes / PHOTO_COUNT),
+            totalBlobBytes: totalBytes,
+            smallestBlobBytes: Math.min(...saved.sizes),
+            largestBlobBytes: Math.max(...saved.sizes),
+            refreshRestoredAllBlobs: true
+          },
+          highDetailStress: {
+            photos: PHOTO_COUNT,
+            profile: "conservative synthetic ceiling",
+            averageBlobBytes: Math.round(
+              stressSizes.reduce((sum, size) => sum + size, 0) / PHOTO_COUNT
+            ),
+            totalBlobBytes: stressSizes.reduce((sum, size) => sum + size, 0),
+            smallestBlobBytes: Math.min(...stressSizes),
+            largestBlobBytes: Math.max(...stressSizes),
+            recordCount: stressAudit.recordCount,
+            orphanCount: stressAudit.orphanIds.length
+          },
+          lifecycle: {
+            repeatedReplacements: REPLACEMENT_COUNT,
+            recordCountStayedStable: replacementStable,
+            removedSubmissions: REMOVAL_COUNT,
+            bytesBeforeRemoval: beforeRemoval.totalBlobBytes,
+            bytesAfterRemoval: afterRemoval.totalBlobBytes,
+            orphanDetected: true,
+            orphanCleanupCount: cleanedCount,
+            failedWriteLeftPartialRecord: false,
+            resetRecordCount: afterReset.recordCount
+          },
+          diagnostics: {
+            storageEstimateSupported: finalEstimate.supported,
+            estimateBefore: saved.estimateBefore,
+            estimateAfter25Photos: saved.estimateAfterWrite,
+            estimateAfterLifecycle: finalEstimate,
+            persistence: saved.persistence,
+            invalidWrite: invalidWriteError,
+            quotaClassification: quotaDiagnosis.code
+          },
           databaseName: store.databaseName,
           storeName: store.storeName
         };
-        firstImage.close();
-        pipelineImage.close();
+        sessionStorage.removeItem(PHASE_KEY);
         result.textContent = JSON.stringify(report, null, 2);
-      } catch (error) {
+      }
+
+      const phase = new URLSearchParams(window.location.search).get("phase");
+      const run = phase === "verify-refresh" ? verificationPhase : initialWritePhase;
+      run().catch(error => {
         result.textContent = JSON.stringify({
           status: "FAIL",
-          name: error.name,
-          code: error.code,
-          message: error.message
+          error: store.diagnoseError(error),
+          stack: error.stack
         }, null, 2);
-      }
+      });
     })();
   </script>
 </body>

@@ -17,11 +17,14 @@ Open `index.html` in a browser.
 - Versioned, fully precached PWA app shell with automatic update checks and a player-controlled restart
 
 ## Local media storage
-Uploaded photos are cropped to 1200×1200 and encoded once as JPEG at
+Uploaded photos are cropped to 1400×1400 and encoded once as JPEG at
 approximately 0.75 quality. Photos and videos are stored as Blobs in the
 `nyc-summer-quest-media` IndexedDB database. localStorage contains only quest
-metadata and media IDs. Everything remains on the user's device; a future cloud
-version can replace this layer with managed object storage.
+metadata and media IDs. Startup removes unreferenced media records, and storage
+failures retain their underlying browser exception plus a Storage API estimate
+when available. Everything remains on the user's device; a future cloud version
+can replace this layer with managed object storage. See
+`docs/StorageAudit.md` for measured 25-photo capacity and lifecycle QA.
 
 ## PWA updates
 

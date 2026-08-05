@@ -8,27 +8,77 @@
   const DATABASE_NAME = "nyc-summer-quest-media";
   const DATABASE_VERSION = 1;
   const STORE_NAME = "media";
+  const IMAGE_SETTINGS = Object.freeze({
+    longestEdge: 1400,
+    jpegQuality: 0.75
+  });
 
   class MediaStorageError extends Error {
-    constructor(code, message, cause) {
+    constructor(code, message, cause, details = {}) {
       super(message, cause ? { cause } : undefined);
       this.name = "MediaStorageError";
       this.code = code;
+      this.details = details;
     }
   }
 
   let databasePromise = null;
   let databaseConnection = null;
+  let mostRecentFailure = null;
 
-  function storageError(message, cause) {
-    if (cause instanceof MediaStorageError) return cause;
-    return new MediaStorageError("storage-failure", message, cause);
+  function isDatabaseRequest(value) {
+    return typeof IDBRequest !== "undefined" && value instanceof IDBRequest;
+  }
+
+  function errorCodeFor(cause) {
+    const name = cause?.name;
+    if (name === "QuotaExceededError") return "quota-exceeded";
+    if (name === "AbortError") return "transaction-aborted";
+    if (name === "SecurityError" || name === "NotAllowedError") {
+      return "indexeddb-unavailable";
+    }
+    return "storage-failure";
+  }
+
+  function storageError(message, cause, operation = "unknown", details = {}) {
+    if (cause instanceof MediaStorageError) {
+      cause.details = { ...cause.details, ...details, operation };
+      mostRecentFailure = cause;
+      return cause;
+    }
+    const error = new MediaStorageError(
+      errorCodeFor(cause),
+      message,
+      cause,
+      {
+        ...details,
+        operation,
+        causeName: cause?.name || null,
+        causeMessage: cause?.message || null
+      }
+    );
+    mostRecentFailure = error;
+    return error;
+  }
+
+  function unavailableError(message, cause) {
+    const error = new MediaStorageError(
+      "indexeddb-unavailable",
+      message,
+      cause,
+      {
+        operation: "open",
+        causeName: cause?.name || null,
+        causeMessage: cause?.message || null
+      }
+    );
+    mostRecentFailure = error;
+    return error;
   }
 
   function openDatabase() {
     if (!window.indexedDB) {
-      return Promise.reject(new MediaStorageError(
-        "indexeddb-unavailable",
+      return Promise.reject(unavailableError(
         "IndexedDB is not available in this browser."
       ));
     }
@@ -40,11 +90,7 @@
       try {
         request = window.indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
       } catch (error) {
-        reject(new MediaStorageError(
-          "indexeddb-unavailable",
-          "IndexedDB could not be opened.",
-          error
-        ));
+        reject(unavailableError("IndexedDB could not be opened.", error));
         return;
       }
 
@@ -67,49 +113,61 @@
 
       request.onerror = () => {
         databasePromise = null;
-        reject(new MediaStorageError(
-          "indexeddb-unavailable",
-          "IndexedDB could not be opened.",
-          request.error
-        ));
+        reject(unavailableError("IndexedDB could not be opened.", request.error));
       };
 
       request.onblocked = () => {
         databasePromise = null;
-        reject(new MediaStorageError(
-          "indexeddb-unavailable",
-          "IndexedDB is blocked by another open page."
-        ));
+        reject(unavailableError("IndexedDB is blocked by another open page."));
       };
     });
 
     return databasePromise;
   }
 
-  async function runTransaction(mode, operation) {
+  async function runTransaction(mode, operation, operationName) {
     const database = await openDatabase();
 
     return new Promise((resolve, reject) => {
       let transaction;
-      let result;
+      let request;
+      let requestError = null;
 
       try {
         transaction = database.transaction(STORE_NAME, mode);
         const store = transaction.objectStore(STORE_NAME);
-        result = operation(store);
+        request = operation(store);
+        if (isDatabaseRequest(request)) {
+          request.addEventListener("error", () => {
+            requestError = request.error;
+          });
+        }
       } catch (error) {
-        reject(storageError("The media database transaction could not start.", error));
+        reject(storageError(
+          "The media database transaction could not start.",
+          error,
+          operationName
+        ));
         return;
       }
 
-      transaction.oncomplete = () => resolve(result);
+      transaction.oncomplete = () => resolve(
+        isDatabaseRequest(request) ? request.result : request
+      );
       transaction.onerror = () => reject(storageError(
         "The media database transaction failed.",
-        transaction.error
+        requestError || transaction.error,
+        operationName,
+        { transactionMode: mode, stage: "error" }
       ));
       transaction.onabort = () => reject(storageError(
         "The media database transaction was cancelled.",
-        transaction.error
+        requestError || transaction.error || new DOMException(
+          "The IndexedDB transaction was aborted.",
+          "AbortError"
+        ),
+        operationName,
+        { transactionMode: mode, stage: "abort" }
       ));
     });
   }
@@ -121,74 +179,158 @@
 
   async function put(mediaId, blob) {
     if (!mediaId || !(blob instanceof Blob)) {
-      throw storageError("A valid media ID and Blob are required.");
+      throw storageError(
+        "A valid media ID and Blob are required.",
+        new TypeError("Expected a non-empty media ID and Blob."),
+        "put"
+      );
     }
-    await runTransaction("readwrite", store => store.put({ mediaId, blob }));
+    try {
+      await runTransaction(
+        "readwrite",
+        store => store.put({ mediaId, blob }),
+        "put"
+      );
+    } catch (error) {
+      const estimate = await estimateStorage();
+      throw storageError(
+        "The photo could not be written to the media database.",
+        error,
+        "put",
+        { blobBytes: blob.size, estimate }
+      );
+    }
     return mediaId;
   }
 
   async function get(mediaId) {
     if (!mediaId) return null;
-    const database = await openDatabase();
-
-    return new Promise((resolve, reject) => {
-      let request;
-      try {
-        request = database.transaction(STORE_NAME, "readonly")
-          .objectStore(STORE_NAME)
-          .get(mediaId);
-      } catch (error) {
-        reject(storageError("The saved media could not be read.", error));
-        return;
-      }
-
-      request.onsuccess = () => {
-        const record = request.result;
-        resolve(record?.blob instanceof Blob ? record.blob : null);
-      };
-      request.onerror = () => reject(storageError(
-        "The saved media could not be read.",
-        request.error
-      ));
-    });
+    const record = await runTransaction(
+      "readonly",
+      store => store.get(mediaId),
+      "get"
+    );
+    return record?.blob instanceof Blob ? record.blob : null;
   }
 
   async function remove(mediaId) {
     if (!mediaId) return;
-    await runTransaction("readwrite", store => store.delete(mediaId));
+    await runTransaction("readwrite", store => store.delete(mediaId), "remove");
   }
 
   async function keys() {
-    const database = await openDatabase();
+    return (await runTransaction(
+      "readonly",
+      store => store.getAllKeys(),
+      "list-keys"
+    )) || [];
+  }
 
-    return new Promise((resolve, reject) => {
-      let request;
-      try {
-        request = database.transaction(STORE_NAME, "readonly")
-          .objectStore(STORE_NAME)
-          .getAllKeys();
-      } catch (error) {
-        reject(storageError("Saved media IDs could not be read.", error));
-        return;
-      }
-
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(storageError(
-        "Saved media IDs could not be read.",
-        request.error
-      ));
-    });
+  async function records() {
+    return (await runTransaction(
+      "readonly",
+      store => store.getAll(),
+      "list-records"
+    )) || [];
   }
 
   async function removeUnreferenced(referencedMediaIds) {
     const referenced = new Set(referencedMediaIds);
     const orphaned = (await keys()).filter(mediaId => !referenced.has(mediaId));
-    await Promise.all(orphaned.map(remove));
+    if (orphaned.length) {
+      await runTransaction("readwrite", store => {
+        orphaned.forEach(mediaId => store.delete(mediaId));
+        return orphaned;
+      }, "remove-orphans");
+    }
     return orphaned.length;
   }
 
   async function clearDatabase() {
-    await runTransaction("readwrite", store => store.clear());
+    await runTransaction("readwrite", store => store.clear(), "clear");
+  }
+
+  async function estimateStorage() {
+    if (!navigator.storage?.estimate) {
+      return { supported: false };
+    }
+    try {
+      const estimate = await navigator.storage.estimate();
+      const usage = Number.isFinite(estimate.usage) ? estimate.usage : null;
+      const quota = Number.isFinite(estimate.quota) ? estimate.quota : null;
+      return {
+        supported: true,
+        usage,
+        quota,
+        remaining: usage !== null && quota !== null ? Math.max(0, quota - usage) : null,
+        usageRatio: usage !== null && quota ? usage / quota : null,
+        usageDetails: estimate.usageDetails || null
+      };
+    } catch (cause) {
+      return {
+        supported: true,
+        unavailable: true,
+        causeName: cause?.name || null,
+        causeMessage: cause?.message || null
+      };
+    }
+  }
+
+  async function requestPersistence() {
+    if (!navigator.storage?.persisted || !navigator.storage?.persist) {
+      return { supported: false, persisted: false };
+    }
+    try {
+      if (await navigator.storage.persisted()) {
+        return { supported: true, persisted: true, requested: false };
+      }
+      return {
+        supported: true,
+        persisted: await navigator.storage.persist(),
+        requested: true
+      };
+    } catch (cause) {
+      return {
+        supported: true,
+        persisted: false,
+        requested: true,
+        causeName: cause?.name || null,
+        causeMessage: cause?.message || null
+      };
+    }
+  }
+
+  async function audit(referencedMediaIds = []) {
+    const savedRecords = await records();
+    const savedIds = new Set(savedRecords.map(record => record.mediaId));
+    const referenced = new Set(referencedMediaIds);
+    const blobSizes = savedRecords.map(record =>
+      record.blob instanceof Blob ? record.blob.size : 0
+    );
+    const totalBlobBytes = blobSizes.reduce((sum, size) => sum + size, 0);
+    return {
+      recordCount: savedRecords.length,
+      totalBlobBytes,
+      averageBlobBytes: savedRecords.length ? totalBlobBytes / savedRecords.length : 0,
+      smallestBlobBytes: blobSizes.length ? Math.min(...blobSizes) : 0,
+      largestBlobBytes: blobSizes.length ? Math.max(...blobSizes) : 0,
+      orphanIds: Array.from(savedIds).filter(mediaId => !referenced.has(mediaId)),
+      missingIds: Array.from(referenced).filter(mediaId => !savedIds.has(mediaId)),
+      estimate: await estimateStorage()
+    };
+  }
+
+  function diagnoseError(error) {
+    const cause = error?.cause;
+    return {
+      code: typeof error?.code === "string" ? error.code : errorCodeFor(error),
+      name: error?.name || null,
+      message: error?.message || String(error),
+      causeName: error?.details?.causeName || cause?.name || null,
+      causeMessage: error?.details?.causeMessage || cause?.message || null,
+      operation: error?.details?.operation || null,
+      details: error?.details || null
+    };
   }
 
   function imageFromBlob(blob) {
@@ -213,8 +355,10 @@
   async function compressImage(file) {
     try {
       const image = await imageFromBlob(file);
-      const longestEdge = 1400;
-      const scale = Math.min(1, longestEdge / Math.max(image.naturalWidth, image.naturalHeight));
+      const scale = Math.min(
+        1,
+        IMAGE_SETTINGS.longestEdge / Math.max(image.naturalWidth, image.naturalHeight)
+      );
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -226,7 +370,7 @@
         canvas.toBlob(
           result => result ? resolve(result) : reject(new Error("JPEG encoding failed.")),
           "image/jpeg",
-          0.75
+          IMAGE_SETTINGS.jpegQuality
         );
       });
     } catch (cause) {
@@ -272,6 +416,7 @@
   window.QuestMediaStore = Object.freeze({
     databaseName: DATABASE_NAME,
     storeName: STORE_NAME,
+    imageSettings: IMAGE_SETTINGS,
     MediaStorageError,
     createMediaId,
     put,
@@ -279,6 +424,11 @@
     remove,
     removeUnreferenced,
     clearDatabase,
+    estimateStorage,
+    requestPersistence,
+    audit,
+    diagnoseError,
+    lastFailure: () => mostRecentFailure ? diagnoseError(mostRecentFailure) : null,
     compressImage,
     dataUrlToBlob,
     blobFor
