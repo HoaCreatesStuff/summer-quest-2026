@@ -33,22 +33,66 @@ const ANALYTICS_HEADERS = Object.freeze([
   "Total Friends",
   "Final Rank"
 ]);
+const FALLBACK_ANALYTICS_SECRET = "sq_8Fz3mQ7pL2xN9vK4cR6tY1wX5bD8eM";
+const DEFAULT_ANALYTICS_SHEET_NAME = "Events";
+const DEFAULT_ANALYTICS_TEST_SHEET_NAME = "Analytics Testing";
 
 function doPost(event) {
   const lock = LockService.getScriptLock();
-  try {
-    const payload = JSON.parse(event?.postData?.contents || "{}");
-    const properties = PropertiesService.getScriptProperties();
-    const expectedSecret = properties.getProperty("ANALYTICS_SECRET");
+  let payload = null;
+  let properties = null;
+  let stage = "request_parse";
 
-    if (!expectedSecret || payload.secret !== expectedSecret) {
-      return jsonResponse({ ok: false, error: "unauthorized" });
+  try {
+    properties = PropertiesService.getScriptProperties();
+    try {
+      payload = JSON.parse(event?.postData?.contents || "{}");
+    } catch (error) {
+      return analyticsErrorResponse({
+        code: "parse_error",
+        stage,
+        error,
+        properties
+      });
     }
 
+    stage = "authorization";
+    const authorization = analyticsExpectedSecret(properties);
+    if (payload.secret !== authorization.secret) {
+      return analyticsErrorResponse({
+        code: "unauthorized",
+        stage,
+        payload,
+        properties,
+        details: {
+          secretSource: authorization.source,
+          missingProperties: authorization.missingProperties
+        }
+      });
+    }
+
+    stage = "payload_validation";
+    const missingFields = analyticsMissingPayloadFields(payload);
+    if (missingFields.length) {
+      return analyticsErrorResponse({
+        code: "invalid_payload",
+        stage,
+        payload,
+        properties,
+        details: { missingFields }
+      });
+    }
+
+    stage = "lock";
     lock.waitLock(5000);
-    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    stage = "spreadsheet_lookup";
+    const spreadsheet = analyticsSpreadsheet(properties);
     const sheetName = analyticsSheetName(payload, properties);
+    stage = "sheet_lookup";
     const sheet = spreadsheet.getSheetByName(sheetName) || spreadsheet.insertSheet(sheetName);
+    if (!sheet) throw new Error(`Unable to open or create analytics sheet: ${sheetName}`);
+
+    stage = "header_sync";
     const headers = ensureAnalyticsHeaders(sheet);
     const values = analyticsValues(payload);
     const row = headers.map(header =>
@@ -63,42 +107,112 @@ function doPost(event) {
     const duplicateRows = matchingRows.slice(1);
 
     if (existingRow) {
+      stage = "row_update";
       const countsAsFirstOpenRepair = isStableFirstOpenEvent(payload);
-      sheet.getRange(existingRow, 1, 1, headers.length).setValues([row]);
+      writeAnalyticsRow(sheet, existingRow, headers, row);
       markSupersededRows(sheet, headers, duplicateRows, eventKey);
       return jsonResponse({
         ok: true,
         action: "updated",
+        sheet: sheetName,
         eventKey,
         duplicateFirstOpenEventsDetected: countsAsFirstOpenRepair ? duplicateRows.length : 0,
         incorrectRowsRepaired: countsAsFirstOpenRepair ? duplicateRows.length + 1 : 0
       });
     }
 
-    sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues([row]);
+    stage = "row_insert";
+    writeAnalyticsRow(sheet, sheet.getLastRow() + 1, headers, row);
     return jsonResponse({
       ok: true,
       action: "inserted",
+      sheet: sheetName,
       eventKey,
       duplicateFirstOpenEventsDetected: 0,
       incorrectRowsRepaired: 0
     });
   } catch (error) {
-    return jsonResponse({ ok: false, error: "invalid_request" });
+    return analyticsErrorResponse({
+      code: "receiver_exception",
+      stage,
+      error,
+      payload,
+      properties
+    });
   } finally {
     if (lock.hasLock()) lock.releaseLock();
   }
 }
 
 function analyticsPayloadIsTest(payload) {
-  return payload?.environment !== "beta" || payload?.is_test !== false;
+  return payload?.is_test === true;
 }
 
 function analyticsSheetName(payload, properties) {
   if (analyticsPayloadIsTest(payload)) {
-    return properties.getProperty("ANALYTICS_TEST_SHEET_NAME") || "Analytics Testing";
+    return properties.getProperty("ANALYTICS_TEST_SHEET_NAME") ||
+      DEFAULT_ANALYTICS_TEST_SHEET_NAME;
   }
-  return properties.getProperty("ANALYTICS_SHEET_NAME") || "Analytics";
+  return properties.getProperty("ANALYTICS_SHEET_NAME") ||
+    DEFAULT_ANALYTICS_SHEET_NAME;
+}
+
+function analyticsExpectedSecret(properties) {
+  const configuredSecret = properties.getProperty("ANALYTICS_SECRET");
+  return configuredSecret
+    ? {
+        secret: configuredSecret,
+        source: "script_property",
+        missingProperties: []
+      }
+    : {
+        secret: FALLBACK_ANALYTICS_SECRET,
+        source: "fallback_constant",
+        missingProperties: ["ANALYTICS_SECRET"]
+      };
+}
+
+function analyticsMissingPayloadFields(payload) {
+  return ["installationId", "eventName", "timestamp"].filter(field =>
+    typeof payload?.[field] !== "string" || !payload[field].trim()
+  );
+}
+
+function analyticsSpreadsheet(properties) {
+  const spreadsheetId = properties.getProperty("ANALYTICS_SPREADSHEET_ID");
+  if (spreadsheetId) return SpreadsheetApp.openById(spreadsheetId);
+
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (!spreadsheet) {
+    throw new Error(
+      "No active spreadsheet. Bind the script to a Sheet or set ANALYTICS_SPREADSHEET_ID."
+    );
+  }
+  return spreadsheet;
+}
+
+function analyticsDiagnosticsEnabled(payload, properties) {
+  return payload?.is_test === true ||
+    properties?.getProperty?.("ANALYTICS_DIAGNOSTICS") === "true";
+}
+
+function analyticsErrorResponse({
+  code,
+  stage,
+  error = null,
+  payload = null,
+  properties = null,
+  details = {}
+}) {
+  const message = error?.message || String(error || code);
+  const diagnostics = { code, stage, message, ...details };
+  console.error(`[Analytics receiver] ${JSON.stringify(diagnostics)}`);
+
+  return jsonResponse(
+    analyticsDiagnosticsEnabled(payload, properties)
+      ? { ok: false, error: code, stage, message, ...details }
+      : { ok: false, error: code }
+  );
 }
 
 function ensureAnalyticsHeaders(sheet) {
@@ -118,6 +232,20 @@ function ensureAnalyticsHeaders(sheet) {
       .setValues([missingHeaders]);
   }
   return [...existingHeaders, ...missingHeaders];
+}
+
+function writeAnalyticsRow(sheet, rowNumber, headers, values) {
+  const buildColumn = headers.indexOf("Build") + 1;
+  sheet.getRange(rowNumber, 1, 1, headers.length).setValues([values]);
+  if (buildColumn && values[buildColumn - 1] !== "") {
+    const buildValue = String(values[buildColumn - 1]);
+    const buildRange = sheet.getRange(rowNumber, buildColumn);
+    if (/^\d+$/.test(buildValue)) {
+      buildRange.setNumberFormat("0".repeat(buildValue.length)).setValue(Number(buildValue));
+    } else {
+      buildRange.setNumberFormat("@").setValue(`'${buildValue}`);
+    }
+  }
 }
 
 function analyticsValues(payload) {

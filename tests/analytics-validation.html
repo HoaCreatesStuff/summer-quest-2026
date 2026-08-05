@@ -26,6 +26,8 @@
       }
 
       try {
+        const validationNonce = Date.now();
+        const validationUrl = path => `${path}?validation=${validationNonce}`;
         const [
           analyticsSource,
           appSource,
@@ -33,11 +35,17 @@
           versionSource,
           receiverSource
         ] = await Promise.all([
-          fetch("../data/analytics.js", { cache: "no-store" }).then(response => response.text()),
-          fetch("../data/app.js", { cache: "no-store" }).then(response => response.text()),
-          fetch("../data/journal.js", { cache: "no-store" }).then(response => response.text()),
-          fetch("../version.js", { cache: "no-store" }).then(response => response.text()),
-          fetch("../google-apps-script/analytics/Code.gs", { cache: "no-store" })
+          fetch(validationUrl("../data/analytics.js"), { cache: "no-store" })
+            .then(response => response.text()),
+          fetch(validationUrl("../data/app.js"), { cache: "no-store" })
+            .then(response => response.text()),
+          fetch(validationUrl("../data/journal.js"), { cache: "no-store" })
+            .then(response => response.text()),
+          fetch(validationUrl("../version.js"), { cache: "no-store" })
+            .then(response => response.text()),
+          fetch(validationUrl("../google-apps-script/analytics/Code.gs"), {
+            cache: "no-store"
+          })
             .then(response => response.text())
         ]);
         const buildVersion = versionSource.match(/const BUILD_VERSION = "(\d{6})";/)?.[1];
@@ -834,7 +842,7 @@
         );
 
         const receiverApi = new Function(
-          `${receiverSource}\nreturn { headers: ANALYTICS_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName };`
+          `${receiverSource}\nreturn { headers: ANALYTICS_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields };`
         )();
         const receiverValues = receiverApi.values(firstQuestPayload);
         check(
@@ -857,7 +865,7 @@
           }
         });
         check(
-          "Receiver separates development data and defaults unknown environments to testing",
+          "Receiver routes only explicit test payloads to the testing sheet",
           receiverApi.sheetName(
             { environment: "development", is_test: true },
             sheetProperties({})
@@ -866,19 +874,68 @@
               { environment: "development", is_test: true },
               sheetProperties({ ANALYTICS_TEST_SHEET_NAME: "QA Events" })
             ) === "QA Events" &&
-            receiverApi.sheetName({}, sheetProperties({})) === "Analytics Testing"
+            receiverApi.sheetName({}, sheetProperties({})) === "Events" &&
+            receiverApi.isTest({ is_test: "true" }) === false
         );
         check(
-          "Receiver sends only explicit beta non-test payloads to the production sheet",
+          "Receiver defaults normal gameplay to one obvious production sheet",
           receiverApi.sheetName(
             { environment: "beta", is_test: false },
             sheetProperties({})
-          ) === "Analytics" &&
+          ) === "Events" &&
             receiverApi.sheetName(
               { environment: "beta", is_test: false },
               sheetProperties({ ANALYTICS_SHEET_NAME: "Beta Events" })
             ) === "Beta Events" &&
-            receiverApi.isTest({ environment: "beta", is_test: true }) === true
+            receiverApi.isTest({ environment: "beta", is_test: true }) === true &&
+            receiverApi.isTest({ environment: "development", is_test: false }) === false
+        );
+        check(
+          "Missing Script Property falls back to the current client secret",
+          receiverApi.expectedSecret(sheetProperties({})).secret ===
+            "sq_8Fz3mQ7pL2xN9vK4cR6tY1wX5bD8eM" &&
+            receiverApi.expectedSecret(sheetProperties({})).source === "fallback_constant" &&
+            receiverApi.expectedSecret(
+              sheetProperties({ ANALYTICS_SECRET: "configured-secret" })
+            ).secret === "configured-secret"
+        );
+        check(
+          "Receiver requires only the core event identity and timestamp fields",
+          receiverApi.missingFields({
+            installationId: "SQ-TEST",
+            eventName: "app_opened",
+            timestamp: "2026-08-05T20:00:00.000Z"
+          }).length === 0 &&
+            receiverApi.missingFields({ eventName: "app_opened" }).join(",") ===
+              "installationId,timestamp"
+        );
+        check(
+          "Receiver preserves leading-zero legacy and current build formats",
+          (() => {
+            const formats = [];
+            const scalarValues = [];
+            const sheet = {
+              getRange(row, column) {
+                return {
+                  setValues() {
+                    return this;
+                  },
+                  setNumberFormat(format) {
+                    formats.push({ row, column, format });
+                    return this;
+                  },
+                  setValue(value) {
+                    scalarValues.push({ row, column, value });
+                    return this;
+                  }
+                };
+              }
+            };
+            receiverApi.writeRow(sheet, 2, ["Event Name", "Build"], ["app_opened", "08060"]);
+            receiverApi.writeRow(sheet, 3, ["Event Name", "Build"], ["app_opened", "080502"]);
+            return formats.map(item => item.format).join(",") === "00000,000000" &&
+              scalarValues.map(item => item.value).join(",") === "8060,80502";
+          })()
         );
         check(
           "Receiver preserves existing rows while appending missing headers",

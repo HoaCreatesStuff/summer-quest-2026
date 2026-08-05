@@ -131,11 +131,20 @@ pending analytics queue count. It never includes quest memories or media.
 
 ## Google Apps Script Receiver
 
-The receiver is maintained in `google-apps-script/analytics/Code.gs`. Set the
-Script Property `ANALYTICS_SECRET` and optionally `ANALYTICS_SHEET_NAME` and
-`ANALYTICS_TEST_SHEET_NAME`, then deploy a new web app version. Production rows
-default to `Analytics`; development and unclassified rows default to
-`Analytics Testing`. The receiver appends missing headers, including
+The receiver is maintained in `google-apps-script/analytics/Code.gs`. The
+Script Property `ANALYTICS_SECRET` should match the client secret. If that
+property is missing, the receiver falls back to the client-compatible constant
+so an incomplete deployment cannot disable all analytics. Optional properties
+are `ANALYTICS_SPREADSHEET_ID`, `ANALYTICS_SHEET_NAME`, and
+`ANALYTICS_TEST_SHEET_NAME`. `ANALYTICS_DIAGNOSTICS=true` enables detailed error
+responses and should be used only during receiver development.
+
+Only payloads with the boolean `is_test: true` go to `Analytics Testing` (or
+the configured test sheet). Every other payload goes to the single production
+sheet, `Events` (or the configured production sheet). The receiver preserves
+numeric build values with a matching zero-padded format so leading zeros are not
+lost, including both legacy and current build conventions. It also appends
+missing headers, including
 `Event Key`, `Feature`, `Source`, `Bonus Count`, `Bonus IDs`, `Historical`,
 `Historical Status`, `Timestamp Precision`, `Evidence Used`,
 `First Observed By Analytics At`, `Superseded`, `Superseded By`,
