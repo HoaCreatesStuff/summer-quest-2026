@@ -247,6 +247,7 @@
           "journal_first_opened",
           "journal_opened",
           "keepsake_first_opened",
+          "keepsake_opened",
           "keepsake_generated",
           "privacy_opened",
           "feedback_submitted"
@@ -307,6 +308,7 @@
             freshCounts.journal_first_opened === 1 &&
             freshCounts.journal_opened === 1 &&
             freshCounts.keepsake_first_opened === 1 &&
+            freshCounts.keepsake_opened === 1 &&
             freshCounts.keepsake_generated === 2 &&
             freshCounts.privacy_opened === 1 &&
             freshCounts.feedback_submitted === 2,
@@ -319,7 +321,7 @@
         );
 
         const requiredCommonFields = [
-          "installationId", "sessionId", "eventName", "timestamp", "build",
+          "installationId", "sessionId", "eventName", "eventKey", "timestamp", "build",
           "platform", "displayMode", "language", "historical", "feature", "source",
           "environment", "is_test"
         ];
@@ -758,7 +760,6 @@
         const removedEvents = [
           "mission_briefing_completed",
           "quest_opened",
-          "keepsake_opened",
           "contact_opened",
           "install_help_opened",
           "finale_animation_started",

@@ -1,6 +1,7 @@
 const ANALYTICS_HEADERS = Object.freeze([
   "Event Timestamp",
   "Event Name",
+  "Event Key",
   "Installation ID",
   "Session ID",
   "Quest ID",
@@ -19,6 +20,12 @@ const ANALYTICS_HEADERS = Object.freeze([
   "Historical",
   "Feature",
   "Source",
+  "Historical Status",
+  "Timestamp Precision",
+  "Evidence Used",
+  "First Observed By Analytics At",
+  "Superseded",
+  "Superseded By",
   "Environment",
   "Is Test",
   "Total Completed Quests",
@@ -47,9 +54,35 @@ function doPost(event) {
     const row = headers.map(header =>
       Object.prototype.hasOwnProperty.call(values, header) ? values[header] : ""
     );
+    const eventKey = analyticsEventKey(payload);
+    const matchingRows = uniqueRows([
+      ...findAnalyticsRowsByEventKey(sheet, headers, eventKey),
+      ...findAnalyticsRowsByLegacyIdentity(sheet, headers, payload)
+    ]);
+    const existingRow = matchingRows[0] || 0;
+    const duplicateRows = matchingRows.slice(1);
+
+    if (existingRow) {
+      const countsAsFirstOpenRepair = isStableFirstOpenEvent(payload);
+      sheet.getRange(existingRow, 1, 1, headers.length).setValues([row]);
+      markSupersededRows(sheet, headers, duplicateRows, eventKey);
+      return jsonResponse({
+        ok: true,
+        action: "updated",
+        eventKey,
+        duplicateFirstOpenEventsDetected: countsAsFirstOpenRepair ? duplicateRows.length : 0,
+        incorrectRowsRepaired: countsAsFirstOpenRepair ? duplicateRows.length + 1 : 0
+      });
+    }
 
     sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues([row]);
-    return jsonResponse({ ok: true });
+    return jsonResponse({
+      ok: true,
+      action: "inserted",
+      eventKey,
+      duplicateFirstOpenEventsDetected: 0,
+      incorrectRowsRepaired: 0
+    });
   } catch (error) {
     return jsonResponse({ ok: false, error: "invalid_request" });
   } finally {
@@ -88,9 +121,11 @@ function ensureAnalyticsHeaders(sheet) {
 }
 
 function analyticsValues(payload) {
+  const eventKey = analyticsEventKey(payload);
   return {
     "Event Timestamp": cellValue(payload.timestamp),
     "Event Name": cellValue(payload.eventName),
+    "Event Key": cellValue(eventKey),
     "Installation ID": cellValue(payload.installationId),
     "Session ID": cellValue(payload.sessionId),
     "Quest ID": cellValue(payload.questId),
@@ -109,6 +144,12 @@ function analyticsValues(payload) {
     "Historical": payload.historical === true,
     "Feature": cellValue(payload.feature),
     "Source": cellValue(payload.source),
+    "Historical Status": cellValue(payload.historicalStatus),
+    "Timestamp Precision": cellValue(payload.timestampPrecision),
+    "Evidence Used": cellValue(payload.evidenceUsed),
+    "First Observed By Analytics At": cellValue(payload.firstObservedByAnalyticsAt),
+    "Superseded": payload.superseded === true,
+    "Superseded By": cellValue(payload.supersededBy),
     "Environment": cellValue(payload.environment),
     "Is Test": payload.is_test === true,
     "Total Completed Quests": cellValue(payload.totalCompletedQuests),
@@ -116,6 +157,95 @@ function analyticsValues(payload) {
     "Total Friends": cellValue(payload.totalFriends),
     "Final Rank": cellValue(payload.finalRank)
   };
+}
+
+function analyticsEventKey(payload) {
+  if (payload?.eventKey) return String(payload.eventKey);
+  const installationId = payload?.installationId ? String(payload.installationId) : "";
+  const eventName = payload?.eventName ? String(payload.eventName) : "";
+  if (!installationId || !eventName) return "";
+  if (eventName === "quest_completed" && payload?.questId) {
+    return `${installationId}:quest_completed:${payload.questId}`;
+  }
+  if (eventName === "app_opened" || eventName === "journal_opened" || eventName === "keepsake_opened") {
+    return `${installationId}:${eventName}:${payload.sessionId || payload.timestamp || ""}`;
+  }
+  if (eventName === "keepsake_generated" || eventName === "feedback_submitted") {
+    return `${installationId}:${eventName}:${payload.timestamp || Utilities.getUuid()}`;
+  }
+  return `${installationId}:${eventName}`;
+}
+
+function isStableFirstOpenEvent(payload) {
+  return [
+    "app_first_opened",
+    "journal_first_opened",
+    "keepsake_first_opened"
+  ].includes(String(payload?.eventName || ""));
+}
+
+function findAnalyticsRowsByEventKey(sheet, headers, eventKey) {
+  if (!eventKey) return [];
+  const keyColumn = headers.indexOf("Event Key") + 1;
+  const lastRow = sheet.getLastRow();
+  if (!keyColumn || lastRow < 2) return [];
+
+  const keys = sheet.getRange(2, keyColumn, lastRow - 1, 1).getValues();
+  const rows = [];
+  for (let index = 0; index < keys.length; index += 1) {
+    if (String(keys[index][0]) === eventKey) rows.push(index + 2);
+  }
+  return rows;
+}
+
+function findAnalyticsRowsByLegacyIdentity(sheet, headers, payload) {
+  const eventName = payload?.eventName ? String(payload.eventName) : "";
+  const installationId = payload?.installationId ? String(payload.installationId) : "";
+  if (!eventName || !installationId) return [];
+
+  const stableEvents = [
+    "app_first_opened",
+    "app_installed",
+    "first_quest_completed",
+    "adventure_completed",
+    "journal_first_opened",
+    "keepsake_first_opened",
+    "privacy_opened"
+  ];
+  const isQuestCompletion = eventName === "quest_completed" && payload?.questId;
+  if (!isQuestCompletion && !stableEvents.includes(eventName)) return [];
+
+  const eventColumn = headers.indexOf("Event Name") + 1;
+  const installationColumn = headers.indexOf("Installation ID") + 1;
+  const questColumn = headers.indexOf("Quest ID") + 1;
+  const lastRow = sheet.getLastRow();
+  if (!eventColumn || !installationColumn || lastRow < 2) return [];
+
+  const rowValues = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  const rows = [];
+  for (let index = 0; index < rowValues.length; index += 1) {
+    const row = rowValues[index];
+    const matchesEvent = String(row[eventColumn - 1]) === eventName;
+    const matchesInstallation = String(row[installationColumn - 1]) === installationId;
+    const matchesQuest = !isQuestCompletion || String(row[questColumn - 1]) === String(payload.questId);
+    if (matchesEvent && matchesInstallation && matchesQuest) rows.push(index + 2);
+  }
+  return rows;
+}
+
+function uniqueRows(rows) {
+  return [...new Set(rows)].sort((left, right) => left - right);
+}
+
+function markSupersededRows(sheet, headers, rows, eventKey) {
+  if (!rows.length) return;
+  const supersededColumn = headers.indexOf("Superseded") + 1;
+  const supersededByColumn = headers.indexOf("Superseded By") + 1;
+  if (!supersededColumn || !supersededByColumn) return;
+  rows.forEach(row => {
+    sheet.getRange(row, supersededColumn).setValue(true);
+    sheet.getRange(row, supersededByColumn).setValue(eventKey);
+  });
 }
 
 function cellValue(value) {

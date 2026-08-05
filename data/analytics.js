@@ -9,7 +9,11 @@
   const DEDUPE_KEY = "summerQuestAnalyticsDedupe";
   const EVIDENCE_KEY = "summerQuestAnalyticsEvidenceV1";
   const BACKFILL_KEY = "summerQuestAnalyticsBackfillV1";
+  const BACKFILL_STATE_KEY = "summerQuestAnalyticsBackfillStateV2";
   const BACKFILL_VERSION = "1.0";
+  const FIRST_OPENED_AT_KEY = "summerQuestFirstOpenedAt";
+  const FEATURE_FIRST_OPEN_KEY = "summerQuestFeatureFirstOpenedV1";
+  const FIRST_OPEN_MIGRATION_KEY = "summerQuestFirstOpenMigrationV1";
   const FETCH_TIMEOUT_MS = 2500;
   const BACKFILL_START_DELAY_MS = 500;
   const BACKFILL_BETWEEN_EVENTS_MS = 120;
@@ -28,6 +32,7 @@
     journal_first_opened: "journal",
     journal_opened: "journal",
     keepsake_first_opened: "keepsake",
+    keepsake_opened: "keepsake",
     keepsake_generated: "keepsake",
     privacy_opened: "privacy",
     feedback_submitted: "feedback"
@@ -47,6 +52,11 @@
     "historical:",
     "historical_quest_completed:"
   ]);
+  const FIRST_OPEN_EVENTS = Object.freeze([
+    "app_first_opened",
+    "journal_first_opened",
+    "keepsake_first_opened"
+  ]);
 
   const debugMode = new URLSearchParams(window.location.search).has(DEBUG_PARAM);
   const sessionId = `SESSION-${randomHex(6)}`;
@@ -57,6 +67,10 @@
   let statusListeners = [];
   let historicalBackfillScheduled = false;
   let sessionDeveloperMode = null;
+  let receiverRepairStats = {
+    duplicateFirstOpenEventsDetected: 0,
+    incorrectRowsRepaired: 0
+  };
 
   function randomHex(length) {
     const bytes = new Uint8Array(Math.ceil(length / 2));
@@ -243,6 +257,348 @@
     }
   }
 
+  function validIso(value) {
+    const timestamp = Date.parse(value || "");
+    return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+  }
+
+  function localDateToIso(value) {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const timestamp = Date.parse(`${value}T12:00:00.000`);
+    return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+  }
+
+  function earliestIso(values) {
+    return values
+      .map(validIso)
+      .filter(Boolean)
+      .sort((left, right) => Date.parse(left) - Date.parse(right))[0] || null;
+  }
+
+  function savedQuestEntries() {
+    const submissions = context?.getState?.().submissions || {};
+    return Object.entries(submissions)
+      .filter(([, submission]) => submission && typeof submission === "object")
+      .map(([questId, submission]) => ({ questId, submission }));
+  }
+
+  function savedQuestRecordCount() {
+    return savedQuestEntries().length;
+  }
+
+  function completedQuestRecordCount() {
+    return completedEntries().length;
+  }
+
+  function normalizedHistoricalQuestRecords(entries = completedEntries()) {
+    return entries
+      .map(({ questId, submission }) => ({
+        questId,
+        details: questCompletionDetails(questId, submission, { historical: true }),
+        timestamp: completedAt(submission)
+      }))
+      .filter(record => record.details && record.timestamp);
+  }
+
+  function normalizedHistoricalRecordCount() {
+    return normalizedHistoricalQuestRecords().length;
+  }
+
+  function persistedFirstOpenedAt() {
+    return validIso(readStorage(FIRST_OPENED_AT_KEY));
+  }
+
+  function getFeatureFirstOpenState() {
+    const state = readJson(FEATURE_FIRST_OPEN_KEY, {});
+    return state && typeof state === "object" && !Array.isArray(state) ? state : {};
+  }
+
+  function writeFeatureFirstOpen(eventName, resolved) {
+    if (!eventName || !resolved?.timestamp) return false;
+    const existingState = getFeatureFirstOpenState();
+    const existing = existingState[eventName];
+    const existingTimestamp = validIso(existing?.timestamp);
+    if (existingTimestamp && Date.parse(existingTimestamp) <= Date.parse(resolved.timestamp)) {
+      return true;
+    }
+    return writeJson(FEATURE_FIRST_OPEN_KEY, {
+      ...existingState,
+      [eventName]: {
+        timestamp: resolved.timestamp,
+        source: resolved.source,
+        historicalStatus: resolved.historicalStatus || "exact",
+        timestampPrecision: resolved.timestampPrecision || "exact",
+        evidenceUsed: resolved.evidenceUsed || "direct",
+        firstObservedByAnalyticsAt: resolved.firstObservedByAnalyticsAt || null
+      }
+    });
+  }
+
+  function dedupeTimestamp(key) {
+    return validIso(getDedupe()[key]);
+  }
+
+  function resolveFirstOpenedAt() {
+    const persisted = persistedFirstOpenedAt();
+    if (persisted) {
+      return { timestamp: persisted, source: "persisted_first_open", exactTimeKnown: true };
+    }
+
+    const storedAppTimestamp = earliestIso([getEvidence().app_installed?.timestamp]);
+    if (storedAppTimestamp) {
+      return { timestamp: storedAppTimestamp, source: "stored_app_timestamp", exactTimeKnown: true };
+    }
+
+    const questCreatedTimestamp = earliestIso(savedQuestEntries().map(({ submission }) => submission.completedAt));
+    if (questCreatedTimestamp) {
+      return { timestamp: questCreatedTimestamp, source: "quest_record_created_at", exactTimeKnown: true };
+    }
+
+    const questDateTimestamp = earliestIso(
+      completedEntries().map(({ submission }) => localDateToIso(submission.adventureDate))
+    );
+    if (questDateTimestamp) {
+      return { timestamp: questDateTimestamp, source: "quest_completion_date", exactTimeKnown: false };
+    }
+
+    return { timestamp: nowIso(), source: "current_timestamp", exactTimeKnown: true };
+  }
+
+  function persistFirstOpenedAt(resolved) {
+    if (!resolved?.timestamp) return false;
+    const existing = persistedFirstOpenedAt();
+    if (existing && Date.parse(existing) <= Date.parse(resolved.timestamp)) return true;
+    writeFeatureFirstOpen("app_first_opened", {
+      ...resolved,
+      historicalStatus: "exact",
+      timestampPrecision: resolved.exactTimeKnown ? "exact" : "estimated",
+      evidenceUsed: resolved.source
+    });
+    return writeStorage(FIRST_OPENED_AT_KEY, resolved.timestamp);
+  }
+
+  function storedFeatureFirstOpen(eventName) {
+    const stored = getFeatureFirstOpenState()[eventName];
+    const timestamp = validIso(stored?.timestamp);
+    if (!timestamp) return null;
+    return {
+      timestamp,
+      source: stored.source || "persisted_feature_first_open",
+      historicalStatus: stored.historicalStatus || "exact",
+      timestampPrecision: stored.timestampPrecision || "exact",
+      evidenceUsed: stored.evidenceUsed || "persisted_feature_first_open",
+      firstObservedByAnalyticsAt: stored.firstObservedByAnalyticsAt || null
+    };
+  }
+
+  function evidenceFirstOpen(eventName, evidenceName, fallbackSource) {
+    const stored = storedFeatureFirstOpen(eventName);
+    if (stored) return stored;
+
+    const evidence = getEvidence()[evidenceName];
+    const evidenceTimestamp = validIso(evidence?.timestamp);
+    if (evidenceTimestamp) {
+      return {
+        timestamp: evidenceTimestamp,
+        source: evidence.source || fallbackSource,
+        historicalStatus: "exact",
+        timestampPrecision: "exact",
+        evidenceUsed: evidenceName,
+        firstObservedByAnalyticsAt: evidenceTimestamp
+      };
+    }
+
+    const sentTimestamp = dedupeTimestamp(eventName);
+    if (sentTimestamp) {
+      return {
+        timestamp: sentTimestamp,
+        source: "analytics_dedupe",
+        historicalStatus: "exact",
+        timestampPrecision: "exact",
+        evidenceUsed: "analytics_dedupe",
+        firstObservedByAnalyticsAt: sentTimestamp
+      };
+    }
+
+    return null;
+  }
+
+  function resolveJournalFirstOpened() {
+    return evidenceFirstOpen(
+      "journal_first_opened",
+      "journal_first_opened",
+      "journal_navigation"
+    );
+  }
+
+  function resolveKeepsakeFirstOpened() {
+    const direct = evidenceFirstOpen(
+      "keepsake_first_opened",
+      "keepsake_first_opened",
+      "keepsake_navigation"
+    );
+    if (direct) return direct;
+
+    const generated = getEvidence().keepsake_generated;
+    const generatedTimestamp = validIso(generated?.timestamp);
+    if (generatedTimestamp) {
+      return {
+        timestamp: generatedTimestamp,
+        source: "historical_import",
+        historicalStatus: "inferred",
+        timestampPrecision: "estimated",
+        evidenceUsed: "keepsake_generated",
+        firstObservedByAnalyticsAt: generatedTimestamp
+      };
+    }
+
+    return null;
+  }
+
+  function resolveFeatureFirstOpen(eventName) {
+    if (eventName === "app_first_opened") {
+      const resolved = resolveFirstOpenedAt();
+      return {
+        timestamp: resolved.timestamp,
+        source: resolved.source === "current_timestamp" ? "realtime" : "historical_import",
+        historicalStatus: resolved.source === "current_timestamp" ? "exact" : "reconstructed",
+        timestampPrecision: resolved.exactTimeKnown ? "exact" : "estimated",
+        evidenceUsed: resolved.source,
+        firstObservedByAnalyticsAt: null
+      };
+    }
+    if (eventName === "journal_first_opened") return resolveJournalFirstOpened();
+    if (eventName === "keepsake_first_opened") return resolveKeepsakeFirstOpened();
+    return null;
+  }
+
+  function getFirstOpenMigrationState() {
+    const state = readJson(FIRST_OPEN_MIGRATION_KEY, null);
+    if (!state || typeof state !== "object" || state.version !== BACKFILL_VERSION) {
+      return {
+        version: BACKFILL_VERSION,
+        status: "pending",
+        eventsQueued: 0,
+        eventsSynced: 0,
+        duplicateFirstOpenEventsDetected: 0,
+        incorrectRowsRepaired: 0,
+        lastAttemptAt: null,
+        lastError: null
+      };
+    }
+    return state;
+  }
+
+  function writeFirstOpenMigrationState(patch) {
+    return writeJson(FIRST_OPEN_MIGRATION_KEY, {
+      ...getFirstOpenMigrationState(),
+      ...patch,
+      version: BACKFILL_VERSION
+    });
+  }
+
+  function firstOpenMigrationPending() {
+    const status = getFirstOpenMigrationState().status;
+    return status === "pending" || status === "resolving" || status === "failed";
+  }
+
+  function blankBackfillState() {
+    return {
+      version: BACKFILL_VERSION,
+      status: "not_started",
+      legacyComplete: readStorage(BACKFILL_KEY) === BACKFILL_VERSION,
+      savedQuestRecordCount: 0,
+      completedQuestCount: 0,
+      normalizedHistoricalRecordCount: 0,
+      recordsQueued: 0,
+      recordsUploaded: 0,
+      lastAttemptAt: null,
+      lastError: null,
+      failureStage: null,
+      failureReason: null,
+      completed: false,
+      completedAt: null
+    };
+  }
+
+  function zeroRecordsBackfillState(patch = {}) {
+    return writeBackfillState({
+      status: "no_records",
+      recordsQueued: 0,
+      recordsUploaded: 0,
+      completed: false,
+      completedAt: null,
+      ...patch
+    });
+  }
+
+  function getBackfillState() {
+    const stored = readJson(BACKFILL_STATE_KEY, null);
+    if (!stored || typeof stored !== "object" || stored.version !== BACKFILL_VERSION) {
+      return blankBackfillState();
+    }
+    return { ...blankBackfillState(), ...stored };
+  }
+
+  function writeBackfillState(patch) {
+    const nextState = { ...getBackfillState(), ...patch, version: BACKFILL_VERSION };
+    writeJson(BACKFILL_STATE_KEY, nextState);
+    notifyStatus();
+    return nextState;
+  }
+
+  function migrationLog(message, details = {}) {
+    if (!debugMode && !runtimeEnvironment().is_test && developerModeOverride() !== true) return;
+    console.info(`[Summer Quest analytics] ${message}`, details);
+  }
+
+  function migrationFailed(stage, reason, patch = {}) {
+    migrationLog("Migration completed: false", { failureStage: stage, failureReason: reason });
+    return writeBackfillState({
+      status: "failed",
+      lastError: reason,
+      failureStage: stage,
+      failureReason: reason,
+      ...patch
+    });
+  }
+
+  function stableEventKey(eventName, details = {}, common = {}) {
+    const installationId = common.installationId || getInstallationId({ create: true });
+    if (!installationId) return "";
+    if (eventName === "quest_completed" && details.questId) {
+      return `${installationId}:quest_completed:${details.questId}`;
+    }
+    if (eventName === "app_opened") {
+      return `${installationId}:app_opened:${common.sessionId || sessionId}`;
+    }
+    if (eventName === "journal_opened" || eventName === "keepsake_opened") {
+      return `${installationId}:${eventName}:${common.sessionId || sessionId}`;
+    }
+    if (eventName === "keepsake_generated" || eventName === "feedback_submitted") {
+      return `${installationId}:${eventName}:${common.timestamp || nowIso()}`;
+    }
+    return `${installationId}:${eventName}`;
+  }
+
+  function analyticsPayload(eventName, details, common) {
+    return {
+      ...details,
+      ...common,
+      eventKey: stableEventKey(eventName, details, common)
+    };
+  }
+
+  function firstOpenDetails(resolved) {
+    if (!resolved) return {};
+    return {
+      historicalStatus: resolved.historicalStatus || null,
+      timestampPrecision: resolved.timestampPrecision || null,
+      evidenceUsed: resolved.evidenceUsed || null,
+      firstObservedByAnalyticsAt: resolved.firstObservedByAnalyticsAt || null
+    };
+  }
+
   function commonPayload(eventName, {
     historical = false,
     source,
@@ -334,16 +690,28 @@
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      await fetch(ANALYTICS_ENDPOINT, {
+      const response = await fetch(ANALYTICS_ENDPOINT, {
         method: "POST",
-        mode: "no-cors",
+        mode: "cors",
         keepalive: true,
         headers: { "Content-Type": "text/plain;charset=UTF-8" },
         body,
         signal: controller.signal
       });
-      return true;
-    } catch {
+      if (!response.ok) return false;
+      const result = await response.json().catch(() => null);
+      if (result?.ok === true) {
+        receiverRepairStats = {
+          duplicateFirstOpenEventsDetected:
+            receiverRepairStats.duplicateFirstOpenEventsDetected +
+            (Number(result.duplicateFirstOpenEventsDetected) || 0),
+          incorrectRowsRepaired:
+            receiverRepairStats.incorrectRowsRepaired +
+            (Number(result.incorrectRowsRepaired) || 0)
+        };
+      }
+      return result?.ok === true;
+    } catch (error) {
       return false;
     } finally {
       window.clearTimeout(timeout);
@@ -363,7 +731,7 @@
 
     const common = commonPayload(eventName, { historical: false, source });
     if (!common) return false;
-    const initiated = sendLive({ ...details, ...common }, { onFailure });
+    const initiated = sendLive(analyticsPayload(eventName, details, common), { onFailure });
     if (!initiated) return false;
 
     [dedupeKey, ...additionalDedupeKeys]
@@ -387,8 +755,8 @@
 
   function firstCompletedEntry(entries = completedEntries()) {
     return [...entries].sort((left, right) => {
-      const leftTime = Date.parse(left.submission?.completedAt || "");
-      const rightTime = Date.parse(right.submission?.completedAt || "");
+      const leftTime = Date.parse(completedAt(left.submission) || "");
+      const rightTime = Date.parse(completedAt(right.submission) || "");
       if (Number.isNaN(leftTime)) return 1;
       if (Number.isNaN(rightTime)) return -1;
       return leftTime - rightTime;
@@ -405,6 +773,8 @@
   function completedAt(submission, { fallbackToNow = false } = {}) {
     const timestamp = Date.parse(submission?.completedAt || "");
     if (!Number.isNaN(timestamp)) return new Date(timestamp).toISOString();
+    const localDateTimestamp = localDateToIso(submission?.adventureDate);
+    if (localDateTimestamp) return localDateTimestamp;
     return fallbackToNow ? nowIso() : null;
   }
 
@@ -463,10 +833,11 @@
     source,
     progressKey,
     canonicalKey = "",
-    timestamp
+    timestamp,
+    forceUpload = false
   }) {
-    if (hasSent(progressKey)) return true;
-    if (canonicalKey && hasSent(canonicalKey)) {
+    if (hasSent(progressKey) && !forceUpload) return true;
+    if (canonicalKey && hasSent(canonicalKey) && !forceUpload) {
       markSent(progressKey);
       return true;
     }
@@ -478,7 +849,7 @@
       timestamp: timestamp || nowIso()
     });
     if (!common) return false;
-    const sent = await sendHistorical({ ...details, ...common });
+    const sent = await sendHistorical(analyticsPayload(eventName, details, common));
     if (!sent) return false;
 
     markSent(progressKey);
@@ -501,26 +872,125 @@
     );
   }
 
+  function hasBackfillableHistory() {
+    return Boolean(
+      context?.hadStoredAppState ||
+      hasHistoricalEvidence() ||
+      readStorage(BACKFILL_KEY) === BACKFILL_VERSION
+    );
+  }
+
   function backfillComplete() {
-    return readStorage(BACKFILL_KEY) === BACKFILL_VERSION;
+    const state = getBackfillState();
+    return state.version === BACKFILL_VERSION && state.status === "completed" && state.completed === true;
   }
 
   async function backfillHistoricalEvents() {
     if (backfillComplete()) return true;
-    if (!isSharingEnabled() || navigator.onLine === false) return false;
-    if (!getInstallationId({ create: true })) return false;
+    if (!isSharingEnabled()) {
+      migrationFailed("preflight", "anonymous_sharing_disabled");
+      return false;
+    }
+    if (navigator.onLine === false) {
+      migrationFailed("preflight", "offline");
+      return false;
+    }
+    if (!getInstallationId({ create: true })) {
+      migrationFailed("preflight", "missing_installation_id");
+      return false;
+    }
 
     const evidence = getEvidence();
     const entries = completedEntries();
     const firstEntry = firstCompletedEntry(entries);
     const finalEntry = entries.find(({ questId }) => context?.isFinalQuest?.(questId));
+    const normalizedQuestRecords = normalizedHistoricalQuestRecords(entries);
+    const savedCount = savedQuestRecordCount();
+    const completedCount = entries.length;
+    const normalizedCount = normalizedQuestRecords.length;
+    const firstOpened = resolveFirstOpenedAt();
+    const featureFirstOpenTasks = FIRST_OPEN_EVENTS
+      .map(eventName => ({ eventName, resolved: resolveFeatureFirstOpen(eventName) }))
+      .filter(({ resolved }) => Boolean(resolved?.timestamp));
     const tasks = [];
+    const attemptAt = nowIso();
 
-    tasks.push(() => backfillEvent("app_first_opened", {}, {
-      source: "existing_installation",
-      progressKey: historicalKey("app_first_opened"),
-      canonicalKey: "app_first_opened"
-    }));
+    receiverRepairStats = {
+      duplicateFirstOpenEventsDetected: 0,
+      incorrectRowsRepaired: 0
+    };
+    persistFirstOpenedAt(firstOpened);
+    writeFirstOpenMigrationState({
+      status: "resolving",
+      eventsQueued: 0,
+      eventsSynced: 0,
+      lastAttemptAt: attemptAt,
+      lastError: null
+    });
+    migrationLog("Historical migration started", { attemptAt });
+    migrationLog("Saved quest records found", { count: savedCount });
+    migrationLog("Completed quest records found", { count: completedCount });
+    migrationLog("Normalized records created", { count: normalizedCount });
+
+    writeBackfillState({
+      status: "queued",
+      legacyComplete: readStorage(BACKFILL_KEY) === BACKFILL_VERSION,
+      savedQuestRecordCount: savedCount,
+      completedQuestCount: completedCount,
+      normalizedHistoricalRecordCount: normalizedCount,
+      recordsQueued: 0,
+      recordsUploaded: 0,
+      lastAttemptAt: attemptAt,
+      lastError: null,
+      failureStage: null,
+      failureReason: null,
+      completed: false,
+      completedAt: null
+    });
+
+    if (completedCount > 0 && normalizedCount === 0) {
+      migrationFailed("normalization", "completed_records_could_not_be_normalized", {
+        savedQuestRecordCount: savedCount,
+        completedQuestCount: completedCount,
+        normalizedHistoricalRecordCount: normalizedCount
+      });
+      return false;
+    }
+
+    if (savedCount === 0 && Object.keys(evidence).length === 0 && !hasSent("app_installed")) {
+      migrationLog("Records queued", { count: 0 });
+      migrationLog("Records uploaded", { count: 0 });
+      migrationLog("Migration completed: false", {
+        failureStage: "discovery",
+        failureReason: "no_saved_records"
+      });
+      zeroRecordsBackfillState({
+        lastError: "no_saved_records",
+        failureStage: "discovery",
+        failureReason: "no_saved_records"
+      });
+      writeFirstOpenMigrationState({
+        status: "no_records",
+        eventsQueued: 0,
+        eventsSynced: 0,
+        lastError: "no_saved_records"
+      });
+      return false;
+    }
+
+    featureFirstOpenTasks.forEach(({ eventName, resolved }) => {
+      tasks.push(async () => {
+        const uploaded = await backfillEvent(eventName, firstOpenDetails(resolved), {
+          source: resolved.source,
+          progressKey: historicalKey(eventName),
+          canonicalKey: eventName,
+          timestamp: resolved.timestamp,
+          forceUpload: resolved.source === "historical_import" || resolved.historicalStatus === "inferred"
+        });
+        if (uploaded) writeFeatureFirstOpen(eventName, resolved);
+        return uploaded;
+      });
+    });
 
     if (evidence.app_installed || hasSent("app_installed") || displayMode() !== "browser") {
       tasks.push(() => backfillEvent("app_installed", {}, {
@@ -531,15 +1001,15 @@
       }));
     }
 
-    entries.forEach(({ questId, submission }) => {
+    normalizedQuestRecords.forEach(({ questId, details, timestamp }) => {
       tasks.push(() => backfillEvent(
         "quest_completed",
-        questCompletionDetails(questId, submission, { historical: true }),
+        details,
         {
           source: "saved_state",
           progressKey: historicalKey("quest_completed", questId),
           canonicalKey: `quest_completed:${questId}`,
-          timestamp: completedAt(submission)
+          timestamp
         }
       ));
     });
@@ -577,6 +1047,7 @@
       ["privacy_opened", "privacy_opened"],
       ["feedback_submitted", "feedback_submitted"]
     ].forEach(([eventName, evidenceName]) => {
+      if (eventName === "journal_first_opened" || eventName === "keepsake_first_opened") return;
       const item = evidence[evidenceName];
       if (!item) return;
       const repeatable = eventName === "keepsake_generated" || eventName === "feedback_submitted";
@@ -588,11 +1059,62 @@
       }));
     });
 
+    migrationLog("Records queued", { count: tasks.length });
+    writeBackfillState({ recordsQueued: tasks.length });
+    writeFirstOpenMigrationState({ eventsQueued: featureFirstOpenTasks.length });
+
+    let uploadedCount = 0;
+    let firstOpenSyncedCount = 0;
     for (const task of tasks) {
-      if (!(await task())) return false;
+      const uploaded = await task();
+      if (!uploaded) {
+        migrationFailed("upload", "receiver_confirmation_failed", {
+          status: uploadedCount > 0 ? "partially_synced" : "failed",
+          recordsUploaded: uploadedCount
+        });
+        writeFirstOpenMigrationState({
+          status: firstOpenSyncedCount > 0 ? "partially_synced" : "failed",
+          eventsSynced: firstOpenSyncedCount,
+          lastError: "receiver_confirmation_failed"
+        });
+        return false;
+      }
+      uploadedCount += 1;
+      firstOpenSyncedCount = FIRST_OPEN_EVENTS.filter(eventName =>
+        hasSent(historicalKey(eventName)) || hasSent(eventName)
+      ).length;
+      migrationLog("Records uploaded", { count: uploadedCount });
+      writeBackfillState({
+        status: uploadedCount < tasks.length ? "partially_synced" : "queued",
+        recordsUploaded: uploadedCount
+      });
+      writeFirstOpenMigrationState({
+        status: uploadedCount < tasks.length ? "resolving" : "completed",
+        eventsSynced: firstOpenSyncedCount,
+        duplicateFirstOpenEventsDetected: receiverRepairStats.duplicateFirstOpenEventsDetected,
+        incorrectRowsRepaired: receiverRepairStats.incorrectRowsRepaired
+      });
     }
 
-    return writeStorage(BACKFILL_KEY, BACKFILL_VERSION);
+    migrationLog("Migration completed: true", { recordsUploaded: uploadedCount });
+    writeStorage(BACKFILL_KEY, BACKFILL_VERSION);
+    writeBackfillState({
+      status: "completed",
+      recordsUploaded: uploadedCount,
+      completed: true,
+      completedAt: nowIso(),
+      lastError: null,
+      failureStage: null,
+      failureReason: null
+    });
+    writeFirstOpenMigrationState({
+      status: "completed",
+      eventsSynced: firstOpenSyncedCount,
+      duplicateFirstOpenEventsDetected: receiverRepairStats.duplicateFirstOpenEventsDetected,
+      incorrectRowsRepaired: receiverRepairStats.incorrectRowsRepaired,
+      lastError: null
+    });
+    return true;
   }
 
   function scheduleHistoricalBackfill() {
@@ -615,12 +1137,14 @@
   }
 
   function debugState() {
+    const backfillState = getBackfillState();
     return {
       endpointConfigured: Boolean(ANALYTICS_ENDPOINT),
       installationId: readStorage(INSTALLATION_ID_KEY) || null,
       sessionId,
       sharingEnabled: isSharingEnabled(),
       backfillComplete: backfillComplete(),
+      historicalMigration: backfillState,
       dedupe: getDedupe(),
       evidence: getEvidence()
     };
@@ -659,18 +1183,50 @@
     const environment = runtimeEnvironment();
     const controller = navigator.serviceWorker?.controller || null;
     const workerVersion = await serviceWorkerVersion(controller);
+    const backfillState = getBackfillState();
+    const firstOpenMigration = getFirstOpenMigrationState();
+    const resolvedFirstOpened = resolveFirstOpenedAt();
+    const appFirstOpen = resolveFeatureFirstOpen("app_first_opened");
+    const journalFirstOpen = resolveFeatureFirstOpen("journal_first_opened");
+    const keepsakeFirstOpen = resolveFeatureFirstOpen("keepsake_first_opened");
 
     return {
+      consentState: isSharingEnabled() ? "anonymous_sharing_enabled" : "anonymous_sharing_disabled",
       developerMode: developerModeOverride() === true ? "enabled" : "disabled",
       analyticsEnvironment: environment.environment,
       isTest: environment.is_test,
       installationId: readStorage(INSTALLATION_ID_KEY) || null,
+      historicalMigrationState: backfillState.status,
+      historicalMigrationVersion: backfillState.version,
+      firstOpenMigrationState: firstOpenMigration.status,
+      savedQuestRecordCount: savedQuestRecordCount(),
+      completedQuestCount: completedQuestRecordCount(),
+      normalizedHistoricalRecordCount: normalizedHistoricalRecordCount(),
+      pendingAnalyticsQueueCount: 0,
+      lastMigrationAttempt: backfillState.lastAttemptAt,
+      lastMigrationError: backfillState.lastError,
+      persistedFirstOpenTimestamp: persistedFirstOpenedAt(),
+      resolvedFirstOpenTimestamp: resolvedFirstOpened.timestamp,
+      firstOpenEventSource: resolvedFirstOpened.source,
+      firstOpenExactTimeKnown: resolvedFirstOpened.exactTimeKnown,
+      appFirstOpenedAlreadySynced: hasSent("app_first_opened"),
+      appFirstOpenResolvedTimestamp: appFirstOpen?.timestamp || null,
+      appFirstOpenSource: appFirstOpen?.source || null,
+      journalFirstOpenResolvedTimestamp: journalFirstOpen?.timestamp || null,
+      journalFirstOpenSource: journalFirstOpen?.source || "unresolved",
+      journalHistoricalEvidenceUsed: journalFirstOpen?.evidenceUsed || "none",
+      keepsakeFirstOpenResolvedTimestamp: keepsakeFirstOpen?.timestamp || null,
+      keepsakeFirstOpenSource: keepsakeFirstOpen?.source || "unresolved",
+      keepsakeHistoricalEvidenceUsed: keepsakeFirstOpen?.evidenceUsed || "none",
+      firstOpenEventsQueued: firstOpenMigration.eventsQueued || 0,
+      firstOpenEventsSynced: firstOpenMigration.eventsSynced || 0,
+      duplicateFirstOpenEventsDetected: firstOpenMigration.duplicateFirstOpenEventsDetected || 0,
+      incorrectRowsRepaired: firstOpenMigration.incorrectRowsRepaired || 0,
       currentPathname: window.location.pathname,
       serviceWorkerVersion: workerVersion || "unavailable",
       controllingServiceWorkerState: controller?.state || "none",
       appVersion: appVersion(),
-      cacheVersion: workerVersion ? `summer-quest-app-${workerVersion}` : "unavailable",
-      pendingAnalyticsQueueCount: 0
+      cacheVersion: workerVersion ? `summer-quest-app-${workerVersion}` : "unavailable"
     };
   }
 
@@ -688,21 +1244,54 @@
   function startSessionAnalytics() {
     if (!isSharingEnabled() || navigator.onLine === false) return false;
 
-    if (!isExistingInstallation()) {
-      const firstOpened = trackLive("app_first_opened", {}, {
-        source: "app_init",
+    const firstOpened = resolveFirstOpenedAt();
+    persistFirstOpenedAt(firstOpened);
+
+    if (hasBackfillableHistory()) {
+      scheduleHistoricalBackfill();
+    } else if (!hasSent("app_first_opened")) {
+      trackLive("app_first_opened", {}, {
+        source: "realtime",
         dedupeKey: "app_first_opened",
         additionalDedupeKeys: [historicalKey("app_first_opened")]
       });
-      if (firstOpened) writeStorage(BACKFILL_KEY, BACKFILL_VERSION);
-    } else {
-      scheduleHistoricalBackfill();
     }
 
     return trackLive("app_opened", {}, {
       source: "app_init",
       sessionKey: "app_opened"
     });
+  }
+
+  function trackFeatureFirstOpened(eventName, source) {
+    if (hasSent(eventName)) return false;
+
+    if (hasBackfillableHistory() && firstOpenMigrationPending()) {
+      scheduleHistoricalBackfill();
+      return false;
+    }
+
+    const resolved = resolveFeatureFirstOpen(eventName);
+    if (resolved?.timestamp && resolved.source !== "realtime") {
+      scheduleHistoricalBackfill();
+      return false;
+    }
+
+    const realtime = {
+      timestamp: nowIso(),
+      source: "realtime",
+      historicalStatus: "exact",
+      timestampPrecision: "exact",
+      evidenceUsed: source,
+      firstObservedByAnalyticsAt: nowIso()
+    };
+    const sent = trackLive(eventName, firstOpenDetails(realtime), {
+      source: "realtime",
+      dedupeKey: eventName,
+      additionalDedupeKeys: [historicalKey(eventName)]
+    });
+    if (sent) writeFeatureFirstOpen(eventName, realtime);
+    return sent;
   }
 
   function setSharingEnabled(enabled) {
@@ -721,6 +1310,10 @@
       initialized = true;
       window.addEventListener("appinstalled", () => {
         api.trackAppInstalled("browser_install_event");
+      });
+      window.addEventListener("online", () => {
+        historicalBackfillScheduled = false;
+        startSessionAnalytics();
       });
     }
 
@@ -763,23 +1356,25 @@
       }) || Boolean(evidence && hasSent("app_installed"));
     },
     trackJournalOpened() {
-      recordEvidence("journal_first_opened", "journal_navigation");
-      trackLive("journal_first_opened", {}, {
-        source: "journal_navigation",
-        dedupeKey: "journal_first_opened",
-        additionalDedupeKeys: [historicalKey("journal_first_opened")]
-      });
+      const firstOpenDeferred = !hasSent("journal_first_opened") &&
+        hasBackfillableHistory() &&
+        firstOpenMigrationPending();
+      trackFeatureFirstOpened("journal_first_opened", "journal_navigation");
+      if (!firstOpenDeferred) recordEvidence("journal_first_opened", "journal_navigation");
       return trackLive("journal_opened", {}, {
         source: "journal_navigation",
         sessionKey: "journal_opened"
       });
     },
     trackKeepsakeOpened() {
-      recordEvidence("keepsake_first_opened", "keepsake_navigation");
-      return trackLive("keepsake_first_opened", {}, {
+      const firstOpenDeferred = !hasSent("keepsake_first_opened") &&
+        hasBackfillableHistory() &&
+        firstOpenMigrationPending();
+      trackFeatureFirstOpened("keepsake_first_opened", "keepsake_navigation");
+      if (!firstOpenDeferred) recordEvidence("keepsake_first_opened", "keepsake_navigation");
+      return trackLive("keepsake_opened", {}, {
         source: "keepsake_navigation",
-        dedupeKey: "keepsake_first_opened",
-        additionalDedupeKeys: [historicalKey("keepsake_first_opened")]
+        sessionKey: "keepsake_opened"
       });
     },
     trackKeepsakeGenerated() {

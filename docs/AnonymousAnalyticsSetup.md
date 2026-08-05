@@ -6,10 +6,10 @@ the events in this document; arbitrary event names are not accepted.
 
 ## Privacy Boundary
 
-Every payload contains `installationId`, `sessionId`, `eventName`, `timestamp`,
-`build`, `platform`, `displayMode`, `language`, `historical`, `feature`, and
-`source`. Runtime classification also adds `environment` and `is_test` without
-using browser storage or a manual toggle.
+Every payload contains `installationId`, `sessionId`, `eventName`, `eventKey`,
+`timestamp`, `build`, `platform`, `displayMode`, `language`, `historical`,
+`feature`, and `source`. Runtime classification also adds `environment` and
+`is_test` without using browser storage or a manual toggle.
 
 Quest payloads also contain `questId`, `questTitle`, `completedAt`,
 `adventureDate`, `points`, `friendCount`, `bonusEarned`, `bonusCount`, and
@@ -33,6 +33,7 @@ contents, email addresses, image metadata, user agent strings, or viewport data.
 | `journal_first_opened` | First Journal navigation | Installation | Yes |
 | `journal_opened` | First Journal navigation in a session | Session | No |
 | `keepsake_first_opened` | First Keepsake navigation | Installation | Yes |
+| `keepsake_opened` | First Keepsake navigation in a session | Session | No |
 | `keepsake_generated` | Every successful PNG generation | None | Yes, once if evidence exists |
 | `privacy_opened` | First Privacy dialog opening | Installation | Yes |
 | `feedback_submitted` | Every successful Formspree response | None | Yes, once if evidence exists |
@@ -45,19 +46,45 @@ No other analytics events are permitted.
 - `SESSION-XXXXXX`: in-memory ID regenerated on every document launch.
 - `summerQuestAnalyticsDedupe`: installation and historical progress markers.
 - `summerQuestAnalyticsEvidenceV1`: anonymous timestamps for recoverable feature history.
-- `summerQuestAnalyticsBackfillV1`: permanent completed marker for spec v1.0.
+- `summerQuestAnalyticsBackfillV1`: legacy completed marker for spec v1.0.
+- `summerQuestAnalyticsBackfillStateV2`: current historical migration state,
+  including `not_started`, `queued`, `partially_synced`, `completed`, `failed`,
+  or `no_records`.
+- `summerQuestFirstOpenedAt`: resolved local first-open timestamp.
+- `summerQuestFeatureFirstOpenedV1`: resolved feature first-open timestamps for
+  app, Journal, and Keepsake, plus precision/evidence metadata.
+- `summerQuestFirstOpenMigrationV1`: first-open migration state and receiver
+  repair counters.
 - `summerQuestAnonymousSharingEnabled`: privacy preference; missing means enabled.
 
 A board reset does not reset analytics identity or dedupe state.
 
 ## Historical Backfill
 
-An existing installation with no v1.0 completion marker performs one sequential,
-non-blocking backfill while sharing is enabled and the browser is online. It
-sends only events supported by saved quest state, current standalone detection,
-or anonymous local evidence. Each successful event receives its own progress
-marker. The permanent v1.0 marker is written only after every applicable event
-succeeds or was already represented by a live event.
+An existing installation with no completed v2 migration state performs one
+sequential, non-blocking backfill while sharing is enabled and the browser is
+online. It sends only events supported by saved quest state, current standalone
+detection, or anonymous local evidence. Each successful event receives its own
+progress marker. The completed state is written only after every applicable event
+receives a readable `{ "ok": true }` response from the receiver or was already
+represented by a live event. A legacy `summerQuestAnalyticsBackfillV1` marker
+without the v2 state is treated as repairable and does not suppress reruns.
+
+The historical `app_first_opened` timestamp is resolved in this order:
+persisted first-open timestamp, earliest stored app timestamp, earliest quest
+record timestamp, earliest completed quest date at local midday, then the
+current timestamp only when there is no historical app data. Reconstructed
+first-open events use `source: "historical_import"`; genuinely new first-open
+events use `source: "realtime"`.
+
+Journal and Keepsake first-open events are resolved separately from current
+screen opens. Journal first-open can be reconstructed only from stored Journal
+navigation evidence or an existing Journal first-open dedupe marker; completed
+quests prove journal content exists but do not prove the Journal screen was
+opened. Keepsake first-open can be reconstructed from stored Keepsake navigation
+evidence, or inferred from stored `keepsake_generated` evidence with
+`historicalStatus: "inferred"` and `timestampPrecision: "estimated"`. Normal
+`journal_opened` and `keepsake_opened` events always use current session time.
 
 Offline and failed uploads do not complete the backfill. Unmarked work retries on
 a future online launch. Session events (`app_opened`, `journal_opened`) are never
@@ -70,8 +97,8 @@ reconstructed. The client does not infer such activity or upload invented rows.
 
 Live events attempt `navigator.sendBeacon()` once, followed by one `fetch()`
 fallback only when the beacon is rejected. Historical events use sequential
-`fetch()` calls so progress is marked only after each request resolves. Analytics
-failures never interrupt gameplay or persistence.
+confirmed `fetch()` calls so progress is marked only after the receiver returns
+`{ "ok": true }`. Analytics failures never interrupt gameplay or persistence.
 
 ## Runtime Environment
 
@@ -94,9 +121,13 @@ URL fragment.
 
 When Developer Mode is enabled, the console exposes
 `window.SummerQuestAnalyticsDebug.report()`. The asynchronous report contains
-only operational state: Developer Mode, analytics environment, anonymous
-installation ID, pathname, app/cache/service-worker versions, controller state,
-and pending analytics queue count. It never includes quest memories or media.
+only operational state: sharing state, Developer Mode, analytics environment,
+anonymous installation ID, historical migration state/version/counts, first-open
+migration state, per-feature resolved first-open timestamps/sources/evidence,
+receiver duplicate/repair counters, last migration attempt/error, persisted and
+resolved first-open timestamps, first-open source, whether `app_first_opened` has
+synced, pathname, app/cache/service-worker versions, controller state, and
+pending analytics queue count. It never includes quest memories or media.
 
 ## Google Apps Script Receiver
 
@@ -104,6 +135,13 @@ The receiver is maintained in `google-apps-script/analytics/Code.gs`. Set the
 Script Property `ANALYTICS_SECRET` and optionally `ANALYTICS_SHEET_NAME` and
 `ANALYTICS_TEST_SHEET_NAME`, then deploy a new web app version. Production rows
 default to `Analytics`; development and unclassified rows default to
-`Analytics Testing`. The receiver appends missing headers, including `Feature`,
-`Source`, `Bonus Count`, `Bonus IDs`, `Historical`, `Environment`, and `Is Test`,
-without changing existing data rows.
+`Analytics Testing`. The receiver appends missing headers, including
+`Event Key`, `Feature`, `Source`, `Bonus Count`, `Bonus IDs`, `Historical`,
+`Historical Status`, `Timestamp Precision`, `Evidence Used`,
+`First Observed By Analytics At`, `Superseded`, `Superseded By`,
+`Environment`, and `Is Test`, without changing existing data rows. Rows with the
+same `Event Key` are updated in place so historical repair runs are idempotent.
+Rows created before `Event Key` existed are matched by stable legacy identity,
+such as installation plus `app_first_opened` or installation plus quest ID.
+Duplicate stable first-open rows are marked superseded and point to the canonical
+event key.
