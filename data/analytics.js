@@ -34,6 +34,7 @@
   let consentPrompt = null;
   let statusControl = null;
   let promptedThisSession = false;
+  let consentPromptContext = null;
 
   function nowIso() {
     return new Date().toISOString();
@@ -574,6 +575,7 @@
 
   function showConsentPromptIfDue(reason, details = {}) {
     if (!consentPrompt || !automaticPromptIsDue(reason, details)) return false;
+    if (!openConsentPrompt({ mode: "automatic" })) return false;
     const promptState = getPromptState();
     promptedThisSession = true;
     setPromptState({
@@ -581,7 +583,6 @@
       lastPromptReason: reason,
       lastPromptedAt: nowIso()
     });
-    consentPrompt.hidden = false;
     return true;
   }
 
@@ -617,8 +618,54 @@
     notifyStatus();
   }
 
-  function hideConsentPrompt() {
-    if (consentPrompt) consentPrompt.hidden = true;
+  function openConsentPrompt({
+    mode = "automatic",
+    targetEnabled = true,
+    returnFocus = document.activeElement
+  } = {}) {
+    if (!consentPrompt || !consentPrompt.hidden) return false;
+    if (
+      mode === "automatic" &&
+      document.body.matches(
+        ".sheet-open, .crop-open, .confirmation-open, .desktop-notice-open, .info-modal-open"
+      )
+    ) {
+      return false;
+    }
+    consentPromptContext = {
+      mode,
+      targetEnabled: Boolean(targetEnabled),
+      returnFocus: returnFocus instanceof HTMLElement ? returnFocus : null
+    };
+    consentPrompt.hidden = false;
+    document.body.classList.add("confirmation-open");
+    requestAnimationFrame(() => {
+      consentPrompt.querySelector("[data-analytics-consent='grant']")
+        ?.focus({ preventScroll: true });
+    });
+    return true;
+  }
+
+  function hideConsentPrompt({ restoreFocus = true } = {}) {
+    if (!consentPrompt) return;
+    const wasOpen = !consentPrompt.hidden;
+    const returnFocus = consentPromptContext?.returnFocus;
+    consentPrompt.hidden = true;
+    consentPromptContext = null;
+    document.body.classList.remove("confirmation-open");
+    if (wasOpen && restoreFocus && returnFocus?.isConnected) {
+      requestAnimationFrame(() => returnFocus.focus({ preventScroll: true }));
+    }
+  }
+
+  function requestConsentChange(enabled, { returnFocus } = {}) {
+    const targetEnabled = Boolean(enabled);
+    if (targetEnabled === hasConsent()) return false;
+    return openConsentPrompt({
+      mode: "preference-change",
+      targetEnabled,
+      returnFocus
+    });
   }
 
   function renderStatusControl() {
@@ -692,14 +739,22 @@
     statusControl = document.querySelector("#analyticsStatusControl");
     consentPrompt?.querySelector("[data-analytics-consent='grant']")
       ?.addEventListener("click", () => {
-        setConsent("granted");
+        const nextStatus = consentPromptContext?.mode === "preference-change"
+          ? (consentPromptContext.targetEnabled ? "granted" : "declined")
+          : "granted";
+        setConsent(nextStatus);
         hideConsentPrompt();
       });
     consentPrompt?.querySelector("[data-analytics-consent='postpone']")
       ?.addEventListener("click", () => {
-        postponeConsentPrompt();
+        if (consentPromptContext?.mode !== "preference-change") {
+          postponeConsentPrompt();
+        }
         hideConsentPrompt();
       });
+    consentPrompt?.addEventListener("click", event => {
+      if (event.target === consentPrompt) hideConsentPrompt();
+    });
     renderStatusControl();
     window.setTimeout(() => {
       showConsentPromptIfDue("existing-user-launch");
@@ -747,6 +802,11 @@
   const api = {
     init,
     hasConsent,
+    requestConsentChange,
+    cancelConsentDialog: hideConsentPrompt,
+    setConsentEnabled(enabled) {
+      setConsent(enabled ? "granted" : "declined");
+    },
     onStatusChange(listener) {
       statusListeners.push(listener);
       return () => {

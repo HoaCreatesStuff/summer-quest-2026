@@ -19,7 +19,6 @@
       const testDatabaseName = "summer-quest-pwa-validation";
       const oldCacheName = "summer-quest-app-previous-test";
       const unrelatedCacheName = "unrelated-cache-validation";
-      const expectedCacheName = `summer-quest-app-${buildVersion}`;
 
       function check(name, condition, details = "") {
         checks.push({ name, passed: Boolean(condition), details });
@@ -161,9 +160,10 @@
           { applicationVersion, startUrl: manifest.start_url, localVersionedAssets }
         );
         check(
-          "Settings & About displays the build version",
-          indexDocument.querySelector("[data-build-version]")?.textContent.trim() ===
-            buildVersion
+          "Footer displays the compact, non-interactive build identifier",
+          indexDocument.querySelector("#footerBuildText")?.textContent.trim() ===
+            "Build 08054" &&
+            indexDocument.querySelector("#footerBuildText")?.tagName === "SPAN"
         );
         check(
           "Update notice uses the release copy and exposes a Restart action",
@@ -176,6 +176,7 @@
         check(
           "Worker uses versioned caches and removes only obsolete app caches",
           workerSource.includes('const CACHE_PREFIX = "summer-quest-app-"') &&
+            workerSource.includes("WORKER_VERSION") &&
             workerSource.includes("name.startsWith(CACHE_PREFIX)") &&
             workerSource.includes("name !== CACHE_NAME")
         );
@@ -195,23 +196,50 @@
         check(
           "Registration bypasses the HTTP cache and checks automatically",
           updaterSource.includes('updateViaCache: "none"') &&
-            updaterSource.includes("encodeURIComponent(buildVersion)") &&
+            updaterSource.includes("encodeURIComponent(workerBuildVersion)") &&
             updaterSource.includes("registration.update()") &&
             updaterSource.includes('"updatefound"') &&
             updaterSource.includes('"visibilitychange"')
         );
+        const registrations = updaterSource.match(/serviceWorker\.register\(/g) || [];
+        const updateFoundListeners = updaterSource.match(/addEventListener\("updatefound"/g) || [];
+        const controllerChangeListeners = updaterSource.match(/addEventListener\("controllerchange"/g) || [];
+        const reloadCalls = updaterSource.match(/window\.location\.reload\(\)/g) || [];
+        const skipWaitingMessages = updaterSource.match(/type: "SUMMER_QUEST_SKIP_WAITING"/g) || [];
+
         check(
-          "Update flow waits for player action before reloading",
-          updaterSource.includes("registration.waiting.postMessage") &&
-            updaterSource.includes('"controllerchange"') &&
-            updaterSource.includes("if (!restartRequested) return")
+          "One coordinator owns registration and update lifecycle listeners",
+          registrations.length === 1 &&
+            updateFoundListeners.length === 1 &&
+            controllerChangeListeners.length === 1,
+          {
+            registrations: registrations.length,
+            updateFoundListeners: updateFoundListeners.length,
+            controllerChangeListeners: controllerChangeListeners.length
+          }
         );
         check(
-          "PWA updater never clears player storage",
+          "Update flow guards one Restart action and one controller-owned reload",
+          updaterSource.includes("restartInProgress") &&
+            updaterSource.includes("isReloadingForUpdate") &&
+            updaterSource.includes("waitingWorker.postMessage") &&
+            reloadCalls.length === 1 &&
+            skipWaitingMessages.length === 1,
+          { reloadCalls: reloadCalls.length, skipWaitingMessages: skipWaitingMessages.length }
+        );
+        check(
+          "Waiting and active builds are compared before prompting",
+          updaterSource.includes("LAST_ACTIVE_BUILD_KEY") &&
+            updaterSource.includes("waitingVersion === activeVersion") &&
+            updaterSource.includes("waitingVersion === lastActiveVersion") &&
+            workerSource.includes("event.ports?.[0]")
+        );
+        check(
+          "PWA updater never clears player storage or databases",
           !workerSource.includes("localStorage") &&
             !workerSource.includes("indexedDB") &&
-            !updaterSource.includes("localStorage") &&
-            !updaterSource.includes("indexedDB")
+            !updaterSource.includes("localStorage.clear") &&
+            !updaterSource.includes("indexedDB.deleteDatabase")
         );
 
         if (!("serviceWorker" in navigator)) {
@@ -238,7 +266,7 @@
           );
 
           const registration = await navigator.serviceWorker.register(
-            `../sw.js?v=${encodeURIComponent(buildVersion)}`,
+            `../sw.js?v=${encodeURIComponent(buildVersion)}&validation=${Date.now()}`,
             {
               scope: "../",
               updateViaCache: "none"
@@ -251,15 +279,16 @@
           await activateWorkerForValidation(registration, worker);
           const controller = await waitForController();
           const workerVersion = await requestWorkerVersion(controller);
+          const expectedCacheName = `summer-quest-app-${workerVersion}`;
           const cacheNames = await caches.keys();
           const preservedDatabase = await openTestDatabase();
           const databaseSentinel = await readDatabaseSentinel(preservedDatabase);
           preservedDatabase.close();
 
           check(
-            "Installed worker reports the same build as the page",
-            workerVersion === buildVersion,
-            { workerVersion, buildVersion }
+            "Installed worker reports the current internal worker build",
+            workerVersion !== "unknown" && workerVersion.startsWith(buildVersion),
+            { workerVersion, publicBuildVersion: buildVersion }
           );
           check(
             "Activation creates the current cache and removes the old app cache",

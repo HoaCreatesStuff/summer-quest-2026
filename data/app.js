@@ -457,7 +457,8 @@ const els = {
   privacyModal: document.querySelector("#privacyModal"),
   closePrivacyModal: document.querySelector("#closePrivacyModal"),
   confirmPrivacyModal: document.querySelector("#confirmPrivacyModal"),
-  privacySharingStatus: document.querySelector("#privacySharingStatus"),
+  privacySharingToggle: document.querySelector("#privacySharingToggle"),
+  analyticsConsentModal: document.querySelector("#analyticsConsentModal"),
   openContactModal: document.querySelector("#openContactModal"),
   contactModal: document.querySelector("#contactModal"),
   closeContactModal: document.querySelector("#closeContactModal"),
@@ -471,6 +472,7 @@ const els = {
   contactStatus: document.querySelector("#contactStatus"),
   contactDone: document.querySelector("#contactDone"),
   sendContact: document.querySelector("#sendContact"),
+  footerInstallItem: document.querySelector("#footerInstallItem"),
   footerInstallApp: document.querySelector("#footerInstallApp"),
   viewBoard: document.querySelector("#viewBoardBtn"),
   saveBoard: document.querySelector("#saveBoardBtn"),
@@ -1179,8 +1181,20 @@ function initializeAnalyticsSync() {
 }
 
 function renderPrivacySharingStatus() {
-  const status = analyticsSync?.hasConsent() ? "On" : "Off";
-  els.privacySharingStatus.textContent = `Anonymous data sharing: ${status}`;
+  els.privacySharingToggle.checked = Boolean(analyticsSync?.hasConsent());
+}
+
+function requestPrivacySharingPreference(event) {
+  event.preventDefault();
+  const currentPreference = Boolean(analyticsSync?.hasConsent());
+  renderPrivacySharingStatus();
+  const returnFocus = closePrivacyModal({ restoreFocus: false });
+  const opened = analyticsSync?.requestConsentChange(!currentPreference, {
+    returnFocus: returnFocus || els.openPrivacyModal
+  });
+  if (!opened && returnFocus?.isConnected) {
+    requestAnimationFrame(() => returnFocus.focus({ preventScroll: true }));
+  }
 }
 
 function currentRank(score) {
@@ -2182,6 +2196,7 @@ function closePrivacyModal({ restoreFocus = true } = {}) {
   if (wasOpen && restoreFocus && focusTarget?.isConnected) {
     requestAnimationFrame(() => focusTarget.focus({ preventScroll: true }));
   }
+  return focusTarget;
 }
 
 function openContactModal(event) {
@@ -2441,6 +2456,13 @@ function reevaluateDesktopNotice() {
 }
 
 function activeModalContext() {
+  if (!els.analyticsConsentModal.hidden) {
+    return {
+      wrapper: els.analyticsConsentModal,
+      close: analyticsSync.cancelConsentDialog,
+      isQuest: false
+    };
+  }
   if (!els.contactModal.hidden) {
     return {
       wrapper: els.contactModal,
@@ -3391,6 +3413,7 @@ els.desktopNoticeModal.addEventListener("click", (event) => {
 els.openPrivacyModal.addEventListener("click", openPrivacyModal);
 els.closePrivacyModal.addEventListener("click", closePrivacyModal);
 els.confirmPrivacyModal.addEventListener("click", closePrivacyModal);
+els.privacySharingToggle.addEventListener("click", requestPrivacySharingPreference);
 els.privacyModal.addEventListener("click", (event) => {
   if (event.target === els.privacyModal) closePrivacyModal();
 });
@@ -3466,7 +3489,9 @@ document.addEventListener("summerquest:pagechange", reevaluateDesktopNotice);
 
 async function initializeApp() {
   initializeAnalyticsSync();
-  els.homeScreenHelpItem.hidden = isRunningStandalone();
+  const runningStandalone = isRunningStandalone();
+  els.homeScreenHelpItem.hidden = runningStandalone;
+  els.footerInstallItem.hidden = runningStandalone;
   setHomeScreenPlatform(detectedHomeScreenPlatform());
 
   mediaStore.requestPersistence().then(status => {

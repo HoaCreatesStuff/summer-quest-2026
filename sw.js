@@ -1,8 +1,9 @@
 importScripts("./version.js");
 
 const BUILD_VERSION = self.SUMMER_QUEST_BUILD?.version || "unknown";
+const WORKER_VERSION = self.SUMMER_QUEST_BUILD?.workerVersion || BUILD_VERSION;
 const CACHE_PREFIX = "summer-quest-app-";
-const CACHE_NAME = `${CACHE_PREFIX}${BUILD_VERSION}`;
+const CACHE_NAME = `${CACHE_PREFIX}${WORKER_VERSION}`;
 const APP_SHELL_URLS = [
   "./index.html",
   "./style.css",
@@ -141,7 +142,7 @@ self.addEventListener("activate", event => {
     clients.forEach(client => {
       client.postMessage({
         type: "SUMMER_QUEST_SW_ACTIVATED",
-        version: BUILD_VERSION
+        version: WORKER_VERSION
       });
     });
   })());
@@ -154,10 +155,12 @@ self.addEventListener("message", event => {
   }
 
   if (event.data?.type === "SUMMER_QUEST_GET_VERSION") {
-    event.source?.postMessage({
+    const message = {
       type: "SUMMER_QUEST_SW_VERSION",
-      version: BUILD_VERSION
-    });
+      version: WORKER_VERSION
+    };
+    if (event.ports?.[0]) event.ports[0].postMessage(message);
+    else event.source?.postMessage(message);
   }
 });
 

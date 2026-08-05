@@ -130,8 +130,10 @@
         <button id="openPrivacyModal" class="site-footer-link" type="button">Privacy</button>
         <span aria-hidden="true">•</span>
         <button id="openContactModal" class="site-footer-link" type="button">Contact</button>
-        <span aria-hidden="true">•</span>
-        <button id="footerInstallApp" class="site-footer-link" type="button">Install App</button>
+        <span id="footerInstallItem" class="site-footer-install-item">
+          <span aria-hidden="true">•</span>
+          <button id="footerInstallApp" class="site-footer-link" type="button">Install App</button>
+        </span>
         <span aria-hidden="true">•</span>
         <span id="footerBuildText">Build 08054</span>
       </nav>
@@ -461,7 +463,7 @@
     <header class="crop-header info-modal-header">
       <div>
         <p class="label">Privacy</p>
-        <h2 id="privacyTitle">Privacy &amp; Your Data</h2>
+        <h2 id="privacyTitle">Your Data</h2>
       </div>
       <button id="closePrivacyModal" class="close-button" type="button" aria-label="Close privacy details">
         <span class="material-symbols-outlined" aria-hidden="true">close</span>
@@ -470,13 +472,22 @@
     <div class="info-modal-body">
       <p>Your Summer Quest memories <strong>stay on your device</strong>.</p>
       <ul class="info-modal-list">
-        <li>Photos, captions, reflections, names, and precise locations are stored locally and never uploaded.</li>
-        <li>If you opt in, anonymous usage data (such as quest completions, points, and friend counts) may be shared to help improve Summer Quest.</li>
-        <li>Messages sent through the Contact form are emailed to me (Hoa) so I can respond and improve the app.</li>
+        <li><span class="material-symbols-rounded" aria-hidden="true">phone_iphone</span><span>Photos, captions, reflections, names, and precise locations are stored locally and never uploaded.</span></li>
+        <li><span class="material-symbols-rounded" aria-hidden="true">analytics</span><span>If you opt in, anonymous usage data such as quest completions, points, and friend counts may be shared to help improve Summer Quest.</span></li>
+        <li><span class="material-symbols-rounded" aria-hidden="true">mail</span><span>Messages sent through the Contact form are emailed to me (Hoa) so I can respond and improve the app.</span></li>
       </ul>
     </div>
     <footer class="info-modal-actions privacy-actions">
-      <p id="privacySharingStatus" class="privacy-sharing-status" aria-live="polite">Anonymous data sharing: Off</p>
+      <section class="privacy-sharing-setting" aria-labelledby="privacySharingLabel" aria-describedby="privacySharingHelp">
+        <div class="privacy-sharing-setting-row">
+          <label id="privacySharingLabel" for="privacySharingToggle">Anonymous data sharing</label>
+          <span class="privacy-switch">
+            <input id="privacySharingToggle" type="checkbox" role="switch" aria-describedby="privacySharingHelp" />
+            <span class="privacy-switch-track" aria-hidden="true"></span>
+          </span>
+        </div>
+        <p id="privacySharingHelp">Help improve Summer Quest with anonymous usage data.</p>
+      </section>
       <button id="confirmPrivacyModal" class="primary-button" type="button">Got It</button>
     </footer>
   </section>
