@@ -16,6 +16,12 @@ Quest payloads also contain `questId`, `questTitle`, `completedAt`,
 `bonusIds`. Adventure completion contains `totalCompletedQuests`, `totalPoints`,
 `totalFriends`, `finalRank`, and `completedAt`.
 
+Current quest state is also reconciled as a batch. Each normalized record uses
+`installationId + ":" + questId` as its stable `recordKey` and contains only
+completion status, completion/update timestamps, point components, friend count,
+selected bonus IDs, running points, media-presence booleans, and submission
+version. It never includes memory content.
+
 Payload construction must never read or send photos, captions, reflections,
 names, location names, precise locations, blob URLs, keepsake images, feedback
 contents, email addresses, image metadata, user agent strings, or viewport data.
@@ -56,16 +62,44 @@ No other analytics events are permitted.
   app, Journal, and Keepsake, plus precision/evidence metadata.
 - `summerQuestFirstOpenMigrationV1`: first-open migration state and receiver
   repair counters.
+- `summerQuestQuestReconciliationV1`: confirmed hashes and retry state for the
+  recurring quest-state projection. A record is confirmed only after a readable
+  receiver `{ "ok": true }` response.
 - `summerQuestAnonymousSharingEnabled`: privacy preference; missing means enabled.
 
 A board reset does not reset analytics identity or dedupe state.
 
-## Historical Backfill
+## Quest-State Reconciliation
+
+Every eligible app launch compares normalized local quest state with the last
+receiver-confirmed hashes. Reconciliation also runs after a meaningful
+foreground resume, reconnect, successful quest save or edit, removal, and a
+manual **Sync Now** action in Privacy. It is never tied to routine UI activity.
+
+The receiver materializes these records in `Quest Records` (or `Quest Records
+Testing` for explicit `is_test: true` payloads). It inserts a missing Record Key,
+updates a changed record in place, and does no write for an unchanged record.
+Incomplete and deleted records remain represented by status, so a previous
+completion cannot remain counted after local state changes. `Received At` is
+created server-side on insert and preserved; `Last Received At` is refreshed on
+updates. The response reports `inserted`, `updated`, and `unchanged` counts.
+
+Confirmed local hashes allow unchanged records to be skipped. App launch and
+manual sync can still perform a full receiver comparison, and missing or
+uncertain local sync metadata causes all current records to be sent. Offline and
+failed attempts remain pending and retry on reconnect or a future launch. The
+client never marks a hash confirmed without readable receiver acknowledgment.
+
+Session events such as `app_opened`, `journal_opened`, and `keepsake_opened`
+remain append-only in `Events`. Stable one-time first-open keys still upsert.
+
+## One-Time Event Repair
 
 An existing installation with no completed v1.1 migration state performs one
 sequential, non-blocking backfill while sharing is enabled and the browser is
-online. It sends only events supported by saved quest state, current standalone
-detection, or anonymous local evidence. Each successful event receives its own
+online. It repairs only one-time installation, first-open, first-completion, and
+feature evidence events; quest records are handled by recurring reconciliation.
+Each successful event receives its own
 progress marker. The completed state is written only after every applicable event
 receives a readable `{ "ok": true }` response from the receiver. A legacy
 `summerQuestAnalyticsBackfillV1` marker, completed migration object, or dedupe
@@ -90,9 +124,8 @@ evidence, or inferred from stored `keepsake_generated` evidence with
 `historicalStatus: "inferred"` and `timestampPrecision: "estimated"`. Normal
 `journal_opened` and `keepsake_opened` events always use current session time.
 
-Offline and failed uploads do not complete the backfill. Unmarked work retries on
-a future online launch. Session events (`app_opened`, `journal_opened`) are never
-backfilled.
+Offline and failed uploads do not complete one-time event repair. Unmarked work
+retries on a future online launch. Session events are never backfilled.
 
 Feature activity from releases that never saved local evidence cannot be
 reconstructed. The client does not infer such activity or upload invented rows.
@@ -102,7 +135,9 @@ reconstructed. The client does not infer such activity or upload invented rows.
 Live events attempt `navigator.sendBeacon()` once, followed by one `fetch()`
 fallback only when the beacon is rejected. Historical events use sequential
 confirmed `fetch()` calls so progress is marked only after the receiver returns
-`{ "ok": true }`. Analytics failures never interrupt gameplay or persistence.
+`{ "ok": true }`. Quest reconciliation also uses confirmed CORS `fetch()` and
+retains pending state after any unreadable or failed response. Analytics failures
+never interrupt gameplay or persistence.
 
 ## Runtime Environment
 
@@ -139,8 +174,9 @@ The receiver is maintained in `google-apps-script/analytics/Code.gs`. The
 Script Property `ANALYTICS_SECRET` should match the client secret. If that
 property is missing, the receiver falls back to the client-compatible constant
 so an incomplete deployment cannot disable all analytics. Optional properties
-are `ANALYTICS_SPREADSHEET_ID`, `ANALYTICS_SHEET_NAME`, and
-`ANALYTICS_TEST_SHEET_NAME`. `ANALYTICS_DIAGNOSTICS=true` enables detailed error
+are `ANALYTICS_SPREADSHEET_ID`, `ANALYTICS_SHEET_NAME`,
+`ANALYTICS_TEST_SHEET_NAME`, `ANALYTICS_QUEST_SHEET_NAME`, and
+`ANALYTICS_QUEST_TEST_SHEET_NAME`. `ANALYTICS_DIAGNOSTICS=true` enables detailed error
 responses and should be used only during receiver development.
 
 Every accepted request receives a server-generated `Received At` timestamp.

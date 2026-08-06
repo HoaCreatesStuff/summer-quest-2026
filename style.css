@@ -3350,6 +3350,40 @@ body.keepsake-preview-open { overflow: hidden; }
   line-height: 1;
 }
 
+.privacy-sync-row {
+  display: flex;
+  min-height: 44px;
+  margin-top: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.privacy-sync-button {
+  min-width: 72px;
+  min-height: 44px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--teal-dark);
+  font: inherit;
+  font-size: .76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.privacy-sync-button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+#privacySyncStatus {
+  color: var(--muted);
+  font-size: .72rem;
+  line-height: 1.2;
+  text-align: right;
+}
+
 .privacy-switch {
   position: relative;
   display: grid;

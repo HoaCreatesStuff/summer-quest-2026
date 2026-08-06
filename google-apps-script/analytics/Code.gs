@@ -34,10 +34,60 @@ const ANALYTICS_HEADERS = Object.freeze([
   "Total Friends",
   "Final Rank"
 ]);
-const RECEIVER_VERSION = "8";
+const QUEST_RECORD_HEADERS = Object.freeze([
+  "Received At",
+  "Last Received At",
+  "Record Key",
+  "Installation ID",
+  "Quest ID",
+  "Quest Title",
+  "Completion Status",
+  "Completed At",
+  "Friends Count",
+  "Selected Bonus IDs",
+  "Base Points",
+  "Friend Points",
+  "Bonus Points",
+  "Quest Total Points",
+  "Running Total Points",
+  "Has Photo",
+  "Has Caption",
+  "Has Reflection",
+  "Submission Version",
+  "Updated At",
+  "Record Hash",
+  "Event Timestamp",
+  "Build",
+  "Platform",
+  "Display Mode",
+  "Language",
+  "Source",
+  "Environment",
+  "Is Test"
+]);
+const QUEST_RECORD_COMPARE_HEADERS = Object.freeze([
+  "Completion Status",
+  "Completed At",
+  "Friends Count",
+  "Selected Bonus IDs",
+  "Base Points",
+  "Friend Points",
+  "Bonus Points",
+  "Quest Total Points",
+  "Running Total Points",
+  "Has Photo",
+  "Has Caption",
+  "Has Reflection",
+  "Submission Version",
+  "Updated At",
+  "Record Hash"
+]);
+const RECEIVER_VERSION = "9";
 const FALLBACK_ANALYTICS_SECRET = "sq_8Fz3mQ7pL2xN9vK4cR6tY1wX5bD8eM";
 const DEFAULT_ANALYTICS_SHEET_NAME = "Events";
 const DEFAULT_ANALYTICS_TEST_SHEET_NAME = "Analytics Testing";
+const DEFAULT_QUEST_RECORD_SHEET_NAME = "Quest Records";
+const DEFAULT_QUEST_RECORD_TEST_SHEET_NAME = "Quest Records Testing";
 
 function doPost(event) {
   const lock = LockService.getScriptLock();
@@ -71,6 +121,43 @@ function doPost(event) {
           missingProperties: authorization.missingProperties
         }
       });
+    }
+
+    if (payload.requestType === "quest_reconciliation") {
+      stage = "reconciliation_validation";
+      const reconciliationMissingFields = analyticsMissingReconciliationFields(payload);
+      if (reconciliationMissingFields.length) {
+        return analyticsErrorResponse({
+          code: "invalid_reconciliation_payload",
+          stage,
+          payload,
+          properties,
+          details: { missingFields: reconciliationMissingFields }
+        });
+      }
+
+      stage = "lock";
+      lock.waitLock(5000);
+      stage = "spreadsheet_lookup";
+      const reconciliationSpreadsheet = analyticsSpreadsheet(properties);
+      const reconciliationSheetName = questRecordSheetName(payload, properties);
+      stage = "quest_record_sheet_lookup";
+      const reconciliationSheet =
+        reconciliationSpreadsheet.getSheetByName(reconciliationSheetName) ||
+        reconciliationSpreadsheet.insertSheet(reconciliationSheetName);
+      if (!reconciliationSheet) {
+        throw new Error(`Unable to open or create quest record sheet: ${reconciliationSheetName}`);
+      }
+
+      stage = "quest_record_header_sync";
+      const reconciliationHeaders = ensureQuestRecordHeaders(reconciliationSheet);
+      stage = "quest_record_upsert";
+      const result = reconcileQuestRecords(
+        reconciliationSheet,
+        reconciliationHeaders,
+        payload
+      );
+      return jsonResponse({ ok: true, sheet: reconciliationSheetName, ...result });
     }
 
     stage = "payload_validation";
@@ -159,6 +246,15 @@ function analyticsSheetName(payload, properties) {
     DEFAULT_ANALYTICS_SHEET_NAME;
 }
 
+function questRecordSheetName(payload, properties) {
+  if (analyticsPayloadIsTest(payload)) {
+    return properties.getProperty("ANALYTICS_QUEST_TEST_SHEET_NAME") ||
+      DEFAULT_QUEST_RECORD_TEST_SHEET_NAME;
+  }
+  return properties.getProperty("ANALYTICS_QUEST_SHEET_NAME") ||
+    DEFAULT_QUEST_RECORD_SHEET_NAME;
+}
+
 function analyticsExpectedSecret(properties) {
   const configuredSecret = properties.getProperty("ANALYTICS_SECRET");
   return configuredSecret
@@ -178,6 +274,14 @@ function analyticsMissingPayloadFields(payload) {
   return ["installationId", "eventName", "timestamp"].filter(field =>
     typeof payload?.[field] !== "string" || !payload[field].trim()
   );
+}
+
+function analyticsMissingReconciliationFields(payload) {
+  const missing = ["installationId", "timestamp"].filter(field =>
+    typeof payload?.[field] !== "string" || !payload[field].trim()
+  );
+  if (!Array.isArray(payload?.records)) missing.push("records");
+  return missing;
 }
 
 function analyticsSpreadsheet(properties) {
@@ -234,6 +338,137 @@ function ensureAnalyticsHeaders(sheet) {
       .setValues([missingHeaders]);
   }
   return [...existingHeaders, ...missingHeaders];
+}
+
+function ensureQuestRecordHeaders(sheet) {
+  const lastColumn = sheet.getLastColumn();
+  if (sheet.getLastRow() === 0 || lastColumn === 0) {
+    sheet.getRange(1, 1, 1, QUEST_RECORD_HEADERS.length)
+      .setValues([Array.from(QUEST_RECORD_HEADERS)]);
+    return Array.from(QUEST_RECORD_HEADERS);
+  }
+
+  const existingHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  const missingHeaders = QUEST_RECORD_HEADERS.filter(
+    header => !existingHeaders.includes(header)
+  );
+  if (missingHeaders.length) {
+    sheet.getRange(1, lastColumn + 1, 1, missingHeaders.length)
+      .setValues([missingHeaders]);
+  }
+  return [...existingHeaders, ...missingHeaders];
+}
+
+function reconcileQuestRecords(sheet, headers, payload) {
+  const receivedAt = new Date().toISOString();
+  const recordKeyColumn = headers.indexOf("Record Key") + 1;
+  if (!recordKeyColumn) throw new Error("Quest record sheet is missing Record Key.");
+
+  const lastRow = sheet.getLastRow();
+  const existingRows = lastRow >= 2
+    ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
+    : [];
+  const rowByKey = {};
+  existingRows.forEach((row, index) => {
+    const key = String(row[recordKeyColumn - 1] || "");
+    if (key && !rowByKey[key]) rowByKey[key] = { rowNumber: index + 2, values: row };
+  });
+
+  let inserted = 0;
+  let updated = 0;
+  let unchanged = 0;
+  payload.records.forEach((record, index) => {
+    if (!record || typeof record.questId !== "string" || !record.questId.trim()) {
+      throw new Error(`Quest reconciliation record ${index} is missing questId.`);
+    }
+    const valuesByHeader = questRecordValues(payload, record, receivedAt);
+    const key = valuesByHeader["Record Key"];
+    const existing = rowByKey[key];
+    if (!existing) {
+      const values = headers.map(header =>
+        Object.prototype.hasOwnProperty.call(valuesByHeader, header)
+          ? valuesByHeader[header]
+          : ""
+      );
+      const rowNumber = sheet.getLastRow() + 1;
+      writeAnalyticsRow(sheet, rowNumber, headers, values);
+      rowByKey[key] = { rowNumber, values };
+      inserted += 1;
+      return;
+    }
+
+    if (!questRecordChanged(headers, existing.values, valuesByHeader)) {
+      unchanged += 1;
+      return;
+    }
+
+    const originalReceivedAt = existing.values[headers.indexOf("Received At")];
+    valuesByHeader["Received At"] = originalReceivedAt || receivedAt;
+    valuesByHeader["Last Received At"] = receivedAt;
+    const values = headers.map(header =>
+      Object.prototype.hasOwnProperty.call(valuesByHeader, header)
+        ? valuesByHeader[header]
+        : ""
+    );
+    writeAnalyticsRow(sheet, existing.rowNumber, headers, values);
+    existing.values = values;
+    updated += 1;
+  });
+
+  return { inserted, updated, unchanged };
+}
+
+function questRecordValues(payload, record, receivedAt) {
+  const questId = String(record.questId).trim();
+  const recordKey = `${String(payload.installationId)}:${questId}`;
+  return {
+    "Received At": receivedAt,
+    "Last Received At": receivedAt,
+    "Record Key": recordKey,
+    "Installation ID": cellValue(payload.installationId),
+    "Quest ID": questId,
+    "Quest Title": cellValue(record.questTitle),
+    "Completion Status": cellValue(record.completionStatus),
+    "Completed At": cellValue(record.completedAt),
+    "Friends Count": cellValue(record.friendsCount),
+    "Selected Bonus IDs": Array.isArray(record.selectedBonusIds)
+      ? record.selectedBonusIds.join(",")
+      : cellValue(record.selectedBonusIds),
+    "Base Points": cellValue(record.basePoints),
+    "Friend Points": cellValue(record.friendPoints),
+    "Bonus Points": cellValue(record.bonusPoints),
+    "Quest Total Points": cellValue(record.questTotalPoints),
+    "Running Total Points": cellValue(record.runningTotalPoints),
+    "Has Photo": record.hasPhoto === true,
+    "Has Caption": record.hasCaption === true,
+    "Has Reflection": record.hasReflection === true,
+    "Submission Version": cellValue(record.submissionVersion),
+    "Updated At": cellValue(record.updatedAt),
+    "Record Hash": cellValue(record.recordHash),
+    "Event Timestamp": cellValue(payload.timestamp),
+    "Build": cellValue(payload.build),
+    "Platform": cellValue(payload.platform),
+    "Display Mode": cellValue(payload.displayMode),
+    "Language": cellValue(payload.language),
+    "Source": cellValue(payload.source),
+    "Environment": cellValue(payload.environment),
+    "Is Test": payload.is_test === true
+  };
+}
+
+function questRecordChanged(headers, existingValues, nextValues) {
+  return QUEST_RECORD_COMPARE_HEADERS.some(header => {
+    const column = headers.indexOf(header);
+    const existing = column >= 0 ? existingValues[column] : "";
+    return comparableCellValue(existing) !== comparableCellValue(nextValues[header]);
+  });
+}
+
+function comparableCellValue(value) {
+  if (value instanceof Date) return value.toISOString();
+  if (value === true) return "true";
+  if (value === false) return "false";
+  return value === null || value === undefined ? "" : String(value);
 }
 
 function writeAnalyticsRow(sheet, rowNumber, headers, values) {

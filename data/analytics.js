@@ -14,9 +14,14 @@
   const FIRST_OPENED_AT_KEY = "summerQuestFirstOpenedAt";
   const FEATURE_FIRST_OPEN_KEY = "summerQuestFeatureFirstOpenedV1";
   const FIRST_OPEN_MIGRATION_KEY = "summerQuestFirstOpenMigrationV1";
+  const RECONCILIATION_KEY = "summerQuestQuestReconciliationV1";
+  const RECONCILIATION_VERSION = "1";
   const FETCH_TIMEOUT_MS = 2500;
+  const RECONCILIATION_TIMEOUT_MS = 10000;
   const BACKFILL_START_DELAY_MS = 500;
   const BACKFILL_BETWEEN_EVENTS_MS = 120;
+  const RECONCILIATION_START_DELAY_MS = 700;
+  const FOREGROUND_RECONCILIATION_INTERVAL_MS = 5 * 60 * 1000;
   const DEBUG_PARAM = "summer-quest-analytics-debug";
   const PRODUCTION_PROTOCOL = "https:";
   const PRODUCTION_HOSTNAME = "hoacreatesstuff.github.io";
@@ -67,6 +72,9 @@
   let statusListeners = [];
   let historicalBackfillScheduled = false;
   let existingHistoryAtInitialization = false;
+  let reconciliationScheduled = false;
+  let reconciliationPromise = null;
+  let lastReconciliationTriggerAt = 0;
   let sessionDeveloperMode = null;
   let receiverRepairStats = {
     duplicateFirstOpenEventsDetected: 0,
@@ -120,6 +128,50 @@
     } catch {
       return false;
     }
+  }
+
+  function blankReconciliationState() {
+    return {
+      version: RECONCILIATION_VERSION,
+      records: {},
+      pending: false,
+      pendingRecordCount: 0,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      lastReason: null,
+      lastError: null,
+      lastReceiverStatus: null,
+      lastReceiverBody: null,
+      receiverVersion: null,
+      inserted: 0,
+      updated: 0,
+      unchanged: 0
+    };
+  }
+
+  function getReconciliationState() {
+    const stored = readJson(RECONCILIATION_KEY, null);
+    if (!stored || stored.version !== RECONCILIATION_VERSION) {
+      return blankReconciliationState();
+    }
+    return {
+      ...blankReconciliationState(),
+      ...stored,
+      records: stored.records && typeof stored.records === "object"
+        ? stored.records
+        : {}
+    };
+  }
+
+  function writeReconciliationState(patch) {
+    const next = {
+      ...getReconciliationState(),
+      ...patch,
+      version: RECONCILIATION_VERSION
+    };
+    writeJson(RECONCILIATION_KEY, next);
+    notifyStatus();
+    return next;
   }
 
   function developerModeOverride() {
@@ -853,6 +905,323 @@
     };
   }
 
+  function deterministicHash(value) {
+    const serialized = JSON.stringify(value);
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < serialized.length; index += 1) {
+      hash ^= serialized.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function validRecordTimestamp(value, fallback = null) {
+    return validIso(value) || fallback;
+  }
+
+  function questStateRecord(questId, submission, runningTotalPoints, metadata = {}) {
+    const quest = context?.quests?.[questId];
+    if (!quest || !submission || typeof submission !== "object") return null;
+
+    const completed = submission.completed === true;
+    const selectedBonusIds = context.canonicalSelectedBonusIds?.(quest, submission) || [];
+    const normalizedBonusIds = selectedBonusIds
+      .filter(bonusId => typeof bonusId === "string" && bonusId)
+      .sort();
+    const basePoints = Number(quest.basePoints) || 0;
+    const friendsCount = context?.isFinalQuest?.(questId)
+      ? 0
+      : context.normalizeFriendCount?.(submission.friends) || 0;
+    const friendPoints = completed && !context?.isFinalQuest?.(questId)
+      ? context.friendPointsFor?.(friendsCount) || 0
+      : 0;
+    const bonusPoints = completed
+      ? normalizedBonusIds.reduce((total, bonusId) => {
+          const bonus = quest.bonuses?.find(item => item.id === bonusId);
+          return total + (Number(bonus?.points) || 0);
+        }, 0)
+      : 0;
+    const questTotalPoints = completed ? basePoints + friendPoints + bonusPoints : 0;
+    const completedAtValue = completedAt(submission);
+    const updatedAt = validRecordTimestamp(
+      submission.updatedAt,
+      completedAtValue || validRecordTimestamp(metadata.observedAt, nowIso())
+    );
+    const record = {
+      recordKey: `${getInstallationId({ create: true })}:${questId}`,
+      questId,
+      questTitle: quest.title,
+      completionStatus: completed ? "completed" : "incomplete",
+      completedAt: completedAtValue,
+      friendsCount,
+      selectedBonusIds: normalizedBonusIds,
+      basePoints,
+      friendPoints,
+      bonusPoints,
+      questTotalPoints,
+      runningTotalPoints,
+      hasPhoto: Boolean(submission.mediaId || submission.dataUrl),
+      hasCaption: Boolean(String(submission.caption || "").trim()),
+      hasReflection: Boolean(String(submission.reflection || "").trim()),
+      submissionVersion: Math.max(1, Number(submission.submissionVersion) || 1),
+      updatedAt
+    };
+    return { ...record, recordHash: deterministicHash(record) };
+  }
+
+  function deletedQuestStateRecord(questId, metadata) {
+    const quest = context?.quests?.[questId];
+    if (!quest) return null;
+    const deletedAt = validRecordTimestamp(metadata?.deletedAt, nowIso());
+    const record = {
+      recordKey: `${getInstallationId({ create: true })}:${questId}`,
+      questId,
+      questTitle: quest.title,
+      completionStatus: "deleted",
+      completedAt: null,
+      friendsCount: 0,
+      selectedBonusIds: [],
+      basePoints: Number(quest.basePoints) || 0,
+      friendPoints: 0,
+      bonusPoints: 0,
+      questTotalPoints: 0,
+      runningTotalPoints: 0,
+      hasPhoto: false,
+      hasCaption: false,
+      hasReflection: false,
+      submissionVersion: Math.max(
+        1,
+        Number(metadata?.deletionVersion) || (Number(metadata?.submissionVersion) || 1) + 1
+      ),
+      updatedAt: deletedAt
+    };
+    return { ...record, recordHash: deterministicHash(record), deletedAt };
+  }
+
+  function normalizedQuestStateRecords(reconciliationState = getReconciliationState()) {
+    const submissions = context?.getState?.().submissions || {};
+    const records = [];
+    let runningTotalPoints = 0;
+
+    (context?.boardOrder || []).forEach(questId => {
+      const submission = submissions[questId];
+      if (!submission || typeof submission !== "object") return;
+      if (submission.completed === true) {
+        runningTotalPoints += context.questPoints?.(submission, questId) || 0;
+      }
+      const record = questStateRecord(
+        questId,
+        submission,
+        runningTotalPoints,
+        reconciliationState.records?.[questId]
+      );
+      if (record) records.push(record);
+    });
+
+    const currentQuestIds = new Set(records.map(record => record.questId));
+    Object.entries(reconciliationState.records || {}).forEach(([questId, metadata]) => {
+      if (currentQuestIds.has(questId) || !metadata?.confirmedHash) return;
+      const deletedRecord = deletedQuestStateRecord(questId, metadata);
+      if (deletedRecord) records.push(deletedRecord);
+    });
+
+    return records;
+  }
+
+  function reconciliationPayload(records, reason) {
+    const installationId = getInstallationId({ create: true });
+    if (!installationId) return null;
+    return {
+      secret: ANALYTICS_SECRET,
+      requestType: "quest_reconciliation",
+      installationId,
+      sessionId,
+      timestamp: nowIso(),
+      build: appVersion(),
+      platform: platform(),
+      displayMode: displayMode(),
+      language: navigator.language || "unknown",
+      feature: "gameplay",
+      source: reason,
+      ...runtimeEnvironment(),
+      records
+    };
+  }
+
+  async function sendReconciliation(payload) {
+    if (!payload || !isSharingEnabled() || navigator.onLine === false) return null;
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), RECONCILIATION_TIMEOUT_MS);
+    try {
+      const response = await fetch(ANALYTICS_ENDPOINT, {
+        method: "POST",
+        mode: "cors",
+        keepalive: true,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const responseBody = await response.text().catch(() => "");
+      let result = null;
+      try {
+        result = responseBody ? JSON.parse(responseBody) : null;
+      } catch {
+        result = null;
+      }
+      writeReconciliationState({
+        lastReceiverStatus: response.status,
+        lastReceiverBody: responseBody.slice(0, 1000) || null,
+        receiverVersion: result?.receiverVersion || null
+      });
+      return response.ok && result?.ok === true ? result : null;
+    } catch (error) {
+      writeReconciliationState({
+        lastReceiverStatus: null,
+        lastReceiverBody: String(error?.message || error || "network_error").slice(0, 1000)
+      });
+      return null;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  async function reconcileQuestState({ force = false, reason = "state_reconciliation" } = {}) {
+    if (reconciliationPromise) {
+      return reconciliationPromise.then(() => reconcileQuestState({ force, reason }));
+    }
+
+    reconciliationPromise = (async () => {
+      const attemptedAt = nowIso();
+      lastReconciliationTriggerAt = Date.now();
+      if (!isSharingEnabled()) {
+        writeReconciliationState({
+          pending: true,
+          lastAttemptAt: attemptedAt,
+          lastReason: reason,
+          lastError: "anonymous_sharing_disabled"
+        });
+        return { ok: false, error: "anonymous_sharing_disabled" };
+      }
+      if (navigator.onLine === false) {
+        writeReconciliationState({
+          pending: true,
+          lastAttemptAt: attemptedAt,
+          lastReason: reason,
+          lastError: "offline"
+        });
+        return { ok: false, error: "offline" };
+      }
+
+      const state = getReconciliationState();
+      const records = normalizedQuestStateRecords(state);
+      const recordMetadata = { ...state.records };
+      records.forEach(record => {
+        const previous = recordMetadata[record.questId] || {};
+        recordMetadata[record.questId] = {
+          ...previous,
+          observedAt: previous.observedAt || record.updatedAt,
+          deletedAt: record.completionStatus === "deleted"
+            ? previous.deletedAt || record.updatedAt
+            : null,
+          deletionVersion: record.completionStatus === "deleted"
+            ? previous.deletionVersion || record.submissionVersion
+            : null,
+          submissionVersion: record.submissionVersion
+        };
+      });
+      const candidates = force
+        ? records
+        : records.filter(record =>
+            recordMetadata[record.questId]?.confirmedHash !== record.recordHash
+          );
+
+      if (!candidates.length) {
+        writeReconciliationState({
+          records: recordMetadata,
+          pending: false,
+          pendingRecordCount: 0,
+          lastAttemptAt: attemptedAt,
+          lastSuccessAt: attemptedAt,
+          lastReason: reason,
+          lastError: null,
+          inserted: 0,
+          updated: 0,
+          unchanged: 0
+        });
+        return { ok: true, inserted: 0, updated: 0, unchanged: 0, skipped: true };
+      }
+
+      writeReconciliationState({
+        records: recordMetadata,
+        pending: true,
+        pendingRecordCount: candidates.length,
+        lastAttemptAt: attemptedAt,
+        lastReason: reason,
+        lastError: null
+      });
+      const result = await sendReconciliation(reconciliationPayload(candidates, reason));
+      if (!result) {
+        writeReconciliationState({
+          pending: true,
+          pendingRecordCount: candidates.length,
+          lastError: "receiver_confirmation_failed"
+        });
+        return { ok: false, error: "receiver_confirmation_failed" };
+      }
+
+      const confirmedAt = nowIso();
+      const confirmedRecords = { ...getReconciliationState().records };
+      candidates.forEach(record => {
+        confirmedRecords[record.questId] = {
+          ...confirmedRecords[record.questId],
+          confirmedHash: record.recordHash,
+          confirmedAt,
+          completionStatus: record.completionStatus,
+          submissionVersion: record.submissionVersion
+        };
+      });
+      writeReconciliationState({
+        records: confirmedRecords,
+        pending: false,
+        pendingRecordCount: 0,
+        lastSuccessAt: confirmedAt,
+        lastError: null,
+        inserted: Number(result.inserted) || 0,
+        updated: Number(result.updated) || 0,
+        unchanged: Number(result.unchanged) || 0,
+        receiverVersion: result.receiverVersion || null
+      });
+      return result;
+    })().finally(() => {
+      reconciliationPromise = null;
+    });
+
+    return reconciliationPromise;
+  }
+
+  function scheduleQuestReconciliation({
+    force = false,
+    reason = "state_reconciliation",
+    delay = RECONCILIATION_START_DELAY_MS
+  } = {}) {
+    if (!isSharingEnabled()) return false;
+    if (navigator.onLine === false) {
+      writeReconciliationState({ pending: true, lastReason: reason, lastError: "offline" });
+      return false;
+    }
+    if (reconciliationScheduled) return false;
+
+    reconciliationScheduled = true;
+    window.setTimeout(() => {
+      reconciliationScheduled = false;
+      reconcileQuestState({ force, reason }).catch(() => {
+        writeReconciliationState({ pending: true, lastError: "reconciliation_exception" });
+      });
+    }, delay);
+    return true;
+  }
+
   function historicalKey(eventName, suffix = "") {
     if (eventName === "quest_completed") {
       return `historical_quest_completed:${suffix}`;
@@ -1050,19 +1419,6 @@
       }));
     }
 
-    normalizedQuestRecords.forEach(({ questId, details, timestamp }) => {
-      tasks.push(() => backfillEvent(
-        "quest_completed",
-        details,
-        {
-          source: "saved_state",
-          progressKey: historicalKey("quest_completed", questId),
-          canonicalKey: `quest_completed:${questId}`,
-          timestamp
-        }
-      ));
-    });
-
     if (firstEntry) {
       tasks.push(() => backfillEvent(
         "first_quest_completed",
@@ -1188,6 +1544,7 @@
   function migrationAuditState() {
     const backfillState = getBackfillState();
     const firstOpenMigration = getFirstOpenMigrationState();
+    const reconciliationState = getReconciliationState();
     return {
       consentState: isSharingEnabled()
         ? "anonymous_sharing_enabled"
@@ -1208,7 +1565,16 @@
       lastMigrationError: backfillState.lastError,
       lastReceiverResponseStatus: backfillState.lastReceiverStatus,
       lastReceiverResponseBody: backfillState.lastReceiverBody,
-      deployedReceiverVersion: backfillState.deployedReceiverVersion
+      deployedReceiverVersion:
+        reconciliationState.receiverVersion || backfillState.deployedReceiverVersion,
+      reconciliationState: reconciliationState.pending ? "pending" : "confirmed",
+      reconciliationPendingRecordCount: reconciliationState.pendingRecordCount,
+      reconciliationLastAttemptAt: reconciliationState.lastAttemptAt,
+      reconciliationLastSuccessAt: reconciliationState.lastSuccessAt,
+      reconciliationLastError: reconciliationState.lastError,
+      reconciliationInserted: reconciliationState.inserted,
+      reconciliationUpdated: reconciliationState.updated,
+      reconciliationUnchanged: reconciliationState.unchanged
     };
   }
 
@@ -1221,6 +1587,7 @@
       sharingEnabled: isSharingEnabled(),
       backfillComplete: backfillComplete(),
       historicalMigration: backfillState,
+      questReconciliation: getReconciliationState(),
       migrationAudit: migrationAuditState(),
       dedupe: getDedupe(),
       evidence: getEvidence()
@@ -1328,7 +1695,9 @@
   }
 
   function startSessionAnalytics() {
-    if (!isSharingEnabled() || navigator.onLine === false) return false;
+    if (!isSharingEnabled()) return false;
+    scheduleQuestReconciliation({ reason: "app_open" });
+    if (navigator.onLine === false) return false;
 
     const firstOpened = resolveFirstOpenedAt();
     persistFirstOpenedAt(firstOpened);
@@ -1384,7 +1753,10 @@
     const sharingEnabled = Boolean(enabled);
     persistSharingPreference(sharingEnabled);
     notifyStatus();
-    if (sharingEnabled) startSessionAnalytics();
+    if (sharingEnabled) {
+      scheduleQuestReconciliation({ force: true, reason: "sharing_enabled", delay: 0 });
+      startSessionAnalytics();
+    }
   }
 
   function init(nextContext) {
@@ -1409,7 +1781,15 @@
         existingHistoryAtInitialization = existingHistoryAtInitialization ||
           hasHistoricalEvidence();
         historicalBackfillScheduled = false;
+        scheduleQuestReconciliation({ force: true, reason: "reconnected", delay: 0 });
         startSessionAnalytics();
+      });
+      document.addEventListener?.("visibilitychange", () => {
+        if (document.visibilityState !== "visible") return;
+        if (Date.now() - lastReconciliationTriggerAt < FOREGROUND_RECONCILIATION_INTERVAL_MS) {
+          return;
+        }
+        scheduleQuestReconciliation({ reason: "foreground_resume", delay: 0 });
       });
     }
 
@@ -1418,6 +1798,7 @@
       window.SummerQuestAnalyticsDebug = Object.freeze({
         state: debugState,
         backfill: backfillHistoricalEvents,
+        reconcile: options => reconcileQuestState({ force: true, ...options }),
         report: developerReport
       });
       console.info(
@@ -1438,6 +1819,8 @@
     isSharingEnabled,
     setSharingEnabled,
     migrationStatus: migrationAuditState,
+    reconciliationStatus: getReconciliationState,
+    reconcileQuestState,
     onStatusChange(listener) {
       statusListeners.push(listener);
       return () => {
@@ -1502,9 +1885,13 @@
       previousCompletedCount = 0,
       wasCompletedBefore = false
     } = {}) {
+      const reconciliationInitiated = scheduleQuestReconciliation({
+        reason: wasCompletedBefore ? "quest_edited" : "quest_saved",
+        delay: 0
+      });
       if (wasCompletedBefore) {
         debugQuestCompletion("[Analytics] quest_completed skipped: already completed", questId);
-        return false;
+        return reconciliationInitiated;
       }
 
       const details = questCompletionDetails(questId, submission, { historical: false });

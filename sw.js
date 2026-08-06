@@ -1,6 +1,6 @@
 importScripts("./version.js");
 
-// Refresh installed clients for the confirmed analytics migration repair.
+// Refresh installed clients for recurring quest-state reconciliation.
 const WORKER_VERSION = self.SUMMER_QUEST_BUILD?.version || "unknown";
 if (!self.SUMMER_QUEST_BUILD?.isValid?.(WORKER_VERSION)) {
   console.warn(`[PWA] Invalid MMDDNN worker version: ${WORKER_VERSION}`);

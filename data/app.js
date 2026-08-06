@@ -465,6 +465,8 @@ const els = {
   closePrivacyModal: document.querySelector("#closePrivacyModal"),
   confirmPrivacyModal: document.querySelector("#confirmPrivacyModal"),
   privacySharingToggle: document.querySelector("#privacySharingToggle"),
+  syncAnalyticsNow: document.querySelector("#syncAnalyticsNow"),
+  privacySyncStatus: document.querySelector("#privacySyncStatus"),
   openContactModal: document.querySelector("#openContactModal"),
   contactModal: document.querySelector("#contactModal"),
   closeContactModal: document.querySelector("#closeContactModal"),
@@ -1195,8 +1197,21 @@ function initializeAnalyticsSync() {
 function renderPrivacySharingStatus() {
   try {
     els.privacySharingToggle.checked = analyticsSync?.isSharingEnabled?.() !== false;
+    const syncState = analyticsSync?.reconciliationStatus?.();
+    if (!els.privacySharingToggle.checked) {
+      els.privacySyncStatus.textContent = "Sharing is off";
+    } else if (syncState?.pending) {
+      els.privacySyncStatus.textContent = navigator.onLine === false
+        ? "Waiting for connection"
+        : "Sync pending";
+    } else if (syncState?.lastSuccessAt) {
+      els.privacySyncStatus.textContent = "Up to date";
+    } else {
+      els.privacySyncStatus.textContent = "Ready to sync";
+    }
   } catch (error) {
     els.privacySharingToggle.checked = true;
+    els.privacySyncStatus.textContent = "";
     console.warn("[Analytics] Privacy status was unavailable.", error);
   }
 }
@@ -1204,6 +1219,31 @@ function renderPrivacySharingStatus() {
 function updatePrivacySharingPreference() {
   analyticsSync?.setSharingEnabled?.(els.privacySharingToggle.checked);
   renderPrivacySharingStatus();
+}
+
+async function syncAnonymousDataNow() {
+  if (!analyticsSync?.isSharingEnabled?.()) {
+    els.privacySyncStatus.textContent = "Turn sharing on to sync";
+    return;
+  }
+  els.syncAnalyticsNow.disabled = true;
+  els.privacySyncStatus.textContent = "Syncing...";
+  try {
+    const result = await analyticsSync.reconcileQuestState?.({
+      force: true,
+      reason: "manual_sync"
+    });
+    els.privacySyncStatus.textContent = result?.ok
+      ? "Up to date"
+      : navigator.onLine === false
+        ? "Waiting for connection"
+        : "Sync will retry";
+  } catch (error) {
+    els.privacySyncStatus.textContent = "Sync will retry";
+    console.warn("[Analytics] Manual sync will retry later.", error);
+  } finally {
+    els.syncAnalyticsNow.disabled = false;
+  }
 }
 
 function currentRank(score) {
@@ -3228,7 +3268,9 @@ els.form.addEventListener("submit", async (event) => {
     } : {}),
     completedAt:
     previousSubmission?.completedAt ||
-    new Date().toISOString()
+    new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    submissionVersion: (Number(previousSubmission?.submissionVersion) || 0) + 1
   };
 
   try {
@@ -3343,6 +3385,7 @@ async function removeActiveMemory() {
     delete state.submissions[questId];
     delete state.drafts[questId];
     save();
+    analyticsSync?.reconcileQuestState?.({ reason: "quest_removed" });
     removeInProgress = false;
     closeRemoveConfirmation({ restoreFocus: false });
     activeMediaId = null;
@@ -3404,6 +3447,7 @@ els.openPrivacyModal.addEventListener("click", openPrivacyModal);
 els.closePrivacyModal.addEventListener("click", closePrivacyModal);
 els.confirmPrivacyModal.addEventListener("click", closePrivacyModal);
 els.privacySharingToggle.addEventListener("change", updatePrivacySharingPreference);
+els.syncAnalyticsNow.addEventListener("click", syncAnonymousDataNow);
 els.privacyModal.addEventListener("click", (event) => {
   if (event.target === els.privacyModal) closePrivacyModal();
 });

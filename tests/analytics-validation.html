@@ -33,7 +33,8 @@
           appSource,
           journalSource,
           versionSource,
-          receiverSource
+          receiverSource,
+          indexSource
         ] = await Promise.all([
           fetch(validationUrl("../data/analytics.js"), { cache: "no-store" })
             .then(response => response.text()),
@@ -46,6 +47,8 @@
           fetch(validationUrl("../google-apps-script/analytics/Code.gs"), {
             cache: "no-store"
           })
+            .then(response => response.text()),
+          fetch(validationUrl("../index.html"), { cache: "no-store" })
             .then(response => response.text())
         ]);
         const buildVersion = versionSource.match(/const BUILD_VERSION = "(\d{6})";/)?.[1];
@@ -120,10 +123,15 @@
             }
           };
           const fakeDocument = {
+            visibilityState: "hidden",
             querySelector(selector) {
               return selector.includes("application-version")
                 ? { content: buildVersion }
                 : null;
+            },
+            addEventListener(name, listener) {
+              listeners[name] ||= [];
+              listeners[name].push(listener);
             }
           };
           const fakeCrypto = {
@@ -166,12 +174,18 @@
                 return Promise.reject(new Error("network failed"));
               }
               sent.push({ url, body: options?.body });
+              const requestPayload = JSON.parse(options?.body || "{}");
               return Promise.resolve({
                 ok: true,
                 status: 200,
                 text: () => Promise.resolve(JSON.stringify({
                   ok: true,
-                  receiverVersion: "8"
+                  inserted: requestPayload.requestType === "quest_reconciliation"
+                    ? requestPayload.records.length
+                    : 0,
+                  updated: 0,
+                  unchanged: 0,
+                  receiverVersion: "9"
                 }))
               });
             },
@@ -186,6 +200,10 @@
             replacedUrls,
             dispatch(name) {
               (listeners[name] || []).forEach(listener => listener());
+            },
+            setVisibility(value) {
+              fakeDocument.visibilityState = value;
+              (listeners.visibilitychange || []).forEach(listener => listener());
             },
             async payloads() {
               return Promise.all(sent.map(async entry =>
@@ -556,7 +574,7 @@
           "Existing installation backfills every recoverable historical event once",
           historicalCounts.app_first_opened === 1 &&
             historicalCounts.app_installed === 1 &&
-            historicalCounts.quest_completed === 2 &&
+            !historicalCounts.quest_completed &&
             historicalCounts.first_quest_completed === 1 &&
             historicalCounts.adventure_completed === 1 &&
             historicalCounts.journal_first_opened === 1 &&
@@ -569,13 +587,16 @@
           historicalCounts
         );
         check(
-          "Historical quest and adventure payloads retain their original values",
-          historicalEvents.some(payload =>
-            payload.eventName === "quest_completed" &&
-            payload.questId === "first" &&
-            payload.completedAt === privateSubmission.completedAt &&
-            payload.bonusCount === 1 &&
-            JSON.stringify(payload.bonusIds) === JSON.stringify(["bonus"])
+          "Historical adventure event and quest reconciliation retain saved values",
+          historicalPayloads.some(payload =>
+            payload.requestType === "quest_reconciliation" &&
+            payload.records.length === 2 &&
+            payload.records.some(record =>
+              record.recordKey === "SQ-ABCDEF12:first" &&
+              record.completedAt === privateSubmission.completedAt &&
+              record.bonusPoints === 3 &&
+              JSON.stringify(record.selectedBonusIds) === JSON.stringify(["bonus"])
+            )
           ) && historicalEvents.some(payload =>
             payload.eventName === "adventure_completed" &&
             payload.completedAt === finalSubmission.completedAt &&
@@ -619,7 +640,9 @@
         check(
           "Offline existing installation sends nothing and does not complete backfill",
           (await offline.payloads()).length === 0 &&
-            !offlineStore.has("summerQuestAnalyticsBackfillV1")
+            !offlineStore.has("summerQuestAnalyticsBackfillV1") &&
+            JSON.parse(offlineStore.get("summerQuestQuestReconciliationV1") || "{}")
+              .pending === true
         );
         const onlineRetry = createHarness({ store: offlineStore, runTimers: true, randomSeed: 80 });
         onlineRetry.api.init(questContext({ submissions: { first: privateSubmission } }, {
@@ -682,7 +705,7 @@
         check(
           "Partial backfill resumes without duplicating successful historical rows",
           countEvents(partialCombined).app_first_opened === 1 &&
-            countEvents(partialCombined).quest_completed === 1 &&
+            countEvents(partialCombined).first_quest_completed === 1 &&
             partialStore.get("summerQuestAnalyticsBackfillV1") === "1.1",
           countEvents(partialCombined)
         );
@@ -788,24 +811,87 @@
           staleMigrationStore.get("summerQuestAnalyticsBackfillStateV2") || "{}"
         );
         const repairedMigrationStatus = staleMigration.api.migrationStatus();
+        const repairedReconciliationState = JSON.parse(
+          staleMigrationStore.get("summerQuestQuestReconciliationV1") || "{}"
+        );
         check(
           "Stale migration and dedupe state cannot suppress saved quest repair",
           staleMigrationPayloads.some(payload =>
-            payload.historical === true &&
-            payload.eventName === "quest_completed" &&
-            payload.questId === "first" &&
-            payload.eventKey ===
-              "d232f08c-eda5-4d08-9c0a-fba807e206e0:quest_completed:first"
+            payload.requestType === "quest_reconciliation" &&
+            payload.records.some(record =>
+              record.recordKey === "d232f08c-eda5-4d08-9c0a-fba807e206e0:first"
+            )
           ) &&
             staleMigrationStore.get("summerQuestAnalyticsBackfillV1") === "1.1" &&
             repairedMigrationState.status === "completed" &&
             repairedMigrationState.completed === true &&
             repairedMigrationState.lastReceiverStatus === 200 &&
-            repairedMigrationState.deployedReceiverVersion === "8" &&
+            repairedMigrationState.deployedReceiverVersion === "9" &&
             repairedMigrationState.recordsQueued === repairedMigrationState.recordsUploaded &&
+            repairedReconciliationState.pending === false &&
+            repairedReconciliationState.records.first.confirmedHash &&
             repairedMigrationStatus.pendingQueueCount === 0 &&
             repairedMigrationStatus.completedSubmissionCount === 1,
-          { repairedMigrationState, repairedMigrationStatus }
+          { repairedMigrationState, repairedMigrationStatus, repairedReconciliationState }
+        );
+
+        const recurringStore = new Map([
+          ["summerQuestInstallationId", "SQ-RECUR123"]
+        ]);
+        const recurringState = { submissions: { first: { ...privateSubmission } } };
+        const recurring = createHarness({
+          store: recurringStore,
+          runTimers: true,
+          randomSeed: 150
+        });
+        recurring.api.init(questContext(recurringState));
+        await new Promise(resolve => window.setTimeout(resolve, 40));
+        recurringState.submissions.first = {
+          ...recurringState.submissions.first,
+          friends: 3,
+          submissionVersion: 2,
+          updatedAt: "2026-08-05T19:00:00.000Z"
+        };
+        recurring.api.trackQuestSaved({
+          questId: "first",
+          submission: recurringState.submissions.first,
+          previousCompletedCount: 1,
+          wasCompletedBefore: true
+        });
+        await new Promise(resolve => window.setTimeout(resolve, 40));
+        delete recurringState.submissions.first;
+        await recurring.api.reconcileQuestState({ reason: "quest_removed" });
+        const recurringPayloads = (await recurring.payloads()).filter(payload =>
+          payload.requestType === "quest_reconciliation"
+        );
+        const recurringSyncState = JSON.parse(
+          recurringStore.get("summerQuestQuestReconciliationV1") || "{}"
+        );
+        check(
+          "Quest reconciliation repeats for saves and edits and confirms deletion tombstones",
+          recurringPayloads.length === 3 &&
+            recurringPayloads[0].records[0].recordKey === "SQ-RECUR123:first" &&
+            recurringPayloads[0].records[0].completionStatus === "completed" &&
+            recurringPayloads[1].records[0].friendsCount === 3 &&
+            recurringPayloads[1].records[0].submissionVersion === 2 &&
+            recurringPayloads[2].records[0].completionStatus === "deleted" &&
+            recurringSyncState.pending === false &&
+            recurringSyncState.records.first.confirmedHash,
+          { recurringPayloads, recurringSyncState }
+        );
+
+        const recurringRestart = createHarness({
+          store: recurringStore,
+          runTimers: true,
+          randomSeed: 160
+        });
+        recurringRestart.api.init(questContext(recurringState));
+        await new Promise(resolve => window.setTimeout(resolve, 40));
+        check(
+          "Confirmed unchanged quest state skips upload on restart",
+          (await recurringRestart.payloads()).every(payload =>
+            payload.requestType !== "quest_reconciliation"
+          )
         );
 
         const staleDedupeStore = new Map([
@@ -854,6 +940,24 @@
             submitBranch.indexOf("save();") >= 0 &&
             submitBranch.indexOf("analyticsSync?.trackQuestSaved") > submitBranch.indexOf("save();") &&
             submitBranch.includes("wasCompletedBefore")
+        );
+        check(
+          "Quest reconciliation is triggered only by lifecycle and persistence boundaries",
+          analyticsSource.includes('reason: "app_open"') &&
+            analyticsSource.includes('reason: "foreground_resume"') &&
+            analyticsSource.includes('reason: "reconnected"') &&
+            analyticsSource.includes('reason: wasCompletedBefore ? "quest_edited" : "quest_saved"') &&
+            appSource.includes('reason: "quest_removed"') &&
+            appSource.includes('reason: "manual_sync"') &&
+            appSource.includes('syncAnalyticsNow.addEventListener("click"') &&
+            indexSource.includes('id="syncAnalyticsNow"')
+        );
+        check(
+          "Saved submissions carry stable reconciliation version metadata",
+          submitBranch.includes("submissionVersion:") &&
+            submitBranch.includes("updatedAt:") &&
+            submitBranch.indexOf("submissionVersion:") < submitBranch.indexOf("save();") &&
+            submitBranch.indexOf("updatedAt:") < submitBranch.indexOf("save();")
         );
         const feedbackSuccess = appSource.slice(
           appSource.indexOf("const response = await fetch(CONTACT_FORM_ENDPOINT"),
@@ -906,12 +1010,12 @@
         );
 
         const receiverApi = new Function(
-          `${receiverSource}\nreturn { version: RECEIVER_VERSION, headers: ANALYTICS_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields };`
+          `${receiverSource}\nreturn { version: RECEIVER_VERSION, headers: ANALYTICS_HEADERS, questHeaders: QUEST_RECORD_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders, ensureQuest: ensureQuestRecordHeaders, reconcile: reconcileQuestRecords, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, questSheetName: questRecordSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields, missingReconciliationFields: analyticsMissingReconciliationFields };`
         )();
         const receiverValues = receiverApi.values(firstQuestPayload);
         check(
           "Apps Script receiver maps the complete v1.0 contract",
-          receiverApi.version === "8" &&
+          receiverApi.version === "9" &&
           receiverApi.headers[0] === "Received At" &&
           !Number.isNaN(Date.parse(receiverValues["Received At"])) &&
           [
@@ -956,6 +1060,121 @@
             ) === "Beta Events" &&
             receiverApi.isTest({ environment: "beta", is_test: true }) === true &&
             receiverApi.isTest({ environment: "development", is_test: false }) === false
+        );
+        check(
+          "Quest reconciliation uses dedicated production and explicit test sheets",
+          receiverApi.questSheetName(
+            { environment: "beta", is_test: false },
+            sheetProperties({})
+          ) === "Quest Records" &&
+            receiverApi.questSheetName(
+              { environment: "development", is_test: true },
+              sheetProperties({})
+            ) === "Quest Records Testing" &&
+            receiverApi.questSheetName(
+              { is_test: false },
+              sheetProperties({ ANALYTICS_QUEST_SHEET_NAME: "Current Quests" })
+            ) === "Current Quests"
+        );
+        check(
+          "Receiver inserts, updates, deletes, and no-ops one row per stable quest key",
+          (() => {
+            const rows = [];
+            const sheet = {
+              getLastColumn: () => rows[0]?.length || 0,
+              getLastRow: () => rows.length,
+              getRange(row, column, rowCount = 1, columnCount = 1) {
+                return {
+                  getValues: () => Array.from({ length: rowCount }, (_, rowOffset) =>
+                    Array.from({ length: columnCount }, (_, columnOffset) =>
+                      rows[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? ""
+                    )
+                  ),
+                  setValues(values) {
+                    values.forEach((valueRow, rowOffset) => {
+                      rows[row - 1 + rowOffset] ||= [];
+                      valueRow.forEach((value, columnOffset) => {
+                        rows[row - 1 + rowOffset][column - 1 + columnOffset] = value;
+                      });
+                    });
+                    return this;
+                  },
+                  setNumberFormat() {
+                    return this;
+                  },
+                  setValue(value) {
+                    rows[row - 1] ||= [];
+                    rows[row - 1][column - 1] = value;
+                    return this;
+                  }
+                };
+              }
+            };
+            const headers = receiverApi.ensureQuest(sheet);
+            const records = Array.from({ length: 10 }, (_, index) => ({
+              questId: `quest-${index + 1}`,
+              questTitle: `Quest ${index + 1}`,
+              completionStatus: "completed",
+              completedAt: `2026-08-${String(index + 1).padStart(2, "0")}T12:00:00.000Z`,
+              friendsCount: index,
+              selectedBonusIds: index % 2 ? ["bonus"] : [],
+              basePoints: 10,
+              friendPoints: index,
+              bonusPoints: index % 2 ? 3 : 0,
+              questTotalPoints: 10 + index + (index % 2 ? 3 : 0),
+              runningTotalPoints: (index + 1) * 10,
+              hasPhoto: true,
+              hasCaption: index % 2 === 0,
+              hasReflection: false,
+              submissionVersion: 1,
+              updatedAt: "2026-08-05T20:00:00.000Z",
+              recordHash: `hash-${index + 1}`
+            }));
+            const payload = {
+              installationId: "SQ-TENQUEST",
+              timestamp: "2026-08-05T20:00:00.000Z",
+              build: "080504",
+              platform: "QA",
+              displayMode: "browser",
+              language: "en-US",
+              source: "app_open",
+              environment: "beta",
+              is_test: false,
+              records
+            };
+            const first = receiverApi.reconcile(sheet, headers, payload);
+            const second = receiverApi.reconcile(sheet, headers, payload);
+            records[4] = {
+              ...records[4],
+              friendsCount: 9,
+              submissionVersion: 2,
+              updatedAt: "2026-08-05T21:00:00.000Z",
+              recordHash: "hash-5-edit"
+            };
+            const edit = receiverApi.reconcile(sheet, headers, { ...payload, records: [records[4]] });
+            records[6] = {
+              ...records[6],
+              completionStatus: "deleted",
+              completedAt: null,
+              questTotalPoints: 0,
+              submissionVersion: 2,
+              updatedAt: "2026-08-05T22:00:00.000Z",
+              recordHash: "hash-7-delete"
+            };
+            const deletion = receiverApi.reconcile(
+              sheet,
+              headers,
+              { ...payload, records: [records[6]] }
+            );
+            const receivedAtColumn = headers.indexOf("Received At");
+            const keyColumn = headers.indexOf("Record Key");
+            return first.inserted === 10 && first.updated === 0 &&
+              second.inserted === 0 && second.updated === 0 && second.unchanged === 10 &&
+              edit.updated === 1 && deletion.updated === 1 &&
+              rows.length === 11 &&
+              new Set(rows.slice(1).map(row => row[keyColumn])).size === 10 &&
+              rows.slice(1).every(row => !Number.isNaN(Date.parse(row[receivedAtColumn])));
+          })()
         );
         check(
           "Missing Script Property falls back to the current client secret",
