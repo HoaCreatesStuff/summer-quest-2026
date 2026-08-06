@@ -46,12 +46,13 @@ New service workers fetch a complete, versioned shell during installation; the
 player then uses **Restart** to activate it without interrupting current
 gameplay.
 
-For each release:
-
-1. Set the version in `version.js` to today's `MMDD` plus `01`, or increment
-   `NN` when another release has already been made that day.
-2. Confirm `sw.js` changes byte-for-byte so installed PWAs detect the release.
-3. Run `tests/pwa-update-validation.html` with the other browser tests.
+For each release, run `python3 scripts/bump_build.py` before committing or
+deploying. It reads the local date, chooses the next unused `MMDDNN` build,
+updates `version.js` and generated worker metadata together, and fails if their
+versions, cache name, or stale build references disagree. Use
+`python3 scripts/bump_build.py --dry-run` to report the current build, local
+date, next build, and files it would update without writing anything. Then run
+`tests/pwa-update-validation.html` with the other browser tests.
 
 Run `python3 tests/offline_regression_check.py` before release to confirm that
 runtime assets exist locally, are precached, and do not reference external font
@@ -62,6 +63,7 @@ or script/style CDNs.
 - `style.css`
 - `version.js`
 - `sw.js`
+- `scripts/bump_build.py`
 - `data/quests.js`
 - `data/boardConfig.js`
 - `data/mediaStorage.js`

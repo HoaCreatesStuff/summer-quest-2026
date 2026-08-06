@@ -175,6 +175,12 @@
           ?.getAttribute("content");
         const footerBuildElement = indexDocument.querySelector("#footerBuildText");
         const duplicatedBuildPattern = /(?:\b\d{5,6}\b|\b\d{4}\.\d{2}\.\d{2}\.\d+\b)/;
+        const workerGeneratedBuild = workerSource.match(
+          /const GENERATED_WORKER_VERSION = "(\d{6})";/
+        )?.[1];
+        const workerCacheName = workerSource.match(
+          /const CACHE_NAME = "(summer-quest-app-\d{6})";/
+        )?.[1];
 
         check(
           "version.js defines one valid MMDDNN build value",
@@ -209,10 +215,9 @@
             versionSource.includes('[data-build-version]')
         );
         check(
-          "HTML, manifest, worker, and updater contain no duplicate build literal",
+          "HTML, manifest, and updater contain no manually duplicated build literal",
           !duplicatedBuildPattern.test(indexSource) &&
             !duplicatedBuildPattern.test(JSON.stringify(manifest)) &&
-            !duplicatedBuildPattern.test(workerSource) &&
             !duplicatedBuildPattern.test(updaterSource) &&
             !manifest.start_url.includes("build=")
         );
@@ -227,6 +232,8 @@
         check(
           "Worker uses versioned caches and removes only obsolete app caches",
           workerSource.includes('const CACHE_PREFIX = "summer-quest-app-"') &&
+            workerGeneratedBuild === buildVersion &&
+            workerCacheName === `summer-quest-app-${buildVersion}` &&
             workerSource.includes("self.SUMMER_QUEST_BUILD?.version") &&
             workerSource.includes("self.SUMMER_QUEST_BUILD?.isValid") &&
             workerSource.includes("WORKER_VERSION") &&
