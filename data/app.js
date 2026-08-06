@@ -309,6 +309,9 @@ Object.values(state.submissions).forEach((submission) => {
     submission.completed = true;
   }
 });
+// State loading and legacy ID migration above are synchronous. Analytics gets
+// this exact object only after both have completed, never an empty startup copy.
+const persistedQuestStateReady = true;
 let activeQuest = null;
 let activeMediaId = null;
 let activeMediaType = null;
@@ -1174,6 +1177,7 @@ function initializeAnalyticsSync() {
     analyticsSync?.init({
       hadStoredAppState: HAD_STORED_APP_STATE,
       getState: () => state,
+      stateReady: () => persistedQuestStateReady,
       quests: window.QUESTS,
       boardOrder: window.BOARD_ORDER,
       finalQuestId: FINAL_QUEST_ID,

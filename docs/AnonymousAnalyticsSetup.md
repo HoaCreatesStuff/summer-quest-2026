@@ -64,7 +64,10 @@ No other analytics events are permitted.
   repair counters.
 - `summerQuestQuestReconciliationV1`: confirmed hashes and retry state for the
   recurring quest-state projection. A record is confirmed only after a readable
-  receiver `{ "ok": true }` response.
+  receiver `{ "ok": true }` response. Reconciliation metadata v1 is safely
+  replaced once by v2 so installations affected during the initial receiver
+  rollout resend their current quest records; no quest progress or memories are
+  altered.
 - `summerQuestAnonymousSharingEnabled`: privacy preference; missing means enabled.
 
 A board reset does not reset analytics identity or dedupe state.

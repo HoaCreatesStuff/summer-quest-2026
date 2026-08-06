@@ -15,7 +15,10 @@
   const FEATURE_FIRST_OPEN_KEY = "summerQuestFeatureFirstOpenedV1";
   const FIRST_OPEN_MIGRATION_KEY = "summerQuestFirstOpenMigrationV1";
   const RECONCILIATION_KEY = "summerQuestQuestReconciliationV1";
-  const RECONCILIATION_VERSION = "1";
+  // v1 could retain a locally confirmed hash from the initial receiver rollout
+  // even when that receiver had not materialized the matching row.  Treat that
+  // metadata as untrusted once, without touching any saved quest data.
+  const RECONCILIATION_VERSION = "2";
   const FETCH_TIMEOUT_MS = 2500;
   const RECONCILIATION_TIMEOUT_MS = 10000;
   const BACKFILL_START_DELAY_MS = 500;
@@ -143,6 +146,9 @@
       lastReceiverStatus: null,
       lastReceiverBody: null,
       receiverVersion: null,
+      normalizedRecordCount: 0,
+      uploadedRecordCount: 0,
+      lastReceiverResult: null,
       inserted: 0,
       updated: 0,
       unchanged: 0
@@ -1028,6 +1034,13 @@
     return records;
   }
 
+  function reconciliationInputIsReady() {
+    const currentState = context?.getState?.();
+    return context?.stateReady?.() !== false &&
+      currentState?.submissions &&
+      typeof currentState.submissions === "object";
+  }
+
   function reconciliationPayload(records, reason) {
     const installationId = getInstallationId({ create: true });
     if (!installationId) return null;
@@ -1072,7 +1085,19 @@
       writeReconciliationState({
         lastReceiverStatus: response.status,
         lastReceiverBody: responseBody.slice(0, 1000) || null,
-        receiverVersion: result?.receiverVersion || null
+        receiverVersion: result?.receiverVersion || null,
+        lastReceiverResult: result && typeof result === "object"
+          ? {
+              ok: result.ok === true,
+              sheet: result.sheet || null,
+              inserted: Number(result.inserted) || 0,
+              updated: Number(result.updated) || 0,
+              unchanged: Number(result.unchanged) || 0,
+              receiverVersion: result.receiverVersion || null,
+              error: result.error || null,
+              stage: result.stage || null
+            }
+          : null
       });
       return response.ok && result?.ok === true ? result : null;
     } catch (error) {
@@ -1112,6 +1137,15 @@
         });
         return { ok: false, error: "offline" };
       }
+      if (!reconciliationInputIsReady()) {
+        writeReconciliationState({
+          pending: true,
+          lastAttemptAt: attemptedAt,
+          lastReason: reason,
+          lastError: "persisted_state_not_ready"
+        });
+        return { ok: false, error: "persisted_state_not_ready" };
+      }
 
       const state = getReconciliationState();
       const records = normalizedQuestStateRecords(state);
@@ -1141,6 +1175,8 @@
           records: recordMetadata,
           pending: false,
           pendingRecordCount: 0,
+          normalizedRecordCount: records.length,
+          uploadedRecordCount: 0,
           lastAttemptAt: attemptedAt,
           lastSuccessAt: attemptedAt,
           lastReason: reason,
@@ -1156,6 +1192,8 @@
         records: recordMetadata,
         pending: true,
         pendingRecordCount: candidates.length,
+        normalizedRecordCount: records.length,
+        uploadedRecordCount: 0,
         lastAttemptAt: attemptedAt,
         lastReason: reason,
         lastError: null
@@ -1165,6 +1203,7 @@
         writeReconciliationState({
           pending: true,
           pendingRecordCount: candidates.length,
+          uploadedRecordCount: 0,
           lastError: "receiver_confirmation_failed"
         });
         return { ok: false, error: "receiver_confirmation_failed" };
@@ -1185,6 +1224,8 @@
         records: confirmedRecords,
         pending: false,
         pendingRecordCount: 0,
+        normalizedRecordCount: records.length,
+        uploadedRecordCount: candidates.length,
         lastSuccessAt: confirmedAt,
         lastError: null,
         inserted: Number(result.inserted) || 0,
@@ -1568,10 +1609,16 @@
       deployedReceiverVersion:
         reconciliationState.receiverVersion || backfillState.deployedReceiverVersion,
       reconciliationState: reconciliationState.pending ? "pending" : "confirmed",
+      normalizedQuestRecordCount: reconciliationState.normalizedRecordCount,
+      queuedQuestRecordCount: reconciliationState.pendingRecordCount,
+      uploadedQuestRecordCount: reconciliationState.uploadedRecordCount,
       reconciliationPendingRecordCount: reconciliationState.pendingRecordCount,
       reconciliationLastAttemptAt: reconciliationState.lastAttemptAt,
       reconciliationLastSuccessAt: reconciliationState.lastSuccessAt,
       reconciliationLastError: reconciliationState.lastError,
+      reconciliationLastReceiverStatus: reconciliationState.lastReceiverStatus,
+      reconciliationLastReceiverResponse: reconciliationState.lastReceiverBody,
+      reconciliationLastReceiverResult: reconciliationState.lastReceiverResult,
       reconciliationInserted: reconciliationState.inserted,
       reconciliationUpdated: reconciliationState.updated,
       reconciliationUnchanged: reconciliationState.unchanged
@@ -1646,6 +1693,14 @@
       savedQuestRecordCount: savedQuestRecordCount(),
       completedQuestCount: completedQuestRecordCount(),
       normalizedHistoricalRecordCount: normalizedHistoricalRecordCount(),
+      normalizedQuestRecordCount: getReconciliationState().normalizedRecordCount,
+      queuedQuestRecordCount: getReconciliationState().pendingRecordCount,
+      uploadedQuestRecordCount: getReconciliationState().uploadedRecordCount,
+      reconciliationStatus: getReconciliationState().pending ? "pending" : "confirmed",
+      reconciliationLastError: getReconciliationState().lastError,
+      reconciliationLastReceiverStatus: getReconciliationState().lastReceiverStatus,
+      reconciliationLastReceiverResponse: getReconciliationState().lastReceiverBody,
+      reconciliationLastReceiverResult: getReconciliationState().lastReceiverResult,
       queuedHistoricalRecordCount: backfillState.recordsQueued || 0,
       uploadedHistoricalRecordCount: backfillState.recordsUploaded || 0,
       pendingAnalyticsQueueCount: Math.max(
