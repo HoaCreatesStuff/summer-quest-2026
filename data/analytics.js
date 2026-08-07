@@ -25,6 +25,7 @@
   const BACKFILL_BETWEEN_EVENTS_MS = 120;
   const RECONCILIATION_START_DELAY_MS = 700;
   const FOREGROUND_RECONCILIATION_INTERVAL_MS = 5 * 60 * 1000;
+  const SESSION_INACTIVITY_MS = 30 * 60 * 1000;
   const DEBUG_PARAM = "summer-quest-analytics-debug";
   const PRODUCTION_PROTOCOL = "https:";
   const PRODUCTION_HOSTNAME = "hoacreatesstuff.github.io";
@@ -35,6 +36,7 @@
     app_opened: "app",
     app_installed: "app",
     quest_completed: "gameplay",
+    quest_removed: "gameplay",
     first_quest_completed: "gameplay",
     adventure_completed: "gameplay",
     journal_first_opened: "journal",
@@ -67,8 +69,8 @@
   ]);
 
   const debugMode = new URLSearchParams(window.location.search).has(DEBUG_PARAM);
-  const sessionId = `SESSION-${randomHex(6)}`;
-  const sessionEvents = new Set();
+  let sessionId = `SESSION-${randomHex(6)}`;
+  let sessionEvents = new Set();
 
   let context = null;
   let initialized = false;
@@ -76,8 +78,11 @@
   let historicalBackfillScheduled = false;
   let existingHistoryAtInitialization = false;
   let reconciliationScheduled = false;
+  let reconciliationScheduleTimer = 0;
+  let scheduledReconciliation = null;
   let reconciliationPromise = null;
   let lastReconciliationTriggerAt = 0;
+  let backgroundedAt = 0;
   let sessionDeveloperMode = null;
   let receiverRepairStats = {
     duplicateFirstOpenEventsDetected: 0,
@@ -95,6 +100,11 @@
 
   function nowIso() {
     return new Date().toISOString();
+  }
+
+  function beginNewSession() {
+    sessionId = `SESSION-${randomHex(6)}`;
+    sessionEvents = new Set();
   }
 
   function readStorage(key) {
@@ -386,7 +396,6 @@
         timestamp: resolved.timestamp,
         source: resolved.source,
         historicalStatus: resolved.historicalStatus || "exact",
-        timestampPrecision: resolved.timestampPrecision || "exact",
         evidenceUsed: resolved.evidenceUsed || "direct",
         firstObservedByAnalyticsAt: resolved.firstObservedByAnalyticsAt || null
       }
@@ -430,7 +439,6 @@
     writeFeatureFirstOpen("app_first_opened", {
       ...resolved,
       historicalStatus: "exact",
-      timestampPrecision: resolved.exactTimeKnown ? "exact" : "estimated",
       evidenceUsed: resolved.source
     });
     return writeStorage(FIRST_OPENED_AT_KEY, resolved.timestamp);
@@ -444,7 +452,6 @@
       timestamp,
       source: stored.source || "persisted_feature_first_open",
       historicalStatus: stored.historicalStatus || "exact",
-      timestampPrecision: stored.timestampPrecision || "exact",
       evidenceUsed: stored.evidenceUsed || "persisted_feature_first_open",
       firstObservedByAnalyticsAt: stored.firstObservedByAnalyticsAt || null
     };
@@ -461,7 +468,6 @@
         timestamp: evidenceTimestamp,
         source: evidence.source || fallbackSource,
         historicalStatus: "exact",
-        timestampPrecision: "exact",
         evidenceUsed: evidenceName,
         firstObservedByAnalyticsAt: evidenceTimestamp
       };
@@ -473,7 +479,6 @@
         timestamp: sentTimestamp,
         source: "analytics_dedupe",
         historicalStatus: "exact",
-        timestampPrecision: "exact",
         evidenceUsed: "analytics_dedupe",
         firstObservedByAnalyticsAt: sentTimestamp
       };
@@ -505,7 +510,6 @@
         timestamp: generatedTimestamp,
         source: "historical_import",
         historicalStatus: "inferred",
-        timestampPrecision: "estimated",
         evidenceUsed: "keepsake_generated",
         firstObservedByAnalyticsAt: generatedTimestamp
       };
@@ -521,7 +525,6 @@
         timestamp: resolved.timestamp,
         source: resolved.source === "current_timestamp" ? "realtime" : "historical_import",
         historicalStatus: resolved.source === "current_timestamp" ? "exact" : "reconstructed",
-        timestampPrecision: resolved.exactTimeKnown ? "exact" : "estimated",
         evidenceUsed: resolved.source,
         firstObservedByAnalyticsAt: null
       };
@@ -579,8 +582,7 @@
       lastReceiverStatus: null,
       lastReceiverBody: null,
       deployedReceiverVersion: null,
-      completed: false,
-      completedAt: null
+      completed: false
     };
   }
 
@@ -590,7 +592,6 @@
       recordsQueued: 0,
       recordsUploaded: 0,
       completed: false,
-      completedAt: null,
       ...patch
     });
   }
@@ -674,7 +675,6 @@
     if (!resolved) return {};
     return {
       historicalStatus: resolved.historicalStatus || null,
-      timestampPrecision: resolved.timestampPrecision || null,
       evidenceUsed: resolved.evidenceUsed || null,
       firstObservedByAnalyticsAt: resolved.firstObservedByAnalyticsAt || null
     };
@@ -867,7 +867,7 @@
   }
 
   function completedAt(submission, { fallbackToNow = false } = {}) {
-    const timestamp = Date.parse(submission?.completedAt || "");
+    const timestamp = Date.parse(submission?.firstCompletedAt || submission?.completedAt || "");
     if (!Number.isNaN(timestamp)) return new Date(timestamp).toISOString();
     const localDateTimestamp = localDateToIso(submission?.adventureDate);
     if (localDateTimestamp) return localDateTimestamp;
@@ -888,7 +888,6 @@
     return {
       questId,
       questTitle: quest.title,
-      completedAt: completedAt(submission, { fallbackToNow: !historical }),
       adventureDate: submission.adventureDate || null,
       points: context?.questPoints?.(submission, questId) || 0,
       friendCount: context?.isFinalQuest?.(questId)
@@ -900,14 +899,24 @@
     };
   }
 
+  function questRemovalDetails(questId, submission) {
+    const quest = context?.quests?.[questId];
+    if (!quest) return null;
+    return {
+      questId,
+      questTitle: quest.title,
+      adventureDate: submission?.adventureDate || null,
+      points: context?.questPoints?.(submission, questId) || 0
+    };
+  }
+
   function adventureCompletionDetails(entries, finalEntry) {
     const totals = context.totalsForSubmissions(context.getState().submissions);
     return {
       totalCompletedQuests: totals.completed,
       totalPoints: totals.score,
       totalFriends: totalFriends(entries),
-      finalRank: context.rankForScore?.(totals.score)?.title || null,
-      completedAt: completedAt(finalEntry.submission, { fallbackToNow: true })
+      finalRank: context.rankForScore?.(totals.score)?.title || null
     };
   }
 
@@ -925,7 +934,14 @@
     return validIso(value) || fallback;
   }
 
-  function questStateRecord(questId, submission, runningTotalPoints, metadata = {}) {
+  function firstCompletedAtForRecord(submission, metadata = {}) {
+    return validRecordTimestamp(
+      submission?.firstCompletedAt,
+      validRecordTimestamp(submission?.completedAt, validRecordTimestamp(metadata.firstCompletedAt, null))
+    );
+  }
+
+  function questStateRecord(questId, submission, metadata = {}) {
     const quest = context?.quests?.[questId];
     if (!quest || !submission || typeof submission !== "object") return null;
 
@@ -948,24 +964,24 @@
         }, 0)
       : 0;
     const questTotalPoints = completed ? basePoints + friendPoints + bonusPoints : 0;
-    const completedAtValue = completedAt(submission);
+    const firstCompletedAt = firstCompletedAtForRecord(submission, metadata);
     const updatedAt = validRecordTimestamp(
       submission.updatedAt,
-      completedAtValue || validRecordTimestamp(metadata.observedAt, nowIso())
+      firstCompletedAt || validRecordTimestamp(metadata.observedAt, nowIso())
     );
     const record = {
       recordKey: `${getInstallationId({ create: true })}:${questId}`,
       questId,
       questTitle: quest.title,
       completionStatus: completed ? "completed" : "incomplete",
-      completedAt: completedAtValue,
+      firstCompletedAt,
+      adventureDate: submission.adventureDate || null,
       friendsCount,
       selectedBonusIds: normalizedBonusIds,
       basePoints,
       friendPoints,
       bonusPoints,
       questTotalPoints,
-      runningTotalPoints,
       hasPhoto: Boolean(submission.mediaId || submission.dataUrl),
       hasCaption: Boolean(String(submission.caption || "").trim()),
       hasReflection: Boolean(String(submission.reflection || "").trim()),
@@ -984,14 +1000,14 @@
       questId,
       questTitle: quest.title,
       completionStatus: "deleted",
-      completedAt: null,
+      firstCompletedAt: validRecordTimestamp(metadata?.firstCompletedAt, null),
+      adventureDate: metadata?.adventureDate || null,
       friendsCount: 0,
       selectedBonusIds: [],
       basePoints: Number(quest.basePoints) || 0,
       friendPoints: 0,
       bonusPoints: 0,
       questTotalPoints: 0,
-      runningTotalPoints: 0,
       hasPhoto: false,
       hasCaption: false,
       hasReflection: false,
@@ -1007,18 +1023,12 @@
   function normalizedQuestStateRecords(reconciliationState = getReconciliationState()) {
     const submissions = context?.getState?.().submissions || {};
     const records = [];
-    let runningTotalPoints = 0;
-
     (context?.boardOrder || []).forEach(questId => {
       const submission = submissions[questId];
       if (!submission || typeof submission !== "object") return;
-      if (submission.completed === true) {
-        runningTotalPoints += context.questPoints?.(submission, questId) || 0;
-      }
       const record = questStateRecord(
         questId,
         submission,
-        runningTotalPoints,
         reconciliationState.records?.[questId]
       );
       if (record) records.push(record);
@@ -1026,19 +1036,12 @@
 
     const currentQuestIds = new Set(records.map(record => record.questId));
     Object.entries(reconciliationState.records || {}).forEach(([questId, metadata]) => {
-      if (currentQuestIds.has(questId) || !metadata?.confirmedHash) return;
+      if (currentQuestIds.has(questId) || (!metadata?.confirmedHash && !metadata?.deletedAt)) return;
       const deletedRecord = deletedQuestStateRecord(questId, metadata);
       if (deletedRecord) records.push(deletedRecord);
     });
 
     return records;
-  }
-
-  function reconciliationInputIsReady() {
-    const currentState = context?.getState?.();
-    return context?.stateReady?.() !== false &&
-      currentState?.submissions &&
-      typeof currentState.submissions === "object";
   }
 
   function reconciliationPayload(records, reason) {
@@ -1055,10 +1058,48 @@
       displayMode: displayMode(),
       language: navigator.language || "unknown",
       feature: "gameplay",
-      source: reason,
+      // Quest Records are a current-state projection. Lifecycle actions belong
+      // in append-only Events, never in a state row's Source column.
+      source: "state_sync",
       ...runtimeEnvironment(),
       records
     };
+  }
+
+  function recordQuestDeletion({ questId, submission, timestamp = nowIso() } = {}) {
+    if (!validQuestId(questId)) return false;
+
+    const state = getReconciliationState();
+    const previous = state.records?.[questId] || {};
+    const previousVersion = Math.max(
+      Number(submission?.submissionVersion) || 0,
+      Number(previous.submissionVersion) || 0
+    );
+    // A retry or reload retains the first deletion mutation rather than
+    // creating a new timestamp or incrementing the version again.
+    const deletionVersion = Number(previous.deletionVersion) || Math.max(1, previousVersion + 1);
+    const deletedAt = validRecordTimestamp(previous.deletedAt, validRecordTimestamp(timestamp, nowIso()));
+    const firstCompletedAt = firstCompletedAtForRecord(submission, previous);
+
+    writeReconciliationState({
+      records: {
+        ...state.records,
+        [questId]: {
+          ...previous,
+          deletedAt,
+          deletionVersion,
+          firstCompletedAt,
+          adventureDate: submission?.adventureDate || previous.adventureDate || null,
+          submissionVersion: deletionVersion
+        }
+      }
+    });
+    return true;
+  }
+
+  function firstCompletedAtForQuest(questId) {
+    if (!validQuestId(questId)) return null;
+    return validRecordTimestamp(getReconciliationState().records?.[questId]?.firstCompletedAt, null);
   }
 
   async function sendReconciliation(payload) {
@@ -1137,16 +1178,6 @@
         });
         return { ok: false, error: "offline" };
       }
-      if (!reconciliationInputIsReady()) {
-        writeReconciliationState({
-          pending: true,
-          lastAttemptAt: attemptedAt,
-          lastReason: reason,
-          lastError: "persisted_state_not_ready"
-        });
-        return { ok: false, error: "persisted_state_not_ready" };
-      }
-
       const state = getReconciliationState();
       const records = normalizedQuestStateRecords(state);
       const recordMetadata = { ...state.records };
@@ -1161,6 +1192,8 @@
           deletionVersion: record.completionStatus === "deleted"
             ? previous.deletionVersion || record.submissionVersion
             : null,
+          firstCompletedAt: validRecordTimestamp(record.firstCompletedAt, previous.firstCompletedAt || null),
+          adventureDate: record.adventureDate || previous.adventureDate || null,
           submissionVersion: record.submissionVersion
         };
       });
@@ -1251,12 +1284,23 @@
       writeReconciliationState({ pending: true, lastReason: reason, lastError: "offline" });
       return false;
     }
-    if (reconciliationScheduled) return false;
+    if (reconciliationScheduled) {
+      scheduledReconciliation.force = scheduledReconciliation.force || force;
+      scheduledReconciliation.reason = reason;
+      if (delay >= scheduledReconciliation.delay) return false;
+      window.clearTimeout(reconciliationScheduleTimer);
+      scheduledReconciliation.delay = delay;
+    } else {
+      scheduledReconciliation = { force, reason, delay };
+    }
 
     reconciliationScheduled = true;
-    window.setTimeout(() => {
+    reconciliationScheduleTimer = window.setTimeout(() => {
+      const request = scheduledReconciliation;
       reconciliationScheduled = false;
-      reconcileQuestState({ force, reason }).catch(() => {
+      reconciliationScheduleTimer = 0;
+      scheduledReconciliation = null;
+      reconcileQuestState({ force: request.force, reason: request.reason }).catch(() => {
         writeReconciliationState({ pending: true, lastError: "reconciliation_exception" });
       });
     }, delay);
@@ -1399,8 +1443,7 @@
       lastError: null,
       failureStage: null,
       failureReason: null,
-      completed: false,
-      completedAt: null
+      completed: false
     });
 
     if (completedCount > 0 && normalizedCount === 0) {
@@ -1548,7 +1591,6 @@
       status: "completed",
       recordsUploaded: uploadedCount,
       completed: true,
-      completedAt: nowIso(),
       lastError: null,
       failureStage: null,
       failureReason: null
@@ -1791,7 +1833,6 @@
       timestamp: nowIso(),
       source: "realtime",
       historicalStatus: "exact",
-      timestampPrecision: "exact",
       evidenceUsed: source,
       firstObservedByAnalyticsAt: nowIso()
     };
@@ -1836,11 +1877,24 @@
         existingHistoryAtInitialization = existingHistoryAtInitialization ||
           hasHistoricalEvidence();
         historicalBackfillScheduled = false;
-        scheduleQuestReconciliation({ force: true, reason: "reconnected", delay: 0 });
-        startSessionAnalytics();
+        const reconciliationState = getReconciliationState();
+        if (reconciliationState.pending || reconciliationState.lastError) {
+          scheduleQuestReconciliation({ force: true, reason: "reconnected", delay: 0 });
+        }
       });
       document.addEventListener?.("visibilitychange", () => {
-        if (document.visibilityState !== "visible") return;
+        if (document.visibilityState !== "visible") {
+          backgroundedAt ||= Date.now();
+          return;
+        }
+        const inactiveFor = backgroundedAt ? Date.now() - backgroundedAt : 0;
+        backgroundedAt = 0;
+        if (inactiveFor >= SESSION_INACTIVITY_MS) {
+          beginNewSession();
+          startSessionAnalytics();
+          return;
+        }
+        if (!inactiveFor) return;
         if (Date.now() - lastReconciliationTriggerAt < FOREGROUND_RECONCILIATION_INTERVAL_MS) {
           return;
         }
@@ -2001,6 +2055,13 @@
       }
 
       return true;
+    },
+    recordQuestDeletion,
+    firstCompletedAtForQuest,
+    trackQuestRemoved({ questId, submission } = {}) {
+      const details = questRemovalDetails(questId, submission);
+      if (!details) return false;
+      return trackLive("quest_removed", details, { source: "quest_remove" });
     },
     debugState
   };

@@ -1,5 +1,4 @@
 const ANALYTICS_HEADERS = Object.freeze([
-  "Received At",
   "Event Timestamp",
   "Event Name",
   "Event Key",
@@ -7,7 +6,6 @@ const ANALYTICS_HEADERS = Object.freeze([
   "Session ID",
   "Quest ID",
   "Quest Title",
-  "Completed At",
   "Adventure Date",
   "Points",
   "Friend Count",
@@ -22,7 +20,6 @@ const ANALYTICS_HEADERS = Object.freeze([
   "Feature",
   "Source",
   "Historical Status",
-  "Timestamp Precision",
   "Evidence Used",
   "First Observed By Analytics At",
   "Superseded",
@@ -35,21 +32,19 @@ const ANALYTICS_HEADERS = Object.freeze([
   "Final Rank"
 ]);
 const QUEST_RECORD_HEADERS = Object.freeze([
-  "Received At",
-  "Last Received At",
   "Record Key",
   "Installation ID",
   "Quest ID",
   "Quest Title",
   "Completion Status",
-  "Completed At",
+  "First Completed At",
+  "Adventure Date",
   "Friends Count",
   "Selected Bonus IDs",
   "Base Points",
   "Friend Points",
   "Bonus Points",
   "Quest Total Points",
-  "Running Total Points",
   "Has Photo",
   "Has Caption",
   "Has Reflection",
@@ -67,14 +62,14 @@ const QUEST_RECORD_HEADERS = Object.freeze([
 ]);
 const QUEST_RECORD_COMPARE_HEADERS = Object.freeze([
   "Completion Status",
-  "Completed At",
+  "First Completed At",
+  "Adventure Date",
   "Friends Count",
   "Selected Bonus IDs",
   "Base Points",
   "Friend Points",
   "Bonus Points",
   "Quest Total Points",
-  "Running Total Points",
   "Has Photo",
   "Has Caption",
   "Has Reflection",
@@ -82,12 +77,27 @@ const QUEST_RECORD_COMPARE_HEADERS = Object.freeze([
   "Updated At",
   "Record Hash"
 ]);
-const RECEIVER_VERSION = "9";
+const RETIRED_ANALYTICS_HEADERS = Object.freeze([
+  "Received At",
+  "Last Received At",
+  "Completed At",
+  "Timestamp Precision"
+]);
+const RETIRED_QUEST_RECORD_HEADERS = Object.freeze([
+  "Running Total Points"
+]);
+const RECEIVER_VERSION = "11";
 const FALLBACK_ANALYTICS_SECRET = "sq_8Fz3mQ7pL2xN9vK4cR6tY1wX5bD8eM";
 const DEFAULT_ANALYTICS_SHEET_NAME = "Events";
 const DEFAULT_ANALYTICS_TEST_SHEET_NAME = "Analytics Testing";
 const DEFAULT_QUEST_RECORD_SHEET_NAME = "Quest Records";
 const DEFAULT_QUEST_RECORD_TEST_SHEET_NAME = "Quest Records Testing";
+const ANALYTICS_SCHEMA_MIGRATION_SHEETS = Object.freeze([
+  { name: DEFAULT_ANALYTICS_SHEET_NAME, headers: ANALYTICS_HEADERS },
+  { name: DEFAULT_ANALYTICS_TEST_SHEET_NAME, headers: ANALYTICS_HEADERS },
+  { name: DEFAULT_QUEST_RECORD_SHEET_NAME, headers: QUEST_RECORD_HEADERS },
+  { name: DEFAULT_QUEST_RECORD_TEST_SHEET_NAME, headers: QUEST_RECORD_HEADERS }
+]);
 
 function doPost(event) {
   const lock = LockService.getScriptLock();
@@ -142,15 +152,17 @@ function doPost(event) {
       const reconciliationSpreadsheet = analyticsSpreadsheet(properties);
       const reconciliationSheetName = questRecordSheetName(payload, properties);
       stage = "quest_record_sheet_lookup";
-      const reconciliationSheet =
-        reconciliationSpreadsheet.getSheetByName(reconciliationSheetName) ||
-        reconciliationSpreadsheet.insertSheet(reconciliationSheetName);
+      const reconciliationSheet = reconciliationSpreadsheet.getSheetByName(reconciliationSheetName);
       if (!reconciliationSheet) {
-        throw new Error(`Unable to open or create quest record sheet: ${reconciliationSheetName}`);
+        throw new Error(`Quest record sheet does not exist: ${reconciliationSheetName}`);
       }
 
-      stage = "quest_record_header_sync";
-      const reconciliationHeaders = ensureQuestRecordHeaders(reconciliationSheet);
+      stage = "quest_record_schema_validation";
+      const reconciliationHeaders = readReceiverHeaders(
+        reconciliationSheet,
+        QUEST_RECORD_HEADERS,
+        reconciliationSheetName
+      );
       stage = "quest_record_upsert";
       const result = reconcileQuestRecords(
         reconciliationSheet,
@@ -178,11 +190,11 @@ function doPost(event) {
     const spreadsheet = analyticsSpreadsheet(properties);
     const sheetName = analyticsSheetName(payload, properties);
     stage = "sheet_lookup";
-    const sheet = spreadsheet.getSheetByName(sheetName) || spreadsheet.insertSheet(sheetName);
-    if (!sheet) throw new Error(`Unable to open or create analytics sheet: ${sheetName}`);
+    const sheet = spreadsheet.getSheetByName(sheetName);
+    if (!sheet) throw new Error(`Analytics sheet does not exist: ${sheetName}`);
 
-    stage = "header_sync";
-    const headers = ensureAnalyticsHeaders(sheet);
+    stage = "schema_validation";
+    const headers = readReceiverHeaders(sheet, ANALYTICS_HEADERS, sheetName);
     const values = analyticsValues(payload);
     const row = headers.map(header =>
       Object.prototype.hasOwnProperty.call(values, header) ? values[header] : ""
@@ -321,46 +333,201 @@ function analyticsErrorResponse({
   );
 }
 
-function ensureAnalyticsHeaders(sheet) {
-  const lastColumn = sheet.getLastColumn();
-  if (sheet.getLastRow() === 0 || lastColumn === 0) {
-    sheet.getRange(1, 1, 1, ANALYTICS_HEADERS.length)
-      .setValues([Array.from(ANALYTICS_HEADERS)]);
-    return Array.from(ANALYTICS_HEADERS);
+function readReceiverHeaders(sheet, expectedHeaders, sheetName) {
+  const report = inspectAnalyticsSchemaSheet(sheet, sheetName, expectedHeaders);
+  if (!report.validationPassed || report.columnsToRemove.length || report.requiresReorder) {
+    const details = report.errors.length
+      ? report.errors.join("; ")
+      : report.columnsToRemove.length
+        ? `retired columns must be removed with migrateAnalyticsSchemaToV10(): ${report.columnsToRemove.join(", ")}`
+        : "legacy header order must be migrated with migrateAnalyticsSchemaToV10()";
+    throw new Error(`Analytics schema validation failed for ${sheetName}: ${details}`);
   }
-
-  const existingHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-  const missingHeaders = ANALYTICS_HEADERS.filter(
-    header => !existingHeaders.includes(header)
-  );
-  if (missingHeaders.length) {
-    sheet.getRange(1, lastColumn + 1, 1, missingHeaders.length)
-      .setValues([missingHeaders]);
-  }
-  return [...existingHeaders, ...missingHeaders];
+  return report.finalHeaders;
 }
 
-function ensureQuestRecordHeaders(sheet) {
-  const lastColumn = sheet.getLastColumn();
-  if (sheet.getLastRow() === 0 || lastColumn === 0) {
-    sheet.getRange(1, 1, 1, QUEST_RECORD_HEADERS.length)
-      .setValues([Array.from(QUEST_RECORD_HEADERS)]);
-    return Array.from(QUEST_RECORD_HEADERS);
+function previewAnalyticsSchemaMigrationToV11() {
+  return runAnalyticsSchemaMigration(true);
+}
+
+function migrateAnalyticsSchemaToV11() {
+  return runAnalyticsSchemaMigration(false);
+}
+
+// Retain the former entry points for operators who have them bookmarked; both
+// now preview/migrate the v11 schema.
+function previewAnalyticsSchemaMigrationToV10() {
+  return previewAnalyticsSchemaMigrationToV11();
+}
+
+function migrateAnalyticsSchemaToV10() {
+  return migrateAnalyticsSchemaToV11();
+}
+
+function runAnalyticsSchemaMigration(dryRun) {
+  const properties = PropertiesService.getScriptProperties();
+  const spreadsheet = analyticsSpreadsheet(properties);
+  const reports = ANALYTICS_SCHEMA_MIGRATION_SHEETS.map(spec => {
+    const sheet = spreadsheet.getSheetByName(spec.name);
+    return inspectAnalyticsSchemaSheet(sheet, spec.name, spec.headers);
+  });
+
+  // Validate every target before changing any sheet structure.
+  if (reports.some(report => !report.validationPassed)) {
+    console.error(`[Analytics schema v11] ${JSON.stringify(reports)}`);
+    return reports;
+  }
+  if (dryRun) {
+    console.info(`[Analytics schema v11 preview] ${JSON.stringify(reports)}`);
+    return reports;
   }
 
-  const existingHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-  const missingHeaders = QUEST_RECORD_HEADERS.filter(
-    header => !existingHeaders.includes(header)
+  const migratedReports = ANALYTICS_SCHEMA_MIGRATION_SHEETS.map(spec =>
+    migrateAnalyticsSchemaSheet(
+      spreadsheet.getSheetByName(spec.name),
+      spec.name,
+      spec.headers
+    )
   );
-  if (missingHeaders.length) {
-    sheet.getRange(1, lastColumn + 1, 1, missingHeaders.length)
-      .setValues([missingHeaders]);
+  console.info(`[Analytics schema v11] ${JSON.stringify(migratedReports)}`);
+  return migratedReports;
+}
+
+function migrateAnalyticsSchemaSheet(sheet, sheetName, expectedHeaders, dryRun = false) {
+  const before = inspectAnalyticsSchemaSheet(sheet, sheetName, expectedHeaders);
+  if (!before.validationPassed || dryRun || before.alreadyMigrated) return before;
+
+  try {
+    retiredSchemaColumns(sheet, expectedHeaders).forEach(column => sheet.deleteColumn(column.index));
+    if (before.requiresReorder) rewriteAnalyticsSchemaSheet(sheet, expectedHeaders);
+    const after = inspectAnalyticsSchemaSheet(sheet, sheetName, expectedHeaders);
+    after.columnsToRemove = before.columnsToRemove;
+    after.columnsRemoved = before.columnsToRemove;
+    after.alreadyMigrated = false;
+    return after;
+  } catch (error) {
+    before.validationPassed = false;
+    before.errors.push(`migration failed: ${error?.message || error}`);
+    return before;
   }
-  return [...existingHeaders, ...missingHeaders];
+}
+
+function inspectAnalyticsSchemaSheet(sheet, sheetName, expectedHeaders) {
+  const report = {
+    sheetName,
+    columnsToRemove: [],
+    columnsRemoved: [],
+    alreadyMigrated: false,
+    requiresReorder: false,
+    currentHeaders: [],
+    targetHeaders: Array.from(expectedHeaders),
+    finalHeaders: [],
+    rowCount: 0,
+    validationPassed: false,
+    errors: []
+  };
+  if (!sheet) {
+    report.errors.push("sheet does not exist");
+    return report;
+  }
+
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  report.rowCount = lastRow;
+  if (lastRow < 1 || lastColumn < 1) {
+    report.errors.push("row 1 must contain headers");
+    return report;
+  }
+
+  const values = sheet.getRange(1, 1, lastRow, lastColumn).getValues();
+  const headers = values[0].map(header => String(header || "").trim());
+  report.currentHeaders = headers;
+  report.columnsToRemove = retiredSchemaColumnsFromHeaders(headers, expectedHeaders)
+    .map(column => column.header);
+  report.columnsRemoved = report.columnsToRemove;
+  const retiredHeaders = retiredHeadersForSchema(expectedHeaders);
+  const remainingHeaders = headers.filter(header => !retiredHeaders.includes(header));
+  report.finalHeaders = remainingHeaders;
+
+  if (headers.some(header => !header)) report.errors.push("header row contains a blank header");
+  if (new Set(headers).size !== headers.length) report.errors.push("header row contains duplicate headers");
+  if (values.some(row => row.length !== headers.length)) {
+    report.errors.push("one or more rows do not match the header width");
+  }
+  const unexpectedHeaders = remainingHeaders.filter(header => !expectedHeaders.includes(header));
+  if (unexpectedHeaders.length) {
+    report.errors.push(`unexpected headers are present: ${unexpectedHeaders.join(", ")}`);
+  }
+  const missingHeaders = expectedHeaders.filter(header => !remainingHeaders.includes(header));
+  const migratableMissingHeaders = expectedHeaders === QUEST_RECORD_HEADERS
+    ? ["First Completed At", "Adventure Date"]
+    : [];
+  const unsupportedMissingHeaders = missingHeaders.filter(header => !migratableMissingHeaders.includes(header));
+  if (unsupportedMissingHeaders.length) {
+    report.errors.push(`required headers are missing: ${unsupportedMissingHeaders.join(", ")}`);
+  }
+  report.requiresReorder = report.errors.length === 0 && !arraysEqual(remainingHeaders, expectedHeaders);
+  report.alreadyMigrated = report.errors.length === 0 &&
+    report.columnsToRemove.length === 0 && !report.requiresReorder;
+  report.validationPassed = report.errors.length === 0;
+  return report;
+}
+
+function rewriteAnalyticsSchemaSheet(sheet, expectedHeaders) {
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  const values = sheet.getRange(1, 1, lastRow, lastColumn).getValues();
+  const currentHeaders = values[0].map(header => String(header || "").trim());
+  const columnByHeader = {};
+  currentHeaders.forEach((header, index) => {
+    if (Object.prototype.hasOwnProperty.call(columnByHeader, header)) {
+      throw new Error(`header cannot be mapped unambiguously: ${header}`);
+    }
+    columnByHeader[header] = index;
+  });
+  const rewrittenValues = [Array.from(expectedHeaders), ...values.slice(1).map(row =>
+    expectedHeaders.map(header => {
+      if (Object.prototype.hasOwnProperty.call(columnByHeader, header)) {
+        return row[columnByHeader[header]];
+      }
+      if (expectedHeaders === QUEST_RECORD_HEADERS &&
+          ["First Completed At", "Adventure Date"].includes(header)) {
+        return "";
+      }
+      throw new Error(`required header cannot be mapped: ${header}`);
+    })
+  )];
+  sheet.getRange(1, 1, lastRow, expectedHeaders.length).setValues(rewrittenValues);
+}
+
+function retiredSchemaColumns(sheet, expectedHeaders) {
+  const lastColumn = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0]
+    .map(header => String(header || "").trim());
+  return retiredSchemaColumnsFromHeaders(headers, expectedHeaders);
+}
+
+function retiredSchemaColumnsFromHeaders(headers, expectedHeaders) {
+  const retiredHeaders = retiredHeadersForSchema(expectedHeaders);
+  return headers
+    .map((header, index) => retiredHeaders.includes(header)
+      ? { header, index: index + 1 }
+      : null)
+    .filter(Boolean)
+    .sort((left, right) => right.index - left.index);
+}
+
+function retiredHeadersForSchema(expectedHeaders) {
+  return expectedHeaders === QUEST_RECORD_HEADERS
+    ? [...RETIRED_ANALYTICS_HEADERS, ...RETIRED_QUEST_RECORD_HEADERS]
+    : RETIRED_ANALYTICS_HEADERS;
+}
+
+function arraysEqual(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function reconcileQuestRecords(sheet, headers, payload) {
-  const receivedAt = new Date().toISOString();
   const recordKeyColumn = headers.indexOf("Record Key") + 1;
   if (!recordKeyColumn) throw new Error("Quest record sheet is missing Record Key.");
 
@@ -381,7 +548,7 @@ function reconcileQuestRecords(sheet, headers, payload) {
     if (!record || typeof record.questId !== "string" || !record.questId.trim()) {
       throw new Error(`Quest reconciliation record ${index} is missing questId.`);
     }
-    const valuesByHeader = questRecordValues(payload, record, receivedAt);
+    const valuesByHeader = questRecordValues(payload, record);
     const key = valuesByHeader["Record Key"];
     const existing = rowByKey[key];
     if (!existing) {
@@ -402,9 +569,6 @@ function reconcileQuestRecords(sheet, headers, payload) {
       return;
     }
 
-    const originalReceivedAt = existing.values[headers.indexOf("Received At")];
-    valuesByHeader["Received At"] = originalReceivedAt || receivedAt;
-    valuesByHeader["Last Received At"] = receivedAt;
     const values = headers.map(header =>
       Object.prototype.hasOwnProperty.call(valuesByHeader, header)
         ? valuesByHeader[header]
@@ -418,18 +582,17 @@ function reconcileQuestRecords(sheet, headers, payload) {
   return { inserted, updated, unchanged };
 }
 
-function questRecordValues(payload, record, receivedAt) {
+function questRecordValues(payload, record) {
   const questId = String(record.questId).trim();
   const recordKey = `${String(payload.installationId)}:${questId}`;
   return {
-    "Received At": receivedAt,
-    "Last Received At": receivedAt,
     "Record Key": recordKey,
     "Installation ID": cellValue(payload.installationId),
     "Quest ID": questId,
     "Quest Title": cellValue(record.questTitle),
     "Completion Status": cellValue(record.completionStatus),
-    "Completed At": cellValue(record.completedAt),
+    "First Completed At": cellValue(record.firstCompletedAt),
+    "Adventure Date": cellValue(record.adventureDate),
     "Friends Count": cellValue(record.friendsCount),
     "Selected Bonus IDs": Array.isArray(record.selectedBonusIds)
       ? record.selectedBonusIds.join(",")
@@ -438,7 +601,6 @@ function questRecordValues(payload, record, receivedAt) {
     "Friend Points": cellValue(record.friendPoints),
     "Bonus Points": cellValue(record.bonusPoints),
     "Quest Total Points": cellValue(record.questTotalPoints),
-    "Running Total Points": cellValue(record.runningTotalPoints),
     "Has Photo": record.hasPhoto === true,
     "Has Caption": record.hasCaption === true,
     "Has Reflection": record.hasReflection === true,
@@ -488,7 +650,6 @@ function writeAnalyticsRow(sheet, rowNumber, headers, values) {
 function analyticsValues(payload) {
   const eventKey = analyticsEventKey(payload);
   return {
-    "Received At": new Date().toISOString(),
     "Event Timestamp": cellValue(payload.timestamp),
     "Event Name": cellValue(payload.eventName),
     "Event Key": cellValue(eventKey),
@@ -496,7 +657,6 @@ function analyticsValues(payload) {
     "Session ID": cellValue(payload.sessionId),
     "Quest ID": cellValue(payload.questId),
     "Quest Title": cellValue(payload.questTitle),
-    "Completed At": cellValue(payload.completedAt),
     "Adventure Date": cellValue(payload.adventureDate),
     "Points": cellValue(payload.points),
     "Friend Count": cellValue(payload.friendCount),
@@ -511,7 +671,6 @@ function analyticsValues(payload) {
     "Feature": cellValue(payload.feature),
     "Source": cellValue(payload.source),
     "Historical Status": cellValue(payload.historicalStatus),
-    "Timestamp Precision": cellValue(payload.timestampPrecision),
     "Evidence Used": cellValue(payload.evidenceUsed),
     "First Observed By Analytics At": cellValue(payload.firstObservedByAnalyticsAt),
     "Superseded": payload.superseded === true,

@@ -309,9 +309,6 @@ Object.values(state.submissions).forEach((submission) => {
     submission.completed = true;
   }
 });
-// State loading and legacy ID migration above are synchronous. Analytics gets
-// this exact object only after both have completed, never an empty startup copy.
-const persistedQuestStateReady = true;
 let activeQuest = null;
 let activeMediaId = null;
 let activeMediaType = null;
@@ -1177,7 +1174,6 @@ function initializeAnalyticsSync() {
     analyticsSync?.init({
       hadStoredAppState: HAD_STORED_APP_STATE,
       getState: () => state,
-      stateReady: () => persistedQuestStateReady,
       quests: window.QUESTS,
       boardOrder: window.BOARD_ORDER,
       finalQuestId: FINAL_QUEST_ID,
@@ -3140,6 +3136,13 @@ els.resetBoard.addEventListener("click", async () => {
   } catch (error) {
     reportMediaError(error, "reset");
   }
+  const removedSubmissions = state.submissions;
+  // Reconciliation keeps deletion tombstones separate from gameplay reset.
+  state = { submissions: {}, drafts: {} };
+  Object.entries(removedSubmissions).forEach(([questId, submission]) => {
+    analyticsSync?.recordQuestDeletion?.({ questId, submission });
+  });
+  analyticsSync?.reconcileQuestState?.({ reason: "quest_reset" });
   window.location.reload();
 });
 
@@ -3250,6 +3253,11 @@ els.form.addEventListener("submit", async (event) => {
   
   const previousSubmission = state.submissions[questId] || null;
   const previousDraft = state.drafts[questId] || null;
+  const firstCompletedAt =
+    previousSubmission?.firstCompletedAt ||
+    previousSubmission?.completedAt ||
+    analyticsSync?.firstCompletedAtForQuest?.(questId) ||
+    new Date().toISOString();
   
   const nextSubmission = {
     questId: activeQuest.id,
@@ -3272,7 +3280,8 @@ els.form.addEventListener("submit", async (event) => {
     } : {}),
     completedAt:
     previousSubmission?.completedAt ||
-    new Date().toISOString(),
+    firstCompletedAt,
+    firstCompletedAt,
     updatedAt: new Date().toISOString(),
     submissionVersion: (Number(previousSubmission?.submissionVersion) || 0) + 1
   };
@@ -3389,6 +3398,8 @@ async function removeActiveMemory() {
     delete state.submissions[questId];
     delete state.drafts[questId];
     save();
+    analyticsSync?.recordQuestDeletion?.({ questId, submission: removedSubmission });
+    analyticsSync?.trackQuestRemoved?.({ questId, submission: removedSubmission });
     analyticsSync?.reconcileQuestState?.({ reason: "quest_removed" });
     removeInProgress = false;
     closeRemoveConfirmation({ restoreFocus: false });

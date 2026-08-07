@@ -27,7 +27,17 @@
 
       try {
         const validationNonce = Date.now();
-        const validationUrl = path => `${path}?validation=${validationNonce}`;
+        const validationUrl = path => {
+          const url = new URL(path, window.location.href);
+          const filename = url.pathname.slice(url.pathname.lastIndexOf("/") + 1);
+          // Older installed workers match with ignoreSearch, so a query-only
+          // nonce can still resolve to stale cached test inputs.
+          url.pathname = `${url.pathname.slice(0, -filename.length)}%${filename
+            .charCodeAt(0)
+            .toString(16)}${filename.slice(1)}`;
+          url.search = `?validation=${validationNonce}`;
+          return url.href;
+        };
         const [
           analyticsSource,
           appSource,
@@ -67,6 +77,7 @@
           fetchThrows = false,
           runTimers = false,
           randomSeed = 1,
+          clockStart = Date.now(),
           protocol = "http:",
           hostname = "localhost",
           pathname = "/tests/analytics-validation.html",
@@ -78,6 +89,16 @@
           const listeners = {};
           const replacedUrls = [];
           let randomCounter = randomSeed;
+          let clock = clockStart;
+          class FakeDate extends Date {
+            constructor(...args) {
+              super(...(args.length ? args : [clock]));
+            }
+
+            static now() {
+              return clock;
+            }
+          }
           const fakeStorage = {
             getItem(key) {
               if (storageThrows) throw new Error("storage blocked");
@@ -164,7 +185,7 @@
             fakeDocument,
             fakeCrypto,
             URLSearchParams,
-            Date,
+            FakeDate,
             Blob,
             AbortController,
             (url, options) => {
@@ -185,7 +206,7 @@
                     : 0,
                   updated: 0,
                   unchanged: 0,
-                  receiverVersion: "9"
+                  receiverVersion: "11"
                 }))
               });
             },
@@ -204,6 +225,9 @@
             setVisibility(value) {
               fakeDocument.visibilityState = value;
               (listeners.visibilitychange || []).forEach(listener => listener());
+            },
+            advance(milliseconds) {
+              clock += milliseconds;
             },
             async payloads() {
               return Promise.all(sent.map(async entry =>
@@ -275,6 +299,7 @@
           "app_opened",
           "app_installed",
           "quest_completed",
+          "quest_removed",
           "first_quest_completed",
           "adventure_completed",
           "journal_first_opened",
@@ -484,6 +509,14 @@
           "No personal or media data crosses the analytics boundary",
           freshPayloads.every(payload => forbiddenFields.every(field => !Object.hasOwn(payload, field)))
         );
+        check(
+          "Retired analytics fields are absent from every client payload",
+          freshPayloads.every(payload =>
+            !Object.hasOwn(payload, "receivedAt") &&
+            !Object.hasOwn(payload, "completedAt") &&
+            !Object.hasOwn(payload, "timestampPrecision")
+          )
+        );
 
         const firstQuestPayload = freshPayloads.find(
           payload => payload.eventName === "quest_completed" && payload.questId === "first"
@@ -491,7 +524,6 @@
         check(
           "Quest completion payload exactly preserves anonymous gameplay fields",
           firstQuestPayload?.questTitle === "First Quest" &&
-            firstQuestPayload?.completedAt === privateSubmission.completedAt &&
             firstQuestPayload?.adventureDate === privateSubmission.adventureDate &&
             firstQuestPayload?.points === 17 &&
             firstQuestPayload?.friendCount === 2 &&
@@ -508,8 +540,7 @@
           adventurePayload?.totalCompletedQuests === 2 &&
             adventurePayload?.totalPoints === 42 &&
             adventurePayload?.totalFriends === 2 &&
-            adventurePayload?.finalRank === "Summer Legend" &&
-            adventurePayload?.completedAt === finalSubmission.completedAt,
+            adventurePayload?.finalRank === "Summer Legend",
           adventurePayload
         );
         check(
@@ -536,6 +567,23 @@
           "Session IDs change while the installation ID remains stable",
           secondSessionPayloads[0]?.installationId === freshPayloads[0]?.installationId &&
             secondSessionPayloads[0]?.sessionId !== freshPayloads[0]?.sessionId
+        );
+        const lifecycle = createHarness({ runTimers: true, randomSeed: 22 });
+        lifecycle.api.init(questContext({ submissions: {} }));
+        lifecycle.setVisibility("hidden");
+        lifecycle.advance(60 * 1000);
+        lifecycle.setVisibility("visible");
+        lifecycle.setVisibility("hidden");
+        lifecycle.advance(31 * 60 * 1000);
+        lifecycle.setVisibility("visible");
+        const lifecycleOpenEvents = (await lifecycle.payloads()).filter(
+          payload => payload.eventName === "app_opened"
+        );
+        check(
+          "Session lifecycle ignores brief background flicker and opens once after 30 minutes",
+          lifecycleOpenEvents.length === 2 &&
+            lifecycleOpenEvents[0]?.sessionId !== lifecycleOpenEvents[1]?.sessionId,
+          lifecycleOpenEvents
         );
         const freshDedupe = JSON.parse(
           fresh.store.get("summerQuestAnalyticsDedupe") || "{}"
@@ -593,13 +641,11 @@
             payload.records.length === 2 &&
             payload.records.some(record =>
               record.recordKey === "SQ-ABCDEF12:first" &&
-              record.completedAt === privateSubmission.completedAt &&
               record.bonusPoints === 3 &&
               JSON.stringify(record.selectedBonusIds) === JSON.stringify(["bonus"])
             )
           ) && historicalEvents.some(payload =>
             payload.eventName === "adventure_completed" &&
-            payload.completedAt === finalSubmission.completedAt &&
             payload.totalPoints === 42
           )
         );
@@ -833,7 +879,7 @@
             repairedMigrationState.status === "completed" &&
             repairedMigrationState.completed === true &&
             repairedMigrationState.lastReceiverStatus === 200 &&
-            repairedMigrationState.deployedReceiverVersion === "9" &&
+            repairedMigrationState.deployedReceiverVersion === "11" &&
             repairedMigrationState.recordsQueued === repairedMigrationState.recordsUploaded &&
             repairedReconciliationState.pending === false &&
             repairedReconciliationState.records.first.confirmedHash &&
@@ -901,6 +947,118 @@
           )
         );
 
+        const waterStore = new Map([["summerQuestInstallationId", "SQ-WATER123"]]);
+        const waterSubmission = {
+          completed: true,
+          completedAt: "2026-08-05T10:00:00.000Z",
+          updatedAt: "2026-08-05T10:00:00.000Z",
+          adventureDate: "2026-08-02",
+          submissionVersion: 3,
+          friends: 0,
+          selectedBonusIds: []
+        };
+        const downstreamSubmission = {
+          completed: true,
+          completedAt: "2026-08-05T11:00:00.000Z",
+          updatedAt: "2026-08-05T11:00:00.000Z",
+          submissionVersion: 1,
+          friends: 0,
+          selectedBonusIds: []
+        };
+        const waterState = {
+          submissions: {
+            "ny-eats": { ...privateSubmission, updatedAt: "2026-08-05T09:00:00.000Z", submissionVersion: 1 },
+            "water-wonders": waterSubmission,
+            downstream: downstreamSubmission
+          }
+        };
+        const waterContext = {
+          ...questContext(waterState),
+          quests: {
+            "ny-eats": { title: "NY Eats", basePoints: 10, bonuses: [] },
+            "water-wonders": { title: "Water Wonders", basePoints: 5, bonuses: [] },
+            downstream: { title: "Downstream Quest", basePoints: 8, bonuses: [] }
+          },
+          boardOrder: ["ny-eats", "water-wonders", "downstream"],
+          questPoints: (submission, questId) => ({ "ny-eats": 10, "water-wonders": 5, downstream: 8 })[questId] || 0,
+          isFinalQuest: () => false
+        };
+        const water = createHarness({ store: waterStore, runTimers: false });
+        water.api.init(waterContext);
+        await water.api.reconcileQuestState({ force: true, reason: "manual_sync" });
+        const manualWaterPayload = (await water.payloads()).filter(payload =>
+          payload.requestType === "quest_reconciliation"
+        ).at(-1);
+        delete waterState.submissions["water-wonders"];
+        water.api.recordQuestDeletion({
+          questId: "water-wonders",
+          submission: waterSubmission,
+          timestamp: "2026-08-06T12:00:00.000Z"
+        });
+        await water.api.reconcileQuestState({ reason: "quest_removed" });
+        water.api.trackQuestRemoved({ questId: "water-wonders", submission: waterSubmission });
+        const waterPayloads = await water.payloads();
+        const removalPayload = waterPayloads.filter(payload =>
+          payload.requestType === "quest_reconciliation"
+        ).at(-1);
+        const waterTombstone = removalPayload?.records.find(record => record.questId === "water-wonders");
+        const downstreamRecord = removalPayload?.records.find(record => record.questId === "downstream");
+        const removalEvent = waterPayloads.find(payload => payload.eventName === "quest_removed");
+        check(
+          "Water Wonders removal syncs only its stable tombstone with neutral Source",
+          manualWaterPayload?.records.length === 3 &&
+            manualWaterPayload.records.every(record =>
+              record && manualWaterPayload.source === "state_sync" &&
+              !Object.hasOwn(record, "runningTotalPoints")
+            ) &&
+            removalPayload?.source === "state_sync" &&
+            removalPayload.records.every(record => record && removalPayload.source === "state_sync") &&
+            waterTombstone?.completionStatus === "deleted" &&
+            waterTombstone?.submissionVersion === 4 &&
+            waterTombstone?.updatedAt === "2026-08-06T12:00:00.000Z" &&
+            waterTombstone?.firstCompletedAt === "2026-08-05T10:00:00.000Z" &&
+            waterTombstone?.adventureDate === "2026-08-02" &&
+            downstreamRecord === undefined,
+          { manualWaterPayload, removalPayload }
+        );
+        check(
+          "Quest removal remains an append-only action event separate from state synchronization",
+          removalEvent?.source === "quest_remove" &&
+            removalEvent?.questId === "water-wonders" &&
+            removalEvent?.eventName === "quest_removed",
+          removalEvent
+        );
+        check(
+          "First Completed At survives deletion and remains available for recompletion",
+          water.api.firstCompletedAtForQuest("water-wonders") === "2026-08-05T10:00:00.000Z",
+          water.api.firstCompletedAtForQuest("water-wonders")
+        );
+
+        const retryStore = new Map([["summerQuestInstallationId", "SQ-RETRY123"]]);
+        const retryState = { submissions: { "water-wonders": waterSubmission } };
+        const retryContext = { ...waterContext, getState: () => retryState };
+        const retryFailure = createHarness({ store: retryStore, fetchRejects: true, runTimers: false });
+        retryFailure.api.init(retryContext);
+        retryFailure.api.recordQuestDeletion({
+          questId: "water-wonders",
+          submission: waterSubmission,
+          timestamp: "2026-08-06T13:00:00.000Z"
+        });
+        delete retryState.submissions["water-wonders"];
+        await retryFailure.api.reconcileQuestState({ reason: "quest_removed" });
+        const retryRestart = createHarness({ store: retryStore, runTimers: false });
+        retryRestart.api.init(retryContext);
+        await retryRestart.api.reconcileQuestState({ reason: "reconnected" });
+        const retryTombstone = (await retryRestart.payloads())
+          .filter(payload => payload.requestType === "quest_reconciliation")
+          .at(-1)?.records.find(record => record.questId === "water-wonders");
+        check(
+          "Deletion timestamp and version survive receiver failure and restart",
+          retryTombstone?.submissionVersion === 4 &&
+            retryTombstone?.updatedAt === "2026-08-06T13:00:00.000Z",
+          retryTombstone
+        );
+
         const staleDedupeStore = new Map([
           ["summerQuestInstallationId", "SQ-STALE123"],
           ["summerQuestAnalyticsBackfillV1", "1.0"],
@@ -955,6 +1113,7 @@
             analyticsSource.includes('reason: "reconnected"') &&
             analyticsSource.includes('reason: wasCompletedBefore ? "quest_edited" : "quest_saved"') &&
             appSource.includes('reason: "quest_removed"') &&
+            appSource.includes('reason: "quest_reset"') &&
             appSource.includes('reason: "manual_sync"') &&
             appSource.includes('syncAnalyticsNow.addEventListener("click"') &&
             indexSource.includes('id="syncAnalyticsNow"')
@@ -989,9 +1148,10 @@
             !appSource.includes("trackAppInstalled")
         );
         check(
-          "Board reset cannot reset analytics identity or dedupe",
+          "Board reset cannot reset analytics identity or dedupe and reconciles deletions",
           !appSource.includes("trackBoardReset") &&
-            !analyticsSource.includes("resetInstallation")
+            !analyticsSource.includes("resetInstallation") &&
+            appSource.includes('reason: "quest_reset"')
         );
         const analyticsInitStart = appSource.indexOf(
           "function initializeAnalyticsSync()"
@@ -1017,14 +1177,16 @@
         );
 
         const receiverApi = new Function(
-          `${receiverSource}\nreturn { version: RECEIVER_VERSION, headers: ANALYTICS_HEADERS, questHeaders: QUEST_RECORD_HEADERS, values: analyticsValues, ensure: ensureAnalyticsHeaders, ensureQuest: ensureQuestRecordHeaders, reconcile: reconcileQuestRecords, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, questSheetName: questRecordSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields, missingReconciliationFields: analyticsMissingReconciliationFields };`
+          `${receiverSource}\nreturn { version: RECEIVER_VERSION, headers: ANALYTICS_HEADERS, questHeaders: QUEST_RECORD_HEADERS, values: analyticsValues, readHeaders: readReceiverHeaders, inspectSchema: inspectAnalyticsSchemaSheet, migrateSchemaSheet: migrateAnalyticsSchemaSheet, reconcile: reconcileQuestRecords, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, questSheetName: questRecordSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields, missingReconciliationFields: analyticsMissingReconciliationFields };`
         )();
         const receiverValues = receiverApi.values(firstQuestPayload);
         check(
           "Apps Script receiver maps the complete v1.0 contract",
-          receiverApi.version === "9" &&
-          receiverApi.headers[0] === "Received At" &&
-          !Number.isNaN(Date.parse(receiverValues["Received At"])) &&
+          receiverApi.version === "11" &&
+          receiverApi.headers[0] === "Event Timestamp" &&
+          !["Received At", "Last Received At", "Completed At", "Timestamp Precision"].some(
+            header => receiverApi.headers.includes(header) || receiverApi.questHeaders.includes(header)
+          ) &&
           [
             "Bonus Count", "Bonus IDs", "Historical", "Feature", "Source",
             "Environment", "Is Test"
@@ -1036,6 +1198,17 @@
             receiverValues.Source === "quest_save" &&
             receiverValues.Environment === "development" &&
             receiverValues["Is Test"] === true
+        );
+        const doPostSource = receiverSource.slice(
+          receiverSource.indexOf("function doPost(event)"),
+          receiverSource.indexOf("function analyticsMissingPayloadFields")
+        );
+        check(
+          "doPost validates and writes rows without changing sheet structure",
+          doPostSource.includes("readReceiverHeaders") &&
+            !doPostSource.includes("insertSheet") &&
+            !doPostSource.includes("deleteColumn") &&
+            !doPostSource.includes("setValues")
         );
         const sheetProperties = values => ({
           getProperty(name) {
@@ -1086,7 +1259,7 @@
         check(
           "Receiver inserts, updates, deletes, and no-ops one row per stable quest key",
           (() => {
-            const rows = [];
+            const rows = [Array.from(receiverApi.questHeaders)];
             const sheet = {
               getLastColumn: () => rows[0]?.length || 0,
               getLastRow: () => rows.length,
@@ -1117,19 +1290,19 @@
                 };
               }
             };
-            const headers = receiverApi.ensureQuest(sheet);
+            const headers = receiverApi.readHeaders(sheet, receiverApi.questHeaders, "Quest Records");
             const records = Array.from({ length: 10 }, (_, index) => ({
               questId: `quest-${index + 1}`,
               questTitle: `Quest ${index + 1}`,
               completionStatus: "completed",
-              completedAt: `2026-08-${String(index + 1).padStart(2, "0")}T12:00:00.000Z`,
               friendsCount: index,
               selectedBonusIds: index % 2 ? ["bonus"] : [],
               basePoints: 10,
               friendPoints: index,
               bonusPoints: index % 2 ? 3 : 0,
               questTotalPoints: 10 + index + (index % 2 ? 3 : 0),
-              runningTotalPoints: (index + 1) * 10,
+              firstCompletedAt: "2026-08-05T19:00:00.000Z",
+              adventureDate: "2026-08-05",
               hasPhoto: true,
               hasCaption: index % 2 === 0,
               hasReflection: false,
@@ -1151,6 +1324,11 @@
             };
             const first = receiverApi.reconcile(sheet, headers, payload);
             const second = receiverApi.reconcile(sheet, headers, payload);
+            const sourceOnly = receiverApi.reconcile(sheet, headers, {
+              ...payload,
+              source: "quest_removed"
+            });
+            const sourceColumn = headers.indexOf("Source");
             records[4] = {
               ...records[4],
               friendsCount: 9,
@@ -1162,7 +1340,6 @@
             records[6] = {
               ...records[6],
               completionStatus: "deleted",
-              completedAt: null,
               questTotalPoints: 0,
               submissionVersion: 2,
               updatedAt: "2026-08-05T22:00:00.000Z",
@@ -1173,14 +1350,75 @@
               headers,
               { ...payload, records: [records[6]] }
             );
-            const receivedAtColumn = headers.indexOf("Received At");
             const keyColumn = headers.indexOf("Record Key");
             return first.inserted === 10 && first.updated === 0 &&
               second.inserted === 0 && second.updated === 0 && second.unchanged === 10 &&
+              sourceOnly.updated === 0 && sourceOnly.unchanged === 10 &&
+              rows.slice(1).every(row => row[sourceColumn] === "app_open") &&
               edit.updated === 1 && deletion.updated === 1 &&
               rows.length === 11 &&
-              new Set(rows.slice(1).map(row => row[keyColumn])).size === 10 &&
-              rows.slice(1).every(row => !Number.isNaN(Date.parse(row[receivedAtColumn])));
+              new Set(rows.slice(1).map(row => row[keyColumn])).size === 10;
+          })()
+        );
+        check(
+          "Quest Record schema preview removes running totals and safely adds first-completion fields",
+          (() => {
+            const legacyHeaders = receiverApi.questHeaders.filter(header =>
+              !["First Completed At", "Adventure Date"].includes(header)
+            );
+            legacyHeaders.splice(
+              legacyHeaders.indexOf("Quest Total Points") + 1,
+              0,
+              "Running Total Points"
+            );
+            const rows = [
+              legacyHeaders,
+              legacyHeaders.map(header => header === "Updated At"
+                ? "2026-08-05T12:00:00.000Z"
+                : `value:${header}`)
+            ];
+            const sheet = {
+              getLastColumn: () => rows[0].length,
+              getLastRow: () => rows.length,
+              getRange(row, column, rowCount = 1, columnCount = 1) {
+                return {
+                  getValues: () => Array.from({ length: rowCount }, (_, rowOffset) =>
+                    Array.from({ length: columnCount }, (_, columnOffset) =>
+                      rows[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? ""
+                    )
+                  ),
+                  setValues(values) {
+                    values.forEach((valueRow, rowOffset) => {
+                      rows[row - 1 + rowOffset] ||= [];
+                      valueRow.forEach((value, columnOffset) => {
+                        rows[row - 1 + rowOffset][column - 1 + columnOffset] = value;
+                      });
+                    });
+                    return this;
+                  }
+                };
+              },
+              deleteColumn(column) {
+                rows.forEach(row => row.splice(column - 1, 1));
+              }
+            };
+            const preview = receiverApi.migrateSchemaSheet(
+              sheet, "Quest Records", receiverApi.questHeaders, true
+            );
+            const migrated = receiverApi.migrateSchemaSheet(
+              sheet, "Quest Records", receiverApi.questHeaders
+            );
+            const rerun = receiverApi.migrateSchemaSheet(
+              sheet, "Quest Records", receiverApi.questHeaders
+            );
+            return preview.validationPassed === true &&
+              preview.columnsToRemove.includes("Running Total Points") &&
+              preview.requiresReorder === true &&
+              migrated.validationPassed === true &&
+              JSON.stringify(rows[0]) === JSON.stringify(receiverApi.questHeaders) &&
+              rows[1][receiverApi.questHeaders.indexOf("First Completed At")] === "" &&
+              rows[1][receiverApi.questHeaders.indexOf("Adventure Date")] === "" &&
+              rerun.alreadyMigrated === true;
           })()
         );
         check(
@@ -1231,13 +1469,50 @@
           })()
         );
         check(
-          "Receiver preserves existing rows while appending missing headers",
+          "Live receiver schema validation never mutates malformed sheets",
           (() => {
-            const rows = [
-              ["Event Name", "Legacy Column"],
-              ["app_opened", "preserve me"]
+            const rows = [["Event Name", "Legacy Column"], ["app_opened", "preserve me"]];
+            const before = JSON.stringify(rows);
+            const sheet = {
+              getLastColumn: () => rows[0].length,
+              getLastRow: () => rows.length,
+              getRange(row, column, rowCount, columnCount) {
+                return {
+                  getValues: () => Array.from({ length: rowCount }, (_, rowOffset) =>
+                    Array.from({ length: columnCount }, (_, columnOffset) =>
+                      rows[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? ""
+                    )
+                  )
+                };
+              }
+            };
+            try {
+              receiverApi.readHeaders(sheet, receiverApi.headers, "Events");
+              return false;
+            } catch {
+              return JSON.stringify(rows) === before;
+            }
+          })()
+        );
+        check(
+          "Manual schema migration removes retired columns without shifting remaining data",
+          (() => {
+            const legacyHeaders = [
+              ...receiverApi.headers.slice(0, 2),
+              "Received At",
+              ...receiverApi.headers.slice(2, 8),
+              "Last Received At",
+              "Completed At",
+              "Timestamp Precision",
+              ...receiverApi.headers.slice(8)
             ];
-            const originalDataRow = JSON.stringify(rows[1]);
+            const rows = [
+              legacyHeaders,
+              legacyHeaders.map(header =>
+                header === "Event Name" ? "app_opened" :
+                  header === "Build" ? "080601" : `value:${header}`
+              )
+            ];
             const sheet = {
               getLastColumn: () => rows[0].length,
               getLastRow: () => rows.length,
@@ -1257,17 +1532,113 @@
                     });
                   }
                 };
+              },
+              deleteColumn(column) {
+                rows.forEach(row => row.splice(column - 1, 1));
               }
             };
-            const headers = receiverApi.ensure(sheet);
-            return JSON.stringify(rows[1]) === originalDataRow &&
-              headers.slice(0, 2).join(",") === "Event Name,Legacy Column" &&
-              [
-                "Bonus Count", "Bonus IDs", "Historical", "Feature", "Source",
-                "Environment", "Is Test"
-              ]
-                .every(header => headers.includes(header));
+            const preview = receiverApi.migrateSchemaSheet(
+              sheet,
+              "Events",
+              receiverApi.headers,
+              true
+            );
+            const migrated = receiverApi.migrateSchemaSheet(sheet, "Events", receiverApi.headers);
+            const rerun = receiverApi.migrateSchemaSheet(sheet, "Events", receiverApi.headers);
+            return preview.columnsRemoved.length === 4 &&
+              migrated.columnsRemoved.length === 4 &&
+              migrated.validationPassed === true &&
+              rows[1][receiverApi.headers.indexOf("Event Name")] === "app_opened" &&
+              rows[1][receiverApi.headers.indexOf("Build")] === "080601" &&
+              JSON.stringify(migrated.finalHeaders) === JSON.stringify(receiverApi.headers) &&
+              rerun.alreadyMigrated === true &&
+              rerun.columnsRemoved.length === 0;
           })()
+        );
+        const legacyEventsMigration = (() => {
+            const legacyHeaders = [
+              "Event Timestamp",
+              "Event Name",
+              "Installation ID",
+              "Session ID",
+              "Quest ID",
+              "Quest Title",
+              "Adventure Date",
+              "Points",
+              "Friend Count",
+              "Bonus Earned",
+              "Feature",
+              "Total Completed Quests",
+              "Total Points",
+              "Total Friends",
+              "Final Rank",
+              "Build",
+              "Platform",
+              "Display Mode",
+              "Language",
+              "Bonus Count",
+              "Bonus IDs",
+              "Source",
+              "Historical",
+              "Event Key",
+              "Historical Status",
+              "Evidence Used",
+              "First Observed By Analytics At",
+              "Superseded",
+              "Superseded By",
+              "Environment",
+              "Is Test"
+            ];
+            const rows = [Array.from(legacyHeaders), legacyHeaders.map(header => `value:${header}`)];
+            const sheet = {
+              getLastColumn: () => rows[0].length,
+              getLastRow: () => rows.length,
+              getRange(row, column, rowCount, columnCount) {
+                return {
+                  getValues: () => Array.from({ length: rowCount }, (_, rowOffset) =>
+                    Array.from({ length: columnCount }, (_, columnOffset) =>
+                      rows[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? ""
+                    )
+                  ),
+                  setValues(values) {
+                    values.forEach((valueRow, rowOffset) => {
+                      rows[row - 1 + rowOffset] ||= [];
+                      valueRow.forEach((value, columnOffset) => {
+                        rows[row - 1 + rowOffset][column - 1 + columnOffset] = value;
+                      });
+                    });
+                  }
+                };
+              },
+              deleteColumn(column) {
+                rows.forEach(row => row.splice(column - 1, 1));
+              }
+            };
+            const preview = receiverApi.migrateSchemaSheet(sheet, "Events", receiverApi.headers, true);
+            const migrated = receiverApi.migrateSchemaSheet(sheet, "Events", receiverApi.headers);
+            const rerun = receiverApi.migrateSchemaSheet(sheet, "Events", receiverApi.headers);
+            return {
+              passed: preview.validationPassed === true &&
+              preview.columnsToRemove.length === 0 &&
+              preview.requiresReorder === true &&
+              JSON.stringify(preview.currentHeaders) === JSON.stringify(legacyHeaders) &&
+              JSON.stringify(preview.targetHeaders) === JSON.stringify(receiverApi.headers) &&
+              migrated.validationPassed === true &&
+              migrated.requiresReorder === false &&
+              JSON.stringify(rows[0]) === JSON.stringify(receiverApi.headers) &&
+              rows[1].every((value, index) => value === `value:${receiverApi.headers[index]}`) &&
+              rerun.alreadyMigrated === true,
+              preview,
+              migrated,
+              rerun,
+              headers: rows[0],
+              values: rows[1]
+            };
+          })();
+        check(
+          "Legacy Events order is previewed and rewritten by header name into v10 order",
+          legacyEventsMigration.passed,
+          legacyEventsMigration
         );
 
         let blockedStorageThrew = false;
