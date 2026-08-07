@@ -556,17 +556,32 @@
         const secondSessionPayloads = await secondSession.payloads();
         const secondSessionCounts = countEvents(secondSessionPayloads);
         check(
-          "Session events reset per session while first events remain installation-deduped",
-          secondSessionCounts.app_opened === 1 &&
+          "Immediate document replacement preserves the current app session",
+          !secondSessionCounts.app_opened &&
             secondSessionCounts.journal_opened === 1 &&
             !secondSessionCounts.app_first_opened &&
             !secondSessionCounts.journal_first_opened,
           secondSessionCounts
         );
         check(
-          "Session IDs change while the installation ID remains stable",
+          "PWA update handoff reuses the session ID and emits no duplicate app_opened",
           secondSessionPayloads[0]?.installationId === freshPayloads[0]?.installationId &&
-            secondSessionPayloads[0]?.sessionId !== freshPayloads[0]?.sessionId
+            secondSessionPayloads[0]?.sessionId === freshPayloads[0]?.sessionId
+        );
+        const laterSession = createHarness({
+          store: fresh.store,
+          randomSeed: 30,
+          clockStart: Date.now() + 31 * 60 * 1000
+        });
+        laterSession.api.init(questContext(freshState, { hadStoredAppState: true }));
+        const laterSessionOpens = (await laterSession.payloads()).filter(
+          payload => payload.eventName === "app_opened"
+        );
+        check(
+          "A replacement after 30 minutes starts one new session",
+          laterSessionOpens.length === 1 &&
+            laterSessionOpens[0]?.sessionId !== freshPayloads[0]?.sessionId,
+          laterSessionOpens
         );
         const lifecycle = createHarness({ runTimers: true, randomSeed: 22 });
         lifecycle.api.init(questContext({ submissions: {} }));
@@ -665,9 +680,9 @@
         await new Promise(resolve => window.setTimeout(resolve, 40));
         const refreshPayloads = await historicalRefresh.payloads();
         check(
-          "Completed backfill never reruns and session events continue normally",
+          "Completed backfill never reruns during a resumed app session",
           refreshPayloads.every(payload => payload.historical === false) &&
-            countEvents(refreshPayloads).app_opened === 1 &&
+            !countEvents(refreshPayloads).app_opened &&
             countEvents(refreshPayloads).journal_opened === 1,
           countEvents(refreshPayloads)
         );

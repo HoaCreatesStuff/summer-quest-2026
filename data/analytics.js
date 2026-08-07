@@ -15,6 +15,7 @@
   const FEATURE_FIRST_OPEN_KEY = "summerQuestFeatureFirstOpenedV1";
   const FIRST_OPEN_MIGRATION_KEY = "summerQuestFirstOpenMigrationV1";
   const RECONCILIATION_KEY = "summerQuestQuestReconciliationV1";
+  const SESSION_KEY = "summerQuestAnalyticsSessionV1";
   // v1 could retain a locally confirmed hash from the initial receiver rollout
   // even when that receiver had not materialized the matching row.  Treat that
   // metadata as untrusted once, without touching any saved quest data.
@@ -69,7 +70,7 @@
   ]);
 
   const debugMode = new URLSearchParams(window.location.search).has(DEBUG_PARAM);
-  let sessionId = `SESSION-${randomHex(6)}`;
+  let sessionId = null;
   let sessionEvents = new Set();
 
   let context = null;
@@ -105,6 +106,53 @@
   function beginNewSession() {
     sessionId = `SESSION-${randomHex(6)}`;
     sessionEvents = new Set();
+    writeSessionState({
+      id: sessionId,
+      startedAt: nowIso(),
+      lastActiveAt: nowIso(),
+      backgroundedAt: null,
+      appOpened: false
+    });
+  }
+
+  function validSessionState(value) {
+    if (!value || typeof value !== "object" || !/^SESSION-[A-F0-9]{6}$/.test(value.id || "")) {
+      return null;
+    }
+    const lastActiveAt = validIso(value.lastActiveAt);
+    const startedAt = validIso(value.startedAt);
+    return lastActiveAt && startedAt ? { ...value, lastActiveAt, startedAt } : null;
+  }
+
+  function sessionState() {
+    return validSessionState(readJson(SESSION_KEY, null));
+  }
+
+  function writeSessionState(state) {
+    return writeJson(SESSION_KEY, state);
+  }
+
+  function restoreOrBeginSession() {
+    const stored = sessionState();
+    const elapsed = stored ? Date.now() - Date.parse(stored.lastActiveAt) : Infinity;
+    if (stored && elapsed >= 0 && elapsed < SESSION_INACTIVITY_MS) {
+      sessionId = stored.id;
+      sessionEvents = stored.appOpened ? new Set(["app_opened"]) : new Set();
+      writeSessionState({ ...stored, lastActiveAt: nowIso(), backgroundedAt: null });
+      return false;
+    }
+    beginNewSession();
+    return true;
+  }
+
+  function markSessionActivity({ backgrounded = false } = {}) {
+    const stored = sessionState();
+    if (!stored || stored.id !== sessionId) return;
+    writeSessionState({
+      ...stored,
+      lastActiveAt: nowIso(),
+      backgroundedAt: backgrounded ? nowIso() : null
+    });
   }
 
   function readStorage(key) {
@@ -1809,10 +1857,15 @@
       });
     }
 
-    return trackLive("app_opened", {}, {
+    const opened = trackLive("app_opened", {}, {
       source: "app_init",
       sessionKey: "app_opened"
     });
+    if (opened) {
+      const stored = sessionState();
+      if (stored?.id === sessionId) writeSessionState({ ...stored, appOpened: true });
+    }
+    return opened;
   }
 
   function trackFeatureFirstOpened(eventName, source) {
@@ -1857,6 +1910,7 @@
 
   function init(nextContext) {
     context = nextContext;
+    if (!initialized) restoreOrBeginSession();
     if (!initialized) {
       existingHistoryAtInitialization = Boolean(
         getInstallationId() ||
@@ -1885,6 +1939,7 @@
       document.addEventListener?.("visibilitychange", () => {
         if (document.visibilityState !== "visible") {
           backgroundedAt ||= Date.now();
+          markSessionActivity({ backgrounded: true });
           return;
         }
         const inactiveFor = backgroundedAt ? Date.now() - backgroundedAt : 0;
@@ -1894,6 +1949,7 @@
           startSessionAnalytics();
           return;
         }
+        markSessionActivity();
         if (!inactiveFor) return;
         if (Date.now() - lastReconciliationTriggerAt < FOREGROUND_RECONCILIATION_INTERVAL_MS) {
           return;
