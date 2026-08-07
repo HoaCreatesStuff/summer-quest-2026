@@ -1197,9 +1197,9 @@
         const receiverValues = receiverApi.values(firstQuestPayload);
         check(
           "Apps Script receiver maps the complete v1.0 contract",
-          receiverApi.version === "11" &&
+          receiverApi.version === "12" &&
           receiverApi.headers[0] === "Event Timestamp" &&
-          !["Received At", "Last Received At", "Completed At", "Timestamp Precision"].some(
+          !["Received At", "Last Received At", "Completed At", "Timestamp Precision", "Has Reflection"].some(
             header => receiverApi.headers.includes(header) || receiverApi.questHeaders.includes(header)
           ) &&
           [
@@ -1320,7 +1320,6 @@
               adventureDate: "2026-08-05",
               hasPhoto: true,
               hasCaption: index % 2 === 0,
-              hasReflection: false,
               submissionVersion: 1,
               updatedAt: "2026-08-05T20:00:00.000Z",
               recordHash: `hash-${index + 1}`

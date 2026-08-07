@@ -1032,7 +1032,6 @@
       questTotalPoints,
       hasPhoto: Boolean(submission.mediaId || submission.dataUrl),
       hasCaption: Boolean(String(submission.caption || "").trim()),
-      hasReflection: Boolean(String(submission.reflection || "").trim()),
       submissionVersion: Math.max(1, Number(submission.submissionVersion) || 1),
       updatedAt
     };
@@ -1058,7 +1057,6 @@
       questTotalPoints: 0,
       hasPhoto: false,
       hasCaption: false,
-      hasReflection: false,
       submissionVersion: Math.max(
         1,
         Number(metadata?.deletionVersion) || (Number(metadata?.submissionVersion) || 1) + 1

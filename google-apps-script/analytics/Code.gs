@@ -47,7 +47,6 @@ const QUEST_RECORD_HEADERS = Object.freeze([
   "Quest Total Points",
   "Has Photo",
   "Has Caption",
-  "Has Reflection",
   "Submission Version",
   "Updated At",
   "Record Hash",
@@ -72,7 +71,6 @@ const QUEST_RECORD_COMPARE_HEADERS = Object.freeze([
   "Quest Total Points",
   "Has Photo",
   "Has Caption",
-  "Has Reflection",
   "Submission Version",
   "Updated At",
   "Record Hash"
@@ -84,9 +82,10 @@ const RETIRED_ANALYTICS_HEADERS = Object.freeze([
   "Timestamp Precision"
 ]);
 const RETIRED_QUEST_RECORD_HEADERS = Object.freeze([
-  "Running Total Points"
+  "Running Total Points",
+  "Has Reflection"
 ]);
-const RECEIVER_VERSION = "11";
+const RECEIVER_VERSION = "12";
 const FALLBACK_ANALYTICS_SECRET = "sq_8Fz3mQ7pL2xN9vK4cR6tY1wX5bD8eM";
 const DEFAULT_ANALYTICS_SHEET_NAME = "Events";
 const DEFAULT_ANALYTICS_TEST_SHEET_NAME = "Analytics Testing";
@@ -339,29 +338,37 @@ function readReceiverHeaders(sheet, expectedHeaders, sheetName) {
     const details = report.errors.length
       ? report.errors.join("; ")
       : report.columnsToRemove.length
-        ? `retired columns must be removed with migrateAnalyticsSchemaToV10(): ${report.columnsToRemove.join(", ")}`
-        : "legacy header order must be migrated with migrateAnalyticsSchemaToV10()";
+        ? `retired columns must be removed with migrateAnalyticsSchemaToV12(): ${report.columnsToRemove.join(", ")}`
+        : "legacy header order must be migrated with migrateAnalyticsSchemaToV12()";
     throw new Error(`Analytics schema validation failed for ${sheetName}: ${details}`);
   }
   return report.finalHeaders;
 }
 
-function previewAnalyticsSchemaMigrationToV11() {
+function previewAnalyticsSchemaMigrationToV12() {
   return runAnalyticsSchemaMigration(true);
 }
 
-function migrateAnalyticsSchemaToV11() {
+function migrateAnalyticsSchemaToV12() {
   return runAnalyticsSchemaMigration(false);
 }
 
-// Retain the former entry points for operators who have them bookmarked; both
-// now preview/migrate the v11 schema.
+function previewAnalyticsSchemaMigrationToV11() {
+  return previewAnalyticsSchemaMigrationToV12();
+}
+
+function migrateAnalyticsSchemaToV11() {
+  return migrateAnalyticsSchemaToV12();
+}
+
+// Retain the former entry points for operators who have them bookmarked; all
+// now preview/migrate the v12 schema.
 function previewAnalyticsSchemaMigrationToV10() {
-  return previewAnalyticsSchemaMigrationToV11();
+  return previewAnalyticsSchemaMigrationToV12();
 }
 
 function migrateAnalyticsSchemaToV10() {
-  return migrateAnalyticsSchemaToV11();
+  return migrateAnalyticsSchemaToV12();
 }
 
 function runAnalyticsSchemaMigration(dryRun) {
@@ -374,11 +381,11 @@ function runAnalyticsSchemaMigration(dryRun) {
 
   // Validate every target before changing any sheet structure.
   if (reports.some(report => !report.validationPassed)) {
-    console.error(`[Analytics schema v11] ${JSON.stringify(reports)}`);
+    console.error(`[Analytics schema v12] ${JSON.stringify(reports)}`);
     return reports;
   }
   if (dryRun) {
-    console.info(`[Analytics schema v11 preview] ${JSON.stringify(reports)}`);
+    console.info(`[Analytics schema v12 preview] ${JSON.stringify(reports)}`);
     return reports;
   }
 
@@ -389,7 +396,7 @@ function runAnalyticsSchemaMigration(dryRun) {
       spec.headers
     )
   );
-  console.info(`[Analytics schema v11] ${JSON.stringify(migratedReports)}`);
+  console.info(`[Analytics schema v12] ${JSON.stringify(migratedReports)}`);
   return migratedReports;
 }
 
@@ -603,7 +610,6 @@ function questRecordValues(payload, record) {
     "Quest Total Points": cellValue(record.questTotalPoints),
     "Has Photo": record.hasPhoto === true,
     "Has Caption": record.hasCaption === true,
-    "Has Reflection": record.hasReflection === true,
     "Submission Version": cellValue(record.submissionVersion),
     "Updated At": cellValue(record.updatedAt),
     "Record Hash": cellValue(record.recordHash),

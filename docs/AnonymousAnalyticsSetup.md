@@ -223,35 +223,35 @@ such as installation plus `app_first_opened` or installation plus quest ID.
 Duplicate stable first-open rows are marked superseded and point to the canonical
 event key.
 
-## Schema Migration v11
+## Schema Migration v12
 
-`doPost()` never changes sheet structure. Deploy receiver v11 before running
+`doPost()` never changes sheet structure. Deploy receiver v12 before running
 the migration so the older receiver cannot append retired headers again. Then
-open the bound Apps Script project and run `previewAnalyticsSchemaMigrationToV11()`.
+open the bound Apps Script project and run `previewAnalyticsSchemaMigrationToV12()`.
 It validates `Events`, `Analytics Testing`, `Quest Records`, and `Quest Records
 Testing`, reporting the exact retired columns it would remove. It stops without
 changing anything if a sheet is missing, has no header row, has duplicate or
-blank headers, has a row-width mismatch, or does not reduce to the exact v11
+blank headers, has a row-width mismatch, or does not reduce to the exact v12
 header set. A sheet with the complete known header set in a legacy order is a
 valid migration candidate and is reported with `requiresReorder: true`.
 
 After reviewing the preview and making a spreadsheet backup, run
-`migrateAnalyticsSchemaToV11()`. It removes `Received At`, `Last Received At`,
+`migrateAnalyticsSchemaToV12()`. It removes `Received At`, `Last Received At`,
 `Completed At`, `Timestamp Precision`, and the Quest Records-only `Running Total
-Points` by exact header name from right to left. It adds blank `First Completed
+Points` and `Has Reflection` by exact header name from right to left. It adds blank `First Completed
 At` and `Adventure Date` columns only when migrating the known prior Quest
 Records schema. Remaining cells shift with their own columns; no blank
 placeholders are created otherwise. It fails validation when unexpected columns are present to prevent
 accidental schema corruption, and only proceeds when the sheet matches the
 expected header set. When the known headers are in a legacy order, it rewrites
-the complete sheet into canonical v11 order by mapping each cell to its header
+the complete sheet into canonical v12 order by mapping each cell to its header
 name, never by a raw column index. Preview reports include `columnsToRemove`,
 `requiresReorder`, `currentHeaders`, `targetHeaders`, `validationPassed`, and
 `errors`; migration reports also include `sheetName`, `columnsRemoved`,
 `alreadyMigrated`, `finalHeaders`, and `rowCount`. A second run makes no changes
 and reports the sheets as already migrated.
 
-Until the migration has run successfully, the v11 receiver rejects a missing,
+Until the migration has run successfully, the v12 receiver rejects a missing,
 retired, or malformed schema with a readable error instead of changing it during
 an analytics request. This brief retry window affects analytics only, never
 gameplay or saved quest data.
