@@ -648,19 +648,26 @@ return new Promise((resolve, reject) => {
   function jeBoardColorVar(c){return boardCategoryColorVariables[c]||boardCategoryColorVariables.experience;}
 
   async function renderJournalPagesToCanvases(){
+    console.log('[Journal Export] assets/fonts ready check...');
     await document.fonts?.ready;
+    console.log('[Journal Export] fonts ready');
     const entries = completedEntries();
     const totals = getTotals(); const rank = currentRank(totals.score);
     const friendsJoined = entries.reduce((s,e)=>s+normalizeFriendCount(e.submission.friends),0);
+    console.log('[Journal Export] totals', {completed:totals.completed, rank:rank.title, score:totals.score, friendsJoined});
     // Load images
+    console.log('[Journal Export] photos loaded start', entries.length);
     const mediaImages = await Promise.all(entries.map(e=>loadSubmissionCanvasImage(e.submission)));
+    console.log('[Journal Export] media images loaded', mediaImages.filter(Boolean).length);
     const heroImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/hero-journal-new.png"));
     const pigeonImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/illustrations/icons/old/judgmental-pigeon.png"));
     const stampImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/illustrations/overlays/completed-stamp-256.png"));
+    console.log('[Journal Export] hero/pigeon/stamp', !!heroImg, !!pigeonImg, !!stampImg);
     const iconImgs = await Promise.all(entries.map(e=>loadCanvasImage(questIllustrationPath(e.quest.id))));
     const boardQuests = orderedQuests();
     const boardMedia = await Promise.all(boardQuests.map(q=>loadSubmissionCanvasImage(completedSubmission(q.id))));
     const boardIcons = await Promise.all(boardQuests.map(q=>loadCanvasImage(questIllustrationPath(q.id))));
+    console.log('[Journal Export] board assets loaded');
 
     // Estimate heights via offscreen measurement (like prototype) - use simplified heights for canvas
     // For canvas pagination we estimate via text metrics + image size
@@ -675,7 +682,7 @@ return new Promise((resolve, reject) => {
     const firstH = estimateEntryHeight(entries[0]||{submission:{},quest:{id:""}},0);
     let remainingIdx = 0;
     if(entries.length && headerH + JE_HEADER_GAP + firstH <= CONTENT_H){
-      pages.push({header:true, entries:[entries[0]], gap:JE_HEADER_GAP});
+      pages.push({header:true, entries:[{entry:entries[0], img:mediaImages[0], icon:iconImgs[0], idx:0}], gap:JE_HEADER_GAP});
       remainingIdx=1;
     } else {
       pages.push({header:true, entries:[], gap:0});
@@ -734,7 +741,7 @@ return new Promise((resolve, reject) => {
         y+= (pi>0? JE_CONT_EXTRA:0);
       }
       // draw entries
-      const ents = page.entries;
+      const ents = page.entries || [];
       for(let ei=0; ei<ents.length; ei++){
         const {entry, img, icon, idx} = ents[ei];
         const isRev = (entry.boardIndex!=null? entry.boardIndex: idx) %2===1;
@@ -796,35 +803,67 @@ return new Promise((resolve, reject) => {
     return canvases;
   }
 
+  function binaryStringToBytes(str){ const b=new Uint8Array(str.length); for(let i=0;i<str.length;i++) b[i]=str.charCodeAt(i)&0xFF; return b; }
   function pdfFromJpegDataUrls(jpegs, w, h){
     const pageW=612, pageH=792;
     const scale = pageW / w;
     const imgH = Math.round(h*scale);
-    let pdf='%PDF-1.4\n'; const offsets=[0]; const objs=[];
+    const header='%PDF-1.4\n';
+    const objs=[];
     objs.push('<< /Type /Catalog /Pages 2 0 R >>');
     objs.push(`<< /Type /Pages /Kids [${jpegs.map((_,i)=>`${3+i*3} 0 R`).join(' ')}] /Count ${jpegs.length} >>`);
-    jpegs.forEach((jpeg,i)=>{
-      const bin = atob(jpeg.split(',')[1]);
+    const jpegBins = jpegs.map(j=>{ const b64=j.split(',')[1]||''; const bin=atob(b64); const u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i)&0xFF; return u8; });
+    jpegBins.forEach((u8,i)=>{
       const n = 3+i*3;
       objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /Im0 ${n+1} 0 R >> >> /Contents ${n+2} 0 R >>`);
-      objs.push(`<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bin.length} >>\nstream\n${bin}\nendstream`);
+      objs.push({ header: `<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${u8.length} >>\nstream\n`, data: u8, footer: '\nendstream' });
       const content=`q\n${pageW} 0 0 ${imgH} 0 ${pageH-imgH} cm\n/Im0 Do\nQ\n`;
       objs.push(`<< /Length ${content.length} >>\nstream\n${content}endstream`);
     });
-    objs.forEach((o,i)=>{ offsets.push(pdf.length); pdf+=`${i+1} 0 obj\n${o}\nendobj\n`; });
-    const xref=pdf.length; pdf+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`; offsets.slice(1).forEach(off=> pdf+=`${String(off).padStart(10,'0')} 00000 n \n`);
-    pdf+=`trailer\n<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-    return new Blob([binaryStringToBytes(pdf)],{type:'application/pdf'});
+    const enc = s=>binaryStringToBytes(s);
+    let total = enc(header).length;
+    const offsets=[];
+    const parts=[enc(header)];
+    objs.forEach((o,i)=>{
+      const idx=i+1;
+      const pre=enc(`${idx} 0 obj\n`);
+      let body, post;
+      if(typeof o==='string'){ body=enc(o); post=enc('\nendobj\n'); }
+      else { const hB=enc(o.header); const fB=enc(o.footer); const eB=enc('\nendobj\n'); body=new Uint8Array(hB.length+o.data.length+fB.length); body.set(hB,0); body.set(o.data,hB.length); body.set(fB,hB.length+o.data.length); post=eB; const combined=new Uint8Array(pre.length+body.length+post.length); combined.set(pre,0); combined.set(body,pre.length); combined.set(post,pre.length+body.length); offsets.push(total); total+=combined.length; parts.push(combined); return; }
+      const combined=new Uint8Array(pre.length+body.length+post.length); combined.set(pre,0); combined.set(body,pre.length); combined.set(post,pre.length+body.length);
+      offsets.push(total); total+=combined.length; parts.push(combined);
+    });
+    const xrefOff=total;
+    const xrefHeader=enc(`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`);
+    total+=xrefHeader.length; parts.push(xrefHeader);
+    offsets.forEach(off=>{ const l=enc(`${String(off).padStart(10,'0')} 00000 n \n`); total+=l.length; parts.push(l); });
+    const trailer=enc(`trailer\n<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${xrefOff}\n%%EOF`);
+    parts.push(trailer);
+    const out=new Uint8Array(parts.reduce((s,a)=>s+a.length,0));
+    let o=0; parts.forEach(a=>{ out.set(a,o); o+=a.length; });
+    return new Blob([out],{type:'application/pdf'});
   }
 
   async function exportStoryPdf(){
-    const btn=document.querySelector("#shareStoryBtn"); const orig=btn.textContent; btn.textContent="Preparing PDF..."; btn.disabled=true;
+    console.log('[Journal Export] button click reached: #shareStoryBtn');
+    const btn=document.querySelector("#shareStoryBtn"); if(!btn){ console.error('[Journal Export] button #shareStoryBtn not found'); return; }
+    const orig=btn.textContent; btn.textContent="Preparing PDF..."; btn.disabled=true;
+    console.log('[Journal Export] export function entered');
     try{
+      console.log('[Journal Export] resolving completed entries...');
+      const entries = completedEntries();
+      console.log('[Journal Export] completed entries resolved', entries.length);
+      console.log('[Journal Export] loading photos/assets/fonts...');
       const canvases = await renderJournalPagesToCanvases();
+      console.log('[Journal Export] pages rendered', canvases.length, canvases.map(c=>`${c.width}x${c.height}`).join(', '));
+      console.log('[Journal Export] PDF generation started');
       const jpegs = canvases.map(c=>c.toDataURL('image/jpeg',.92));
+      if(!jpegs.length) throw new Error('No pages rendered');
       const pdfBlob = pdfFromJpegDataUrls(jpegs, canvases[0].width, canvases[0].height);
+      console.log('[Journal Export] PDF generation completed', pdfBlob.size, 'bytes');
       const url=URL.createObjectURL(pdfBlob); const a=document.createElement('a'); a.href=url; a.download='Summer-Journal-2026.pdf'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
-    } catch(e){ console.error('Journal export failed',e); alert('PDF export failed. Please try again.'); }
+      console.log('[Journal Export] download triggered');
+    } catch(e){ console.error('[Journal Export] FAILED at stage', e); console.error(e.stack||e); alert('PDF export failed. Please try again. (see console for details)'); }
     finally{ btn.textContent=orig; btn.disabled=false; }
   }
 
