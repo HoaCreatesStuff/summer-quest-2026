@@ -1,4 +1,4 @@
-const BUILD_VERSION = "080701";
+const BUILD_VERSION = "080801";
 const BUILD_VERSION_PATTERN = /^(\d{2})(\d{2})(\d{2})$/;
 
 function isValidBuildVersion(value) {
