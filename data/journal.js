@@ -640,174 +640,192 @@ return new Promise((resolve, reject) => {
     return y + lines.length * lineHeight;
   }
 
-  async function renderStoryPdfCanvas() {
+  // === Ported from standalone prototype (prototypes/journal-export) ===
+  const JE_DPI = 96, JE_PAGE_W = 612, JE_PAGE_H = 792, JE_M_TOP = 0.85*96, JE_M_SIDE=0.90*96, JE_M_BOTTOM=0.55*96, JE_FOOTER_H=32, JE_CONT_EXTRA=18, JE_CONTENT_W=6.7, JE_GAP_PREF=42, JE_GAP_MAX=50, JE_HEADER_GAP=36;
+  const JE_TILTS=[-1.2,5.8,-0.7,3.9,-5.4,1.4,-3.1,6.1];
+  const JE_STAMP_SIZES=[50,58,62,66,71,53,69,60], JE_STAMP_ROTS=[-38,22,-12,40,-28,15,-41,33], JE_STAMP_OFFX=[-6,5,-4,7,-8,3,-2,6], JE_STAMP_OFFY=[-5,6,-3,2,-7,4,-8,1];
+  function jeHash(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h;}
+  function jeBoardColorVar(c){return boardCategoryColorVariables[c]||boardCategoryColorVariables.experience;}
+
+  async function renderJournalPagesToCanvases(){
     await document.fonts?.ready;
     const entries = completedEntries();
-    const mediaImages = await Promise.all(
-      entries.map(entry => loadSubmissionCanvasImage(entry.submission))
-    );
+    const totals = getTotals(); const rank = currentRank(totals.score);
+    const friendsJoined = entries.reduce((s,e)=>s+normalizeFriendCount(e.submission.friends),0);
+    // Load images
+    const mediaImages = await Promise.all(entries.map(e=>loadSubmissionCanvasImage(e.submission)));
+    const heroImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/hero-journal-new.png"));
+    const pigeonImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/illustrations/icons/old/judgmental-pigeon.png"));
+    const stampImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/illustrations/overlays/completed-stamp-256.png"));
+    const iconImgs = await Promise.all(entries.map(e=>loadCanvasImage(questIllustrationPath(e.quest.id))));
+    const boardQuests = orderedQuests();
+    const boardMedia = await Promise.all(boardQuests.map(q=>loadSubmissionCanvasImage(completedSubmission(q.id))));
+    const boardIcons = await Promise.all(boardQuests.map(q=>loadCanvasImage(questIllustrationPath(q.id))));
 
-    const width = 900;
-    const margin = 64;
-    const contentWidth = width - margin * 2;
-    let estimatedHeight = 360 + Math.max(1, entries.length) * 720;
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = estimatedHeight;
-    const context = canvas.getContext("2d", { alpha: false });
-
-    const paintBackground = () => {
-      context.fillStyle = "#f7f2e9";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-    };
-    paintBackground();
-    context.textBaseline = "top";
-    context.fillStyle = "#272522";
-    context.font = '400 54px "Libre Baskerville", serif';
-    context.fillText("Your Summer Story", margin, 64);
-    context.font = '600 16px Montserrat, sans-serif';
-    context.fillStyle = cssVariableColor("--teal");
-    context.fillText("NYC SUMMER QUEST", margin, 132);
-
-    let y = 190;
-    if (!entries.length) {
-      context.fillStyle = "#6f6a63";
-      context.font = '400 24px Montserrat, sans-serif';
-      y = drawWrappedText(context, "Complete a quest to add your first memory.", margin, y, contentWidth, 34, 3) + 40;
+    // Estimate heights via offscreen measurement (like prototype) - use simplified heights for canvas
+    // For canvas pagination we estimate via text metrics + image size
+    function estimateEntryHeight(entry, idx){
+      const hasLong = String(entry.submission.caption||"").length>120 || String(questStoryCandidate(entry)?.html||"").length>180;
+      return hasLong ? 320 : 260;
+    }
+    const headerH = 520;
+    const CONTENT_H = 1056 - JE_M_TOP - 0.55*96 - JE_FOOTER_H;
+    const CONTENT_H_CONT = CONTENT_H - JE_CONT_EXTRA;
+    const pages = [];
+    const firstH = estimateEntryHeight(entries[0]||{submission:{},quest:{id:""}},0);
+    let remainingIdx = 0;
+    if(entries.length && headerH + JE_HEADER_GAP + firstH <= CONTENT_H){
+      pages.push({header:true, entries:[entries[0]], gap:JE_HEADER_GAP});
+      remainingIdx=1;
     } else {
-      entries.forEach((entry, index) => {
-        const image = mediaImages[index];
-        const location = String(entry.submission.location || "").trim();
-        const caption = String(entry.submission.caption || "").trim();
-        context.fillStyle = cssVariableColor("--teal");
-        context.font = '700 15px Montserrat, sans-serif';
-        context.fillText(formattedDate(entry.adventureDate).toUpperCase(), margin, y);
-        y += 34;
-        context.fillStyle = "#272522";
-        context.font = '400 34px "Libre Baskerville", serif';
-        y = drawWrappedText(context, entry.quest.title, margin, y, contentWidth, 44, 2) + 10;
-        context.fillStyle = "#6f6a63";
-        context.font = '500 16px Montserrat, sans-serif';
-        const meta = [location && `Location: ${location}`, `Friends: ${friendsLabel(entry.submission.friends)}`].filter(Boolean).join("   ");
-        if (meta) y = drawWrappedText(context, meta, margin, y, contentWidth, 24, 2) + 18;
-        if (image) {
-          const imageSize = Math.min(520, contentWidth);
-          roundedRect(context, margin, y, imageSize, imageSize, 8);
-          context.save();
-          context.clip();
-          drawCoverImage(context, image, margin, y, imageSize, imageSize);
-          context.restore();
-          y += imageSize + 20;
+      pages.push({header:true, entries:[], gap:0});
+    }
+    let cur=[], used=0, pageIdx=1;
+    function capFor(i){return i===0?CONTENT_H:CONTENT_H_CONT;}
+    for(let i=remainingIdx;i<entries.length;i++){
+      const h = estimateEntryHeight(entries[i],i);
+      const cap = capFor(pageIdx);
+      const need = (cur.length? JE_GAP_PREF:0)+h;
+      if(used+need <= cap){ if(cur.length) used+=JE_GAP_PREF; cur.push({entry:entries[i], img:mediaImages[i], icon:iconImgs[i], idx:i}); used+=h; }
+      else { pages.push({header:false, entries:cur, gap:JE_GAP_PREF}); pageIdx++; cur=[{entry:entries[i], img:mediaImages[i], icon:iconImgs[i], idx:i}]; used=h; }
+    }
+    if(cur.length) pages.push({header:false, entries:cur, gap:JE_GAP_PREF});
+    // Ending dedicated
+    pages.push({ending:true, boardQuests, boardMedia, boardIcons, totals, rank, friendsJoined});
+
+    // Render canvases
+    const canvases=[];
+    for(let pi=0; pi<pages.length; pi++){
+      const page = pages[pi];
+      const canvas = document.createElement('canvas');
+      canvas.width = 816; canvas.height = 1056;
+      const ctx = canvas.getContext('2d', {alpha:false});
+      ctx.fillStyle = '#fffefb'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      // footer
+      const fy = canvas.height - 0.45*96 - 32;
+      ctx.fillStyle='rgba(39,37,34,.09)'; ctx.fillRect(0.90*96, fy, canvas.width-1.8*96, 0.8);
+      ctx.fillStyle='#9a958f'; ctx.font='600 9px Montserrat, sans-serif'; ctx.textBaseline='middle';
+      ctx.fillText('NYC Summer Quest · 2026 Birthday Edition', 0.90*96, fy+16);
+      const num = String(pi+1).padStart(2,'0'); ctx.fillStyle='#6f6a63'; ctx.textAlign='right'; ctx.fillText(num, canvas.width-0.90*96, fy+16); ctx.textAlign='left';
+      let y = JE_M_TOP;
+      if(page.header){
+        ctx.fillStyle='#1ba9b9'; ctx.font='600 10px Montserrat'; ctx.textAlign='center'; ctx.fillText("Hoa & Erika's 2026 Birthday Edition".toUpperCase(), canvas.width/2, y+10); ctx.textAlign='left';
+        ctx.fillStyle='#272522'; ctx.font='400 42px "Libre Baskerville"'; ctx.textAlign='center'; ctx.fillText('Summer Journal', canvas.width/2, y+48); ctx.textAlign='left';
+        if(heroImg){ const hw=460, hh=heroImg.height*(hw/heroImg.width); ctx.drawImage(heroImg, (canvas.width-hw)/2, y+62, hw, hh); y+=62+hh+12; } else y+=110;
+        const gen = new Intl.DateTimeFormat('en-US',{month:'long',day:'numeric',year:'numeric'}).format(new Date()).toUpperCase();
+        ctx.fillStyle='#f35f59'; ctx.font='600 9px Montserrat'; ctx.textAlign='center'; ctx.fillText(gen, canvas.width/2, y+6); y+=22; ctx.textAlign='left';
+        // Glance 4x1
+        ctx.strokeStyle='rgba(157,112,29,.28)'; ctx.beginPath(); ctx.moveTo(0.90*96,y); ctx.lineTo(canvas.width-0.90*96,y); ctx.stroke();
+        y+=18; ctx.fillStyle='#87661f'; ctx.font='600 9px Montserrat'; ctx.textAlign='center'; ctx.fillText('SUMMER AT A GLANCE', canvas.width/2, y); y+=18; ctx.textAlign='left';
+        const cols=['Completed Quests','Current Rank','Points Earned','Friends Joined'];
+        const vals=[String(totals.completed), rank.title, String(totals.score), String(friendsJoined)];
+        const colW=(canvas.width-1.8*96)/4;
+        cols.forEach((label,i)=>{
+          const x=0.90*96 + i*colW + 10;
+          if(i>0){ ctx.strokeStyle='rgba(157,112,29,.24)'; ctx.beginPath(); ctx.moveTo(0.90*96+i*colW, y-6); ctx.lineTo(0.90*96+i*colW, y+44); ctx.stroke(); }
+          ctx.fillStyle='#6f6a63'; ctx.font='700 7px Montserrat'; ctx.fillText(label.toUpperCase(), x, y);
+          ctx.fillStyle='#272522'; ctx.font='400 14px "Libre Baskerville"'; ctx.fillText(vals[i], x, y+18);
+        });
+        y+=50; ctx.strokeStyle='rgba(157,112,29,.28)'; ctx.beginPath(); ctx.moveTo(0.90*96,y); ctx.lineTo(canvas.width-0.90*96,y); ctx.stroke(); y+=JE_HEADER_GAP;
+        if(page.entries.length){
+          // draw single entry under header with generous gap already added
         }
-        if (caption) {
-          context.fillStyle = "#4f4a44";
-          context.font = 'italic 20px Montserrat, sans-serif';
-          y = drawWrappedText(context, `"${caption}"`, margin, y, contentWidth, 34, 4) + 14;
-        }
-        y += 46;
-      });
+      } else {
+        y+= (pi>0? JE_CONT_EXTRA:0);
+      }
+      // draw entries
+      const ents = page.entries;
+      for(let ei=0; ei<ents.length; ei++){
+        const {entry, img, icon, idx} = ents[ei];
+        const isRev = (entry.boardIndex!=null? entry.boardIndex: idx) %2===1;
+        const polaroidW=208, polaroidH=236, photo=188;
+        const tilt = JE_TILTS[idx%JE_TILTS.length];
+        const h = jeHash(entry.quest.id); const sSize=JE_STAMP_SIZES[h%JE_STAMP_SIZES.length]; const sRot=JE_STAMP_ROTS[h%JE_STAMP_ROTS.length]; const offX=JE_STAMP_OFFX[h%JE_STAMP_OFFX.length]; const offY=JE_STAMP_OFFY[h%JE_STAMP_OFFY.length];
+        const colX = isRev ? canvas.width-0.90*96 - polaroidW : 0.90*96;
+        const textX = isRev ? 0.90*96 : 0.90*96+polaroidW+36;
+        const textW = canvas.width-1.8*96 - polaroidW -36;
+        // polaroid backing
+        ctx.save(); ctx.translate(colX+polaroidW/2, y+polaroidH/2); ctx.rotate((isRev?-2.2:2.2)*Math.PI/180); ctx.fillStyle = ['#fff4d2','#d5e8e3','#f9d7d4','#f8e7bd'][idx%4]; ctx.fillRect(-polaroidW/2+8, -polaroidH/2+10, polaroidW, polaroidH); ctx.restore();
+        // polaroid frame
+        ctx.save(); ctx.translate(colX+polaroidW/2, y+ polaroidW/2); ctx.rotate(tilt*Math.PI/180);
+        ctx.fillStyle='#fff'; ctx.strokeStyle='rgba(39,37,34,.07)'; ctx.lineWidth=1;
+        ctx.fillRect(-polaroidW/2, -polaroidW/2, polaroidW, polaroidW+28); ctx.strokeRect(-polaroidW/2, -polaroidW/2, polaroidW, polaroidW+28);
+        const imgX=-photo/2, imgY=-polaroidW/2+9;
+        if(img){ ctx.save(); ctx.beginPath(); ctx.rect(imgX, imgY, photo, photo); ctx.clip(); const scale=Math.max(photo/img.width, photo/img.height); const sw=photo/scale, sh=photo/scale, sx=(img.width-sw)/2, sy=(img.height-sh)/2; ctx.drawImage(img,sx,sy,sw,sh,imgX,imgY,photo,photo); ctx.restore(); } else if(icon){ ctx.drawImage(icon, imgX+photo*0.2, imgY+photo*0.2, photo*0.6, photo*0.6); }
+        ctx.fillStyle='#4f4a44'; ctx.font='500 13px Caveat'; ctx.textAlign='center'; const loc=String(entry.submission.location||'').trim(); if(loc) ctx.fillText(loc,0, polaroidW/2+14); ctx.textAlign='left';
+        // stamp
+        ctx.save(); ctx.translate(polaroidW/2-24+offX, -polaroidW/2-24+offY); ctx.rotate(sRot*Math.PI/180); if(stampImg) ctx.drawImage(stampImg, -sSize/2, -sSize/2, sSize, sSize); ctx.restore();
+        ctx.restore();
+        // text
+        let ty=y+6;
+        ctx.fillStyle='#f35f59'; ctx.font='600 8px Montserrat'; if(icon) ctx.drawImage(icon, textX, ty-10, 12,12);
+        ctx.fillText(formattedDate(entry.adventureDate).toUpperCase(), textX+16, ty); ty+=14;
+        ctx.fillStyle='#272522'; ctx.font='400 17px "Libre Baskerville"'; ty = drawWrappedText(ctx, entry.quest.title, textX, ty, textW, 20, 2)+6;
+        const caption = String(entry.submission.caption||'').trim();
+        const fallback = !caption ? (questStoryCandidate(entry)?.html?.replace(/<[^>]+>/g,'')||'') : '';
+        ctx.fillStyle = caption? '#4f4a44':'#272522';
+        ctx.font = caption? '500 14px Caveat' : '400 11px Montserrat';
+        const body = caption || fallback;
+        if(body) ty = drawWrappedText(ctx, body, textX, ty, textW, caption?18:15, 6)+8;
+        const fCount = Math.max(0, Math.trunc(Number(entry.submission.friends)||0));
+        if(fCount>0){ ctx.fillStyle='#6f6a63'; ctx.font='500 10px Montserrat'; ctx.fillText(`+${fCount} ${fCount===1?'friend':'friends'}`, textX, ty+10); ty+=14; }
+        const entryH = Math.max(polaroidH+28, ty - y);
+        y += entryH + (ei<ents.length-1? JE_GAP_PREF:0);
+      }
+      if(page.ending){
+        // hero board
+        ctx.fillStyle='#f35f59'; ctx.font='600 8px Montserrat'; ctx.textAlign='center'; ctx.fillText("THAT'S A WRAP", canvas.width/2, y); y+=14;
+        ctx.fillStyle='#272522'; ctx.font='400 20px "Libre Baskerville"'; ctx.fillText('What an adventure!', canvas.width/2, y); y+=28; ctx.textAlign='left';
+        const boardSize = (canvas.width-1.8*96)*0.83; const boardX=(canvas.width-boardSize)/2; const gap=6; const tile=(boardSize-gap*4)/5;
+        boardQuests.forEach((q,i)=>{
+          const col=i%5, row=Math.floor(i/5); const x=boardX+col*(tile+gap), yy=y+row*(tile+gap);
+          const sub=completedSubmission(q.id); const hasPhoto=boardMedia[i];
+          ctx.save(); ctx.beginPath(); roundedRect(ctx,x,yy,tile,tile,8); ctx.clip();
+          if(hasPhoto){ const im=boardMedia[i]; const sc=Math.max(tile/im.width, tile/im.height); const sw=tile/sc, sh=tile/sc, sx=(im.width-sw)/2, sy=(im.height-sh)/2; ctx.drawImage(im,sx,sy,sw,sh,x,yy,tile,tile); }
+          else { const colr = q.boardColor==='community'?'#b4e0d5':q.boardColor==='challenges'?'#f5d0ca':q.boardColor==='final'?'#e8d2a2':'#f8e6b2'; ctx.fillStyle=colr; ctx.fillRect(x,yy,tile,tile); const ic=boardIcons[i]; if(ic) ctx.drawImage(ic, x+tile*0.2, yy+tile*0.2, tile*0.6, tile*0.6); }
+          ctx.restore();
+        });
+        y+= boardSize+24;
+        const body="The birthday quests may be done, but my summer doesn’t end here. Here’s to taking the scenic route, trying things outside my comfort zone, and making new memories with friends, old and new.";
+        ctx.fillStyle='#272522'; ctx.font='400 11px Montserrat'; ctx.textAlign='center'; const bw=boardSize; const bx=(canvas.width-bw)/2; const lines=wrapCanvasText(ctx, body, bw, 99); lines.forEach((ln,i)=>ctx.fillText(ln, canvas.width/2, y+i*15)); y+=lines.length*15+24; ctx.textAlign='left';
+        if(pigeonImg){ const ph=48, pw=pigeonImg.width*(ph/pigeonImg.height); ctx.drawImage(pigeonImg, (canvas.width-pw)/2, y, pw, ph); y+=ph+12; }
+        ctx.fillStyle='#f35f59'; ctx.font='500 20px Caveat'; ctx.textAlign='center'; ctx.fillText('’Til next time!', canvas.width/2, y); ctx.textAlign='left';
+      }
+      canvases.push(canvas);
     }
-
-    const totals = getTotals();
-    const rank = currentRank(totals.score);
-    context.strokeStyle = "rgba(157,112,29,.32)";
-    context.beginPath();
-    context.moveTo(margin, y);
-    context.lineTo(width - margin, y);
-    context.stroke();
-    y += 34;
-    context.fillStyle = "#87661f";
-    context.font = '700 15px Montserrat, sans-serif';
-    context.fillText("SUMMER AT A GLANCE", margin, y);
-    y += 38;
-    const glance = [
-      ["Completed Quests", `${totals.completed}`],
-      ["Current Rank", rank.title],
-      ["Points Earned", `${totals.score}`],
-      [
-        "Friends Joined",
-        `${entries.reduce(
-          (sum, entry) => sum + normalizeFriendCount(entry.submission.friends),
-          0
-        )}`
-      ]
-    ];
-    const columnWidth = contentWidth / 2;
-    glance.forEach(([label, value], index) => {
-      const x = margin + (index % 2) * columnWidth;
-      const itemY = y + Math.floor(index / 2) * 92;
-      context.fillStyle = "#6f6a63";
-      context.font = '700 13px Montserrat, sans-serif';
-      context.fillText(label.toUpperCase(), x, itemY);
-      context.fillStyle = "#272522";
-      context.font = '400 26px "Libre Baskerville", serif';
-      drawWrappedText(context, value, x, itemY + 25, columnWidth - 18, 34, 2);
-    });
-    y += 220;
-
-    if (y + margin < canvas.height) {
-      const cropped = document.createElement("canvas");
-      cropped.width = width;
-      cropped.height = Math.ceil(y + margin);
-      cropped.getContext("2d", { alpha: false }).drawImage(canvas, 0, 0);
-      return cropped;
-    }
-    return canvas;
+    return canvases;
   }
 
-  function binaryStringToBytes(value) {
-    const bytes = new Uint8Array(value.length);
-    for (let index = 0; index < value.length; index += 1) bytes[index] = value.charCodeAt(index);
-    return bytes;
+  function pdfFromJpegDataUrls(jpegs, w, h){
+    const pageW=612, pageH=792;
+    const scale = pageW / w;
+    const imgH = Math.round(h*scale);
+    let pdf='%PDF-1.4\n'; const offsets=[0]; const objs=[];
+    objs.push('<< /Type /Catalog /Pages 2 0 R >>');
+    objs.push(`<< /Type /Pages /Kids [${jpegs.map((_,i)=>`${3+i*3} 0 R`).join(' ')}] /Count ${jpegs.length} >>`);
+    jpegs.forEach((jpeg,i)=>{
+      const bin = atob(jpeg.split(',')[1]);
+      const n = 3+i*3;
+      objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /Im0 ${n+1} 0 R >> >> /Contents ${n+2} 0 R >>`);
+      objs.push(`<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bin.length} >>\nstream\n${bin}\nendstream`);
+      const content=`q\n${pageW} 0 0 ${imgH} 0 ${pageH-imgH} cm\n/Im0 Do\nQ\n`;
+      objs.push(`<< /Length ${content.length} >>\nstream\n${content}endstream`);
+    });
+    objs.forEach((o,i)=>{ offsets.push(pdf.length); pdf+=`${i+1} 0 obj\n${o}\nendobj\n`; });
+    const xref=pdf.length; pdf+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`; offsets.slice(1).forEach(off=> pdf+=`${String(off).padStart(10,'0')} 00000 n \n`);
+    pdf+=`trailer\n<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    return new Blob([binaryStringToBytes(pdf)],{type:'application/pdf'});
   }
 
-  function pdfFromJpegDataUrl(dataUrl, imageWidth, imageHeight) {
-    const imageBinary = atob(dataUrl.split(",")[1]);
-    const pageWidth = 612;
-    const pageHeight = Math.round(pageWidth * imageHeight / imageWidth);
-    const content = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ\n`;
-    const objects = [
-      "<< /Type /Catalog /Pages 2 0 R >>",
-      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`,
-      `<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBinary.length} >>\nstream\n${imageBinary}\nendstream`,
-      `<< /Length ${content.length} >>\nstream\n${content}endstream`
-    ];
-    let pdf = "%PDF-1.4\n";
-    const offsets = [0];
-    objects.forEach((object, index) => {
-      offsets.push(pdf.length);
-      pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-    });
-    const xrefOffset = pdf.length;
-    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-    offsets.slice(1).forEach(offset => {
-      pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-    });
-    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-    return new Blob([binaryStringToBytes(pdf)], { type: "application/pdf" });
-  }
-
-  async function exportStoryPdf() {
-    const originalText = document.querySelector("#shareStoryBtn").textContent;
-    document.querySelector("#shareStoryBtn").textContent = "Preparing PDF...";
-    document.querySelector("#shareStoryBtn").disabled = true;
-    try {
-      const canvas = await renderStoryPdfCanvas();
-      const jpegDataUrl = canvas.toDataURL("image/jpeg", .92);
-      const pdfBlob = pdfFromJpegDataUrl(jpegDataUrl, canvas.width, canvas.height);
-      const url = URL.createObjectURL(pdfBlob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "my-summer-story.pdf";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } finally {
-      document.querySelector("#shareStoryBtn").textContent = originalText;
-      document.querySelector("#shareStoryBtn").disabled = false;
-    }
+  async function exportStoryPdf(){
+    const btn=document.querySelector("#shareStoryBtn"); const orig=btn.textContent; btn.textContent="Preparing PDF..."; btn.disabled=true;
+    try{
+      const canvases = await renderJournalPagesToCanvases();
+      const jpegs = canvases.map(c=>c.toDataURL('image/jpeg',.92));
+      const pdfBlob = pdfFromJpegDataUrls(jpegs, canvases[0].width, canvases[0].height);
+      const url=URL.createObjectURL(pdfBlob); const a=document.createElement('a'); a.href=url; a.download='Summer-Journal-2026.pdf'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch(e){ console.error('Journal export failed',e); alert('PDF export failed. Please try again.'); }
+    finally{ btn.textContent=orig; btn.disabled=false; }
   }
 
   async function saveKeepsake() {
