@@ -684,7 +684,7 @@ return new Promise((resolve, reject) => {
   }
 
   function journalTextGap(entry,idx){
-    const reversed=(entry.boardIndex!=null?entry.boardIndex:idx)%2===1;
+    const reversed=idx%2===1;
     return reversed ? JE_POLAROID_TEXT_GAP : JE_LEFT_TEXT_GAP;
   }
   function journalTextWidth(entry,idx){ return JE_CONTENT_W*96-JE_POLAROID_W-journalTextGap(entry,idx); }
@@ -734,7 +734,7 @@ return new Promise((resolve, reject) => {
     const stampRot=JE_STAMP_ROTS[h%JE_STAMP_ROTS.length];
     const offX=JE_STAMP_OFFX[h%JE_STAMP_OFFX.length];
     const offY=JE_STAMP_OFFY[h%JE_STAMP_OFFY.length];
-    const isRev=(entry.boardIndex!=null?entry.boardIndex:idx)%2===1;
+    const isRev=idx%2===1;
     const bounds=[];
     // Backing is offset 8px right and 10px down inside its independently tilted box.
     bounds.push(rotatedRectBounds(112, 128, JE_POLAROID_W, JE_POLAROID_H, isRev?-2.2:2.2));
@@ -761,7 +761,7 @@ return new Promise((resolve, reject) => {
     console.log('[Journal Export] photos loaded start', entries.length);
     const mediaImages = await Promise.all(entries.map(e=>loadSubmissionCanvasImage(e.submission)));
     console.log('[Journal Export] media images loaded', mediaImages.filter(Boolean).length);
-    const heroImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/hero-journal-new.png"));
+    const heroImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/hero-summer-journal.png"));
     const pigeonImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/illustrations/icons/old/judgmental-pigeon.png"));
     const stampImg = await loadCanvasImage(window.SUMMER_QUEST_BUILD.assetUrl("assets/illustrations/overlays/completed-stamp-256.png"));
     console.log('[Journal Export] hero/pigeon/stamp', !!heroImg, !!pigeonImg, !!stampImg);
@@ -811,7 +811,7 @@ return new Promise((resolve, reject) => {
       };
     }
     function entryLanes(entry, measure, idx){
-      const reversed=(entry.boardIndex!=null?entry.boardIndex:idx)%2===1;
+      const reversed=idx%2===1;
       const polaroidX=reversed ? CONTENT_W_PX-JE_POLAROID_W : 0;
       const textX=reversed ? 0 : JE_POLAROID_W+JE_LEFT_TEXT_GAP;
       return {
@@ -922,7 +922,7 @@ return new Promise((resolve, reject) => {
       const ents = page.entries || [];
       for(let ei=0; ei<ents.length; ei++){
         const {entry, img, icon, idx} = ents[ei];
-        const isRev = (entry.boardIndex!=null? entry.boardIndex: idx) %2===1;
+        const isRev = idx%2===1;
         const polaroidW=JE_POLAROID_W, polaroidH=JE_POLAROID_H, photo=188;
         const tilt = JE_TILTS[idx%JE_TILTS.length];
         const h = jeHash(entry.quest.id); const sSize=JE_STAMP_SIZES[h%JE_STAMP_SIZES.length]; const sRot=JE_STAMP_ROTS[h%JE_STAMP_ROTS.length]; const offX=JE_STAMP_OFFX[h%JE_STAMP_OFFX.length]; const offY=JE_STAMP_OFFY[h%JE_STAMP_OFFY.length];
