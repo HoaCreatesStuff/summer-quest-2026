@@ -641,15 +641,108 @@ return new Promise((resolve, reject) => {
   }
 
   // === Ported from standalone prototype (prototypes/journal-export) ===
-  const JE_DPI = 96, JE_PAGE_W = 612, JE_PAGE_H = 792, JE_M_TOP = 0.85*96, JE_M_SIDE=0.90*96, JE_M_BOTTOM=0.55*96, JE_FOOTER_H=32, JE_CONT_EXTRA=18, JE_CONTENT_W=6.7, JE_GAP_PREF=42, JE_GAP_MAX=50, JE_HEADER_GAP=36;
+  const JE_DPI = 96, JE_PAGE_W = 612, JE_PAGE_H = 792, JE_M_TOP = 0.85*96, JE_M_SIDE=0.90*96, JE_M_BOTTOM=0.55*96, JE_FOOTER_H=32, JE_CONT_EXTRA=18, JE_CONTENT_W=6.7, JE_GAP_PREF=42, JE_GAP_MAX=50;
   const JE_TILTS=[-1.2,5.8,-0.7,3.9,-5.4,1.4,-3.1,6.1];
-  const JE_STAMP_SIZES=[50,58,62,66,71,53,69,60], JE_STAMP_ROTS=[-38,22,-12,40,-28,15,-41,33], JE_STAMP_OFFX=[-6,5,-4,7,-8,3,-2,6], JE_STAMP_OFFY=[-5,6,-3,2,-7,4,-8,1];
+  // Keep the prototype's bounded rotation variation (within the ±45° cap),
+  // but anchor the stamp to its frame rather than the entry coordinate space.
+  const JE_STAMP_SIZES=[42,55,65,78,88,47,82,60], JE_STAMP_ROTS=[-38,22,-12,40,-28,15,-41,33], JE_STAMP_OFFX=[-3,2,-2,3,-3,2,-2,3], JE_STAMP_OFFY=[-2,2,-1,1,-2,2,-2,1];
+  const JE_POLAROID_W=208, JE_POLAROID_H=236, JE_POLAROID_TEXT_GAP=36, JE_LEFT_TEXT_GAP=50, JE_STAMP_OVERLAP=.55, JE_OPTICAL_GAP=42, JE_EDGE_CLEARANCE=10;
+  const JE_CAPTION_FONT='500 18.5px "Caveat"', JE_CAPTION_LINE_HEIGHT=27, JE_LOCATION_FONT='500 16.3px "Caveat"';
   function jeHash(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h;}
   function jeBoardColorVar(c){return boardCategoryColorVariables[c]||boardCategoryColorVariables.experience;}
+
+  function journalEntryBody(entry){
+    const caption=String(entry.submission.caption||'').trim();
+    const storyHtml=questStoryCandidate(entry)?.html||'';
+    const fallback=!caption && storyHtml ? (()=>{ const node=document.createElement('div'); node.innerHTML=storyHtml; return node.textContent||''; })() : '';
+    return {body:caption||fallback, isCaption:!!caption};
+  }
+
+  async function ensureJournalCanvasFonts(){
+    if(!document.fonts) return;
+    // Canvas does not trigger the CSS Font Loading API itself. Load the exact
+    // bundled Caveat faces before both measurement and paint, then verify it.
+    await Promise.all([
+      document.fonts.load(JE_CAPTION_FONT,'Summer journal caption'),
+      document.fonts.load(JE_LOCATION_FONT,'Chelsea Market'),
+      document.fonts.load('500 27.5px "Caveat"','Til next time'),
+      document.fonts.load('400 17px "Material Symbols Outlined"','groups')
+    ]);
+    await document.fonts.ready;
+    if(!document.fonts.check(JE_CAPTION_FONT,'Summer journal caption')){
+      throw new Error('Caveat font was not ready for Journal PDF rendering.');
+    }
+  }
+
+  function journalTextGap(entry,idx){
+    const reversed=(entry.boardIndex!=null?entry.boardIndex:idx)%2===1;
+    return reversed ? JE_POLAROID_TEXT_GAP : JE_LEFT_TEXT_GAP;
+  }
+  function journalTextWidth(entry,idx){ return JE_CONTENT_W*96-JE_POLAROID_W-journalTextGap(entry,idx); }
+
+  // Canvas has no CSS overflow-wrap, so split a single long token when needed.
+  // This keeps the PDF's content behavior consistent with the prototype's text column.
+  function wrapJournalText(context, text, maxWidth){
+    const lines=[];
+    let line='';
+    String(text).trim().split(/\s+/).filter(Boolean).forEach(word=>{
+      const candidate=line ? `${line} ${word}` : word;
+      if(context.measureText(candidate).width<=maxWidth){ line=candidate; return; }
+      if(line){ lines.push(line); line=''; }
+      if(context.measureText(word).width<=maxWidth){ line=word; return; }
+      let piece='';
+      for(const char of Array.from(word)){
+        if(piece && context.measureText(piece+char).width>maxWidth){ lines.push(piece); piece=char; }
+        else piece+=char;
+      }
+      line=piece;
+    });
+    if(line) lines.push(line);
+    return lines;
+  }
+
+  function rotatedRectBounds(cx, cy, width, height, degrees){
+    const radians=degrees*Math.PI/180, cos=Math.cos(radians), sin=Math.sin(radians);
+    const points=[[-width/2,-height/2],[width/2,-height/2],[width/2,height/2],[-width/2,height/2]].map(([x,y])=>({x:cx+x*cos-y*sin,y:cy+x*sin+y*cos}));
+    return points.reduce((bounds, point)=>({left:Math.min(bounds.left,point.x), right:Math.max(bounds.right,point.x), top:Math.min(bounds.top,point.y), bottom:Math.max(bounds.bottom,point.y)}),{left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity});
+  }
+
+  function journalStampAnchor(stampSize, offX, offY){
+    // Anchor to the transformed frame's upper-left corner. About 55% overlaps
+    // the frame, with a small inward optical safety allowance and tiny jitter.
+    return {
+      x:-JE_POLAROID_W/2+stampSize/2-stampSize*(1-JE_STAMP_OVERLAP)+JE_EDGE_CLEARANCE*.2+offX,
+      y:-JE_POLAROID_W/2+stampSize/2-stampSize*(1-JE_STAMP_OVERLAP)+JE_EDGE_CLEARANCE*.5+offY
+    };
+  }
+
+  // These are the same transforms used by the renderer below. They are kept as
+  // decoration data, distinct from the entry's structural stacking height.
+  function journalPolaroidBounds(entry, idx){
+    const tilt=JE_TILTS[idx%JE_TILTS.length];
+    const h=jeHash(entry.quest.id);
+    const stampSize=JE_STAMP_SIZES[h%JE_STAMP_SIZES.length];
+    const stampRot=JE_STAMP_ROTS[h%JE_STAMP_ROTS.length];
+    const offX=JE_STAMP_OFFX[h%JE_STAMP_OFFX.length];
+    const offY=JE_STAMP_OFFY[h%JE_STAMP_OFFY.length];
+    const isRev=(entry.boardIndex!=null?entry.boardIndex:idx)%2===1;
+    const bounds=[];
+    // Backing is offset 8px right and 10px down inside its independently tilted box.
+    bounds.push(rotatedRectBounds(112, 128, JE_POLAROID_W, JE_POLAROID_H, isRev?-2.2:2.2));
+    // Frame transform origin is its 208px square center, exactly as drawn below.
+    bounds.push(rotatedRectBounds(104, 118, JE_POLAROID_W, JE_POLAROID_H, tilt));
+    const anchor=journalStampAnchor(stampSize,offX,offY);
+    const radians=tilt*Math.PI/180, localX=anchor.x, localY=anchor.y;
+    const stampCx=104+localX*Math.cos(radians)-localY*Math.sin(radians);
+    const stampCy=104+localX*Math.sin(radians)+localY*Math.cos(radians);
+    bounds.push(rotatedRectBounds(stampCx, stampCy, stampSize, stampSize, tilt+stampRot));
+    return bounds.reduce((all, box)=>({left:Math.min(all.left,box.left),right:Math.max(all.right,box.right),top:Math.min(all.top,box.top),bottom:Math.max(all.bottom,box.bottom)}),{left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity});
+  }
 
   async function renderJournalPagesToCanvases(){
     console.log('[Journal Export] assets/fonts ready check...');
     await document.fonts?.ready;
+    await ensureJournalCanvasFonts();
     console.log('[Journal Export] fonts ready');
     const entries = completedEntries();
     const totals = getTotals(); const rank = currentRank(totals.score);
@@ -669,34 +762,107 @@ return new Promise((resolve, reject) => {
     const boardIcons = await Promise.all(boardQuests.map(q=>loadCanvasImage(questIllustrationPath(q.id))));
     console.log('[Journal Export] board assets loaded');
 
-    // Estimate heights via offscreen measurement (like prototype) - use simplified heights for canvas
-    // For canvas pagination we estimate via text metrics + image size
-    function estimateEntryHeight(entry, idx){
-      const hasLong = String(entry.submission.caption||"").length>120 || String(questStoryCandidate(entry)?.html||"").length>180;
-      return hasLong ? 320 : 260;
-    }
-    const headerH = 520;
     const CONTENT_H = 1056 - JE_M_TOP - 0.55*96 - JE_FOOTER_H;
     const CONTENT_H_CONT = CONTENT_H - JE_CONT_EXTRA;
-    const pages = [];
-    const firstH = estimateEntryHeight(entries[0]||{submission:{},quest:{id:""}},0);
-    let remainingIdx = 0;
-    if(entries.length && headerH + JE_HEADER_GAP + firstH <= CONTENT_H){
-      pages.push({header:true, entries:[{entry:entries[0], img:mediaImages[0], icon:iconImgs[0], idx:0}], gap:JE_HEADER_GAP});
-      remainingIdx=1;
-    } else {
-      pages.push({header:true, entries:[], gap:0});
+    const CONTENT_W_PX = JE_CONTENT_W*96;
+    const measureCtx = document.createElement('canvas').getContext('2d');
+    const heroW=560;
+    const heroH=heroImg ? heroImg.height*(heroW/heroImg.width) : 110;
+    // Matches the source header's block flow: eyebrow, two-line title, 560px hero,
+    // generated date, and the 4-column glance block.
+    const headerH=27.5+104+heroH+34.2+218.5;
+    function measureEntry(entry, idx){
+      const {body,isCaption}=journalEntryBody(entry);
+      const textWForMeasure=journalTextWidth(entry,idx);
+      let textBottom=6;
+      measureCtx.font='600 12.8px Montserrat';
+      textBottom+=36;
+      measureCtx.font='400 26px "Libre Baskerville"';
+      const titleLines=wrapJournalText(measureCtx, entry.quest.title, textWForMeasure);
+      textBottom+=titleLines.length*30+16;
+      if(body){
+        measureCtx.font = isCaption? JE_CAPTION_FONT : '400 15px Montserrat';
+        const bodyLines=wrapJournalText(measureCtx, body, textWForMeasure);
+        textBottom+=bodyLines.length*(isCaption?JE_CAPTION_LINE_HEIGHT:24);
+      }
+      const fCount = Math.max(0, Math.trunc(Number(entry.submission.friends)||0));
+      if(fCount>0) textBottom+=14+17;
+      const polaroid=journalPolaroidBounds(entry,idx);
+      const layoutHeight=Math.max(textBottom,JE_POLAROID_H);
+      return {
+        layoutHeight,
+        textBottom,
+        polaroid,
+        decoration:{
+          top:Math.min(0,polaroid.top),
+          bottom:Math.max(0,polaroid.bottom-layoutHeight),
+          left:polaroid.left,
+          right:polaroid.right
+        }
+      };
     }
-    let cur=[], used=0, pageIdx=1;
+    function entryLanes(entry, measure, idx){
+      const reversed=(entry.boardIndex!=null?entry.boardIndex:idx)%2===1;
+      const polaroidX=reversed ? CONTENT_W_PX-JE_POLAROID_W : 0;
+      const textX=reversed ? 0 : JE_POLAROID_W+JE_LEFT_TEXT_GAP;
+      return {
+        decoration:[polaroidX+measure.decoration.left,polaroidX+measure.decoration.right],
+        structural:[[polaroidX,polaroidX+JE_POLAROID_W],[textX,textX+journalTextWidth(entry,idx)]]
+      };
+    }
+    function overlapsX(a,b){ return a[0]<b[1] && b[0]<a[1]; }
+    function transformedClearance(previous, next){
+      const prevLanes=entryLanes(previous.entry,previous.measure,previous.idx);
+      const nextLanes=entryLanes(next.entry,next.measure,next.idx);
+      const nextTopIntrusion=Math.max(0,-next.measure.decoration.top);
+      const prevBottomIntrusion=previous.measure.decoration.bottom;
+      const nextSharesLane=prevLanes.structural.some(lane=>overlapsX(lane,nextLanes.decoration));
+      const prevSharesLane=nextLanes.structural.some(lane=>overlapsX(lane,prevLanes.decoration));
+      return Math.max(
+        JE_OPTICAL_GAP,
+        nextSharesLane ? nextTopIntrusion : 0,
+        prevSharesLane ? prevBottomIntrusion : 0
+      );
+    }
+    function continuationTopInset(measure){
+      // Continuation pages already reserve JE_CONT_EXTRA above their first
+      // structural module, so only the remaining decorative overhang needs
+      // additional vertical space.
+      return Math.max(0,-measure.decoration.top-JE_CONT_EXTRA);
+    }
+    const pages = [];
+    const measures=entries.map((entry,idx)=>measureEntry(entry,idx));
+    // The first page is the journal cover, always; entries begin on Page 2.
+    pages.push({header:true, entries:[], gap:0});
+    let remainingIdx = 0;
+    let cur=[], curGaps=[], used=0, curTopInset=0, pageIdx=1;
     function capFor(i){return i===0?CONTENT_H:CONTENT_H_CONT;}
     for(let i=remainingIdx;i<entries.length;i++){
-      const h = estimateEntryHeight(entries[i],i);
+      const measure=measures[i];
       const cap = capFor(pageIdx);
-      const need = (cur.length? JE_GAP_PREF:0)+h;
-      if(used+need <= cap){ if(cur.length) used+=JE_GAP_PREF; cur.push({entry:entries[i], img:mediaImages[i], icon:iconImgs[i], idx:i}); used+=h; }
-      else { pages.push({header:false, entries:cur, gap:JE_GAP_PREF}); pageIdx++; cur=[{entry:entries[i], img:mediaImages[i], icon:iconImgs[i], idx:i}]; used=h; }
+      const wrapped={entry:entries[i], img:mediaImages[i], icon:iconImgs[i], idx:i, measure};
+      const topInset=cur.length ? 0 : continuationTopInset(measure);
+      const gap=cur.length ? transformedClearance(cur[cur.length-1],wrapped) : 0;
+      const need=gap+topInset+measure.layoutHeight;
+      if(used+need <= cap + 0.5){ if(cur.length){ used+=gap; curGaps.push(gap); } else { used+=topInset; curTopInset=topInset; } cur.push(wrapped); used+=measure.layoutHeight; }
+      else {
+        if(!cur.length) throw new Error(`Quest Entry “${entries[i].quest.title}” is too tall to fit on one Letter page.`);
+        const gaps=cur.length-1, leftover=cap-used;
+        const extra=gaps ? Math.min(leftover/gaps,JE_GAP_MAX-JE_GAP_PREF) : 0;
+        pages.push({header:false, entries:cur, gap:JE_GAP_PREF+extra, entryGaps:curGaps.map(g=>g+extra), topInset:curTopInset});
+        pageIdx++;
+        cur=[wrapped];
+        curGaps=[];
+        curTopInset=continuationTopInset(measure);
+        used=curTopInset+measure.layoutHeight;
+      }
     }
-    if(cur.length) pages.push({header:false, entries:cur, gap:JE_GAP_PREF});
+    if(cur.length){
+      const cap=capFor(pageIdx), gaps=cur.length-1, leftover=cap-used;
+      const extra=gaps ? Math.min(leftover/gaps,JE_GAP_MAX-JE_GAP_PREF) : 0;
+      pages.push({header:false, entries:cur, gap:JE_GAP_PREF+extra, entryGaps:curGaps.map(g=>g+extra), topInset:curTopInset});
+    }
+    console.log('[Journal Export] pagination', {headerH, contentHeight:CONTENT_H, continuationHeight:CONTENT_H_CONT, entryHeights:measures.map(m=>Math.round(m.layoutHeight*10)/10), longestEntryHeight:Math.round(Math.max(0,...measures.map(m=>m.layoutHeight))*10)/10, entriesPerPage:pages.map(page=>page.entries.length)});
     // Ending dedicated
     pages.push({ending:true, boardQuests, boardMedia, boardIcons, totals, rank, friendsJoined});
 
@@ -711,46 +877,50 @@ return new Promise((resolve, reject) => {
       // footer
       const fy = canvas.height - 0.45*96 - 32;
       ctx.fillStyle='rgba(39,37,34,.09)'; ctx.fillRect(0.90*96, fy, canvas.width-1.8*96, 0.8);
-      ctx.fillStyle='#9a958f'; ctx.font='600 9px Montserrat, sans-serif'; ctx.textBaseline='middle';
+      ctx.fillStyle='#9a958f'; ctx.font='600 11px Montserrat, sans-serif'; ctx.textBaseline='middle';
       ctx.fillText('NYC Summer Quest · 2026 Birthday Edition', 0.90*96, fy+16);
       const num = String(pi+1).padStart(2,'0'); ctx.fillStyle='#6f6a63'; ctx.textAlign='right'; ctx.fillText(num, canvas.width-0.90*96, fy+16); ctx.textAlign='left';
       let y = JE_M_TOP;
       if(page.header){
-        ctx.fillStyle='#1ba9b9'; ctx.font='600 10px Montserrat'; ctx.textAlign='center'; ctx.fillText("Hoa & Erika's 2026 Birthday Edition".toUpperCase(), canvas.width/2, y+10); ctx.textAlign='left';
-        ctx.fillStyle='#272522'; ctx.font='400 42px "Libre Baskerville"'; ctx.textAlign='center'; ctx.fillText('Summer Journal', canvas.width/2, y+48); ctx.textAlign='left';
-        if(heroImg){ const hw=460, hh=heroImg.height*(hw/heroImg.width); ctx.drawImage(heroImg, (canvas.width-hw)/2, y+62, hw, hh); y+=62+hh+12; } else y+=110;
+        ctx.fillStyle='#1ba9b9'; ctx.font='600 16px Montserrat'; ctx.textAlign='center'; ctx.fillText("Hoa & Erika's 2026 Birthday Edition".toUpperCase(), canvas.width/2, y+16); ctx.textAlign='left';
+        y+=27.5;
+        ctx.fillStyle='#272522'; ctx.font='400 52px "Libre Baskerville"'; ctx.textAlign='center'; ctx.fillText('My Summer Journal', canvas.width/2, y+43); ctx.textAlign='left';
+        y+=104;
+        if(heroImg) ctx.drawImage(heroImg, (canvas.width-heroW)/2, y, heroW, heroH);
+        y+=heroH;
         const gen = new Intl.DateTimeFormat('en-US',{month:'long',day:'numeric',year:'numeric'}).format(new Date()).toUpperCase();
-        ctx.fillStyle='#f35f59'; ctx.font='600 9px Montserrat'; ctx.textAlign='center'; ctx.fillText(gen, canvas.width/2, y+6); y+=22; ctx.textAlign='left';
+        ctx.fillStyle='#f35f59'; ctx.font='600 14.5px Montserrat'; ctx.textAlign='center'; ctx.fillText(gen, canvas.width/2, y+30.5); y+=34.2; ctx.textAlign='left';
         // Glance 4x1
-        ctx.strokeStyle='rgba(157,112,29,.28)'; ctx.beginPath(); ctx.moveTo(0.90*96,y); ctx.lineTo(canvas.width-0.90*96,y); ctx.stroke();
-        y+=18; ctx.fillStyle='#87661f'; ctx.font='600 9px Montserrat'; ctx.textAlign='center'; ctx.fillText('SUMMER AT A GLANCE', canvas.width/2, y); y+=18; ctx.textAlign='left';
+        y+=28; ctx.strokeStyle='rgba(157,112,29,.28)'; ctx.beginPath(); ctx.moveTo(0.90*96,y); ctx.lineTo(canvas.width-0.90*96,y); ctx.stroke();
+        y+=28; ctx.fillStyle='#87661f'; ctx.font='600 14.5px Montserrat'; ctx.textAlign='center'; ctx.fillText('SUMMER AT A GLANCE', canvas.width/2, y+14.5); y+=16.1+20; ctx.textAlign='left';
         const cols=['Completed Quests','Current Rank','Points Earned','Friends Joined'];
         const vals=[String(totals.completed), rank.title, String(totals.score), String(friendsJoined)];
         const colW=(canvas.width-1.8*96)/4;
         cols.forEach((label,i)=>{
           const x=0.90*96 + i*colW + 10;
-          if(i>0){ ctx.strokeStyle='rgba(157,112,29,.24)'; ctx.beginPath(); ctx.moveTo(0.90*96+i*colW, y-6); ctx.lineTo(0.90*96+i*colW, y+44); ctx.stroke(); }
-          ctx.fillStyle='#6f6a63'; ctx.font='700 7px Montserrat'; ctx.fillText(label.toUpperCase(), x, y);
-          ctx.fillStyle='#272522'; ctx.font='400 14px "Libre Baskerville"'; ctx.fillText(vals[i], x, y+18);
+          if(i>0){ ctx.strokeStyle='rgba(157,112,29,.24)'; ctx.beginPath(); ctx.moveTo(0.90*96+i*colW, y); ctx.lineTo(0.90*96+i*colW, y+96.3); ctx.stroke(); }
+          ctx.fillStyle='#6f6a63'; ctx.font='700 12.8px Montserrat'; ctx.fillText(label.toUpperCase(), x, y+16);
+          ctx.fillStyle='#272522'; ctx.font='400 24.8px "Libre Baskerville"'; const valueLines=wrapJournalText(ctx,String(vals[i]),colW-20); valueLines.slice(0,2).forEach((line,lineIndex)=>ctx.fillText(line,x,y+50+lineIndex*31.5));
         });
-        y+=50; ctx.strokeStyle='rgba(157,112,29,.28)'; ctx.beginPath(); ctx.moveTo(0.90*96,y); ctx.lineTo(canvas.width-0.90*96,y); ctx.stroke(); y+=JE_HEADER_GAP;
+        y+=96.3+28; ctx.strokeStyle='rgba(157,112,29,.28)'; ctx.beginPath(); ctx.moveTo(0.90*96,y); ctx.lineTo(canvas.width-0.90*96,y); ctx.stroke(); y+=page.gap;
         if(page.entries.length){
           // draw single entry under header with generous gap already added
         }
       } else {
-        y+= (pi>0? JE_CONT_EXTRA:0);
+        y+= (!page.ending && pi>0 ? JE_CONT_EXTRA+(page.topInset||0) : 0);
       }
       // draw entries
       const ents = page.entries || [];
       for(let ei=0; ei<ents.length; ei++){
         const {entry, img, icon, idx} = ents[ei];
         const isRev = (entry.boardIndex!=null? entry.boardIndex: idx) %2===1;
-        const polaroidW=208, polaroidH=236, photo=188;
+        const polaroidW=JE_POLAROID_W, polaroidH=JE_POLAROID_H, photo=188;
         const tilt = JE_TILTS[idx%JE_TILTS.length];
         const h = jeHash(entry.quest.id); const sSize=JE_STAMP_SIZES[h%JE_STAMP_SIZES.length]; const sRot=JE_STAMP_ROTS[h%JE_STAMP_ROTS.length]; const offX=JE_STAMP_OFFX[h%JE_STAMP_OFFX.length]; const offY=JE_STAMP_OFFY[h%JE_STAMP_OFFY.length];
         const colX = isRev ? canvas.width-0.90*96 - polaroidW : 0.90*96;
-        const textX = isRev ? 0.90*96 : 0.90*96+polaroidW+36;
-        const textW = canvas.width-1.8*96 - polaroidW -36;
+        const entryGap=journalTextGap(entry,idx);
+        const textX = isRev ? 0.90*96 : 0.90*96+polaroidW+entryGap;
+        const textW = canvas.width-1.8*96 - polaroidW-entryGap;
         // polaroid backing
         ctx.save(); ctx.translate(colX+polaroidW/2, y+polaroidH/2); ctx.rotate((isRev?-2.2:2.2)*Math.PI/180); ctx.fillStyle = ['#fff4d2','#d5e8e3','#f9d7d4','#f8e7bd'][idx%4]; ctx.fillRect(-polaroidW/2+8, -polaroidH/2+10, polaroidW, polaroidH); ctx.restore();
         // polaroid frame
@@ -759,31 +929,37 @@ return new Promise((resolve, reject) => {
         ctx.fillRect(-polaroidW/2, -polaroidW/2, polaroidW, polaroidW+28); ctx.strokeRect(-polaroidW/2, -polaroidW/2, polaroidW, polaroidW+28);
         const imgX=-photo/2, imgY=-polaroidW/2+9;
         if(img){ ctx.save(); ctx.beginPath(); ctx.rect(imgX, imgY, photo, photo); ctx.clip(); const scale=Math.max(photo/img.width, photo/img.height); const sw=photo/scale, sh=photo/scale, sx=(img.width-sw)/2, sy=(img.height-sh)/2; ctx.drawImage(img,sx,sy,sw,sh,imgX,imgY,photo,photo); ctx.restore(); } else if(icon){ ctx.drawImage(icon, imgX+photo*0.2, imgY+photo*0.2, photo*0.6, photo*0.6); }
-        ctx.fillStyle='#4f4a44'; ctx.font='500 13px Caveat'; ctx.textAlign='center'; const loc=String(entry.submission.location||'').trim(); if(loc) ctx.fillText(loc,0, polaroidW/2+14); ctx.textAlign='left';
+        ctx.fillStyle='#4f4a44'; ctx.font=JE_LOCATION_FONT; ctx.textAlign='center'; const loc=String(entry.submission.location||'').trim(); if(loc) ctx.fillText(loc,0, polaroidW/2+14); ctx.textAlign='left';
         // stamp
-        ctx.save(); ctx.translate(polaroidW/2-24+offX, -polaroidW/2-24+offY); ctx.rotate(sRot*Math.PI/180); if(stampImg) ctx.drawImage(stampImg, -sSize/2, -sSize/2, sSize, sSize); ctx.restore();
+        const stampAnchor=journalStampAnchor(sSize,offX,offY);
+        ctx.save(); ctx.translate(stampAnchor.x, stampAnchor.y); ctx.rotate(sRot*Math.PI/180); if(stampImg) ctx.drawImage(stampImg, -sSize/2, -sSize/2, sSize, sSize); ctx.restore();
         ctx.restore();
         // text
         let ty=y+6;
-        ctx.fillStyle='#f35f59'; ctx.font='600 8px Montserrat'; if(icon) ctx.drawImage(icon, textX, ty-10, 12,12);
-        ctx.fillText(formattedDate(entry.adventureDate).toUpperCase(), textX+16, ty); ty+=14;
-        ctx.fillStyle='#272522'; ctx.font='400 17px "Libre Baskerville"'; ty = drawWrappedText(ctx, entry.quest.title, textX, ty, textW, 20, 2)+6;
-        const caption = String(entry.submission.caption||'').trim();
-        const fallback = !caption ? (questStoryCandidate(entry)?.html?.replace(/<[^>]+>/g,'')||'') : '';
-        ctx.fillStyle = caption? '#4f4a44':'#272522';
-        ctx.font = caption? '500 14px Caveat' : '400 11px Montserrat';
-        const body = caption || fallback;
-        if(body) ty = drawWrappedText(ctx, body, textX, ty, textW, caption?18:15, 6)+8;
+        ctx.fillStyle='#f35f59'; ctx.font='600 12.8px Montserrat'; if(icon) ctx.drawImage(icon, textX, ty-14, 22,22);
+        ctx.fillText(formattedDate(entry.adventureDate).toUpperCase(), textX+30, ty); ty+=36;
+        ctx.fillStyle='#272522'; ctx.font='400 26px "Libre Baskerville"'; const titleLines=wrapJournalText(ctx,entry.quest.title,textW); titleLines.forEach((line,lineIndex)=>ctx.fillText(line,textX,ty+lineIndex*30)); ty+=titleLines.length*30+16;
+        const {body,isCaption}=journalEntryBody(entry);
+        ctx.fillStyle = isCaption? '#4f4a44':'#272522';
+        ctx.font = isCaption? JE_CAPTION_FONT : '400 15px Montserrat';
+        if(body){ const bodyLines=wrapJournalText(ctx,body,textW); bodyLines.forEach((line,lineIndex)=>ctx.fillText(line,textX,ty+lineIndex*(isCaption?JE_CAPTION_LINE_HEIGHT:24))); ty+=bodyLines.length*(isCaption?JE_CAPTION_LINE_HEIGHT:24); }
         const fCount = Math.max(0, Math.trunc(Number(entry.submission.friends)||0));
-        if(fCount>0){ ctx.fillStyle='#6f6a63'; ctx.font='500 10px Montserrat'; ctx.fillText(`+${fCount} ${fCount===1?'friend':'friends'}`, textX, ty+10); ty+=14; }
-        const entryH = Math.max(polaroidH+28, ty - y);
-        y += entryH + (ei<ents.length-1? JE_GAP_PREF:0);
+        if(fCount>0){
+          ty+=14;
+          ctx.fillStyle='#6f6a63'; ctx.textBaseline='alphabetic';
+          ctx.font='500 12.5px Montserrat'; const friendTextMetrics=ctx.measureText(`+${fCount} ${fCount===1?'friend':'friends'}`);
+          ctx.font='400 17px "Material Symbols Outlined"'; const friendIconMetrics=ctx.measureText('groups');
+          const friendIconBaseline=ty+((friendIconMetrics.actualBoundingBoxAscent-friendIconMetrics.actualBoundingBoxDescent)-(friendTextMetrics.actualBoundingBoxAscent-friendTextMetrics.actualBoundingBoxDescent))/2;
+          ctx.fillText('groups',textX,friendIconBaseline);
+          ctx.font='500 12.5px Montserrat'; ctx.fillText(`+${fCount} ${fCount===1?'friend':'friends'}`,textX+22,ty); ty+=17;
+        }
+        y += ents[ei].measure.layoutHeight + (ei<ents.length-1?(page.entryGaps?.[ei]??page.gap):0);
       }
       if(page.ending){
         // hero board
-        ctx.fillStyle='#f35f59'; ctx.font='600 8px Montserrat'; ctx.textAlign='center'; ctx.fillText("THAT'S A WRAP", canvas.width/2, y); y+=14;
-        ctx.fillStyle='#272522'; ctx.font='400 20px "Libre Baskerville"'; ctx.fillText('What an adventure!', canvas.width/2, y); y+=28; ctx.textAlign='left';
-        const boardSize = (canvas.width-1.8*96)*0.83; const boardX=(canvas.width-boardSize)/2; const gap=6; const tile=(boardSize-gap*4)/5;
+        ctx.fillStyle='#f35f59'; ctx.font='600 10.5px Montserrat'; ctx.textAlign='center'; ctx.fillText("THAT'S A WRAP", canvas.width/2, y+10.5); y+=20.8;
+        ctx.fillStyle='#272522'; ctx.font='400 29.6px "Libre Baskerville"'; ctx.fillText('What an adventure!', canvas.width/2, y+29.6); y+=34+43; ctx.textAlign='left';
+        const boardSize = (canvas.width-1.8*96)*0.83; const boardX=(canvas.width-boardSize)/2; const gap=7; const tile=(boardSize-gap*4)/5;
         boardQuests.forEach((q,i)=>{
           const col=i%5, row=Math.floor(i/5); const x=boardX+col*(tile+gap), yy=y+row*(tile+gap);
           const sub=completedSubmission(q.id); const hasPhoto=boardMedia[i];
@@ -792,11 +968,15 @@ return new Promise((resolve, reject) => {
           else { const colr = q.boardColor==='community'?'#b4e0d5':q.boardColor==='challenges'?'#f5d0ca':q.boardColor==='final'?'#e8d2a2':'#f8e6b2'; ctx.fillStyle=colr; ctx.fillRect(x,yy,tile,tile); const ic=boardIcons[i]; if(ic) ctx.drawImage(ic, x+tile*0.2, yy+tile*0.2, tile*0.6, tile*0.6); }
           ctx.restore();
         });
-        y+= boardSize+24;
-        const body="The birthday quests may be done, but my summer doesn’t end here. Here’s to taking the scenic route, trying things outside my comfort zone, and making new memories with friends, old and new.";
-        ctx.fillStyle='#272522'; ctx.font='400 11px Montserrat'; ctx.textAlign='center'; const bw=boardSize; const bx=(canvas.width-bw)/2; const lines=wrapCanvasText(ctx, body, bw, 99); lines.forEach((ln,i)=>ctx.fillText(ln, canvas.width/2, y+i*15)); y+=lines.length*15+24; ctx.textAlign='left';
-        if(pigeonImg){ const ph=48, pw=pigeonImg.width*(ph/pigeonImg.height); ctx.drawImage(pigeonImg, (canvas.width-pw)/2, y, pw, ph); y+=ph+12; }
-        ctx.fillStyle='#f35f59'; ctx.font='500 20px Caveat'; ctx.textAlign='center'; ctx.fillText('’Til next time!', canvas.width/2, y); ctx.textAlign='left';
+        y+= boardSize+42;
+        const endingLines=['The birthday quests may be done, but my summer','doesn’t end here. Here’s to taking the scenic route,','trying things outside my comfort zone, and making','new memories with friends, old and new.'];
+        const endingBodyW=boardSize, endingLineH=27.72, endingTransitionGap=16;
+        ctx.fillStyle='#272522'; ctx.font='400 16.8px Montserrat'; ctx.textAlign='center';
+        endingLines.forEach((line,i)=>ctx.fillText(line,boardX+endingBodyW/2,y+i*endingLineH));
+        const endingBodyMetrics=ctx.measureText(endingLines.at(-1));
+        const pigeonY=y+(endingLines.length-1)*endingLineH+endingBodyMetrics.actualBoundingBoxDescent+endingTransitionGap;
+        if(pigeonImg){ const ph=48, pw=pigeonImg.width*(ph/pigeonImg.height); ctx.drawImage(pigeonImg, (canvas.width-pw)/2, pigeonY, pw, ph); ctx.fillStyle='#f35f59'; ctx.font='500 27.5px "Caveat"'; const signoffAscent=ctx.measureText('’Til next time!').actualBoundingBoxAscent; ctx.fillText('’Til next time!',canvas.width/2,pigeonY+ph+endingTransitionGap+signoffAscent); }
+        ctx.textAlign='left';
       }
       canvases.push(canvas);
     }
