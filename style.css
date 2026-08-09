@@ -2508,29 +2508,34 @@ body.keepsake-preview-open { overflow: hidden; }
 }
 
 .story-hero {
-  margin-top: 8px;
-}
-.story-hero .hero-cover {
-  aspect-ratio: 7 / 4;
-}
-.story-hero .hero-title-stack {
-  height: 100%;
-  align-content: center;
-  padding-top: 0;
-}
-.story-hero .hero-title-stack::before {
-  height: clamp(120px, 22vw, 220px);
+  display: grid;
+  justify-items: center;
+  margin: 0 auto;
+  padding-top: clamp(18px, 4vw, 32px);
+  text-align: center;
 }
 .story-hero .eyebrow {
-  font-size: clamp(.62rem, 2.4vw, .8rem);
-  letter-spacing: .06em;
-  white-space: nowrap;
+  margin-bottom: clamp(10px, 2vw, 16px);
+  color: var(--coral);
+  font-size: clamp(.68rem, 1.6vw, .82rem);
+  letter-spacing: .16em;
+  white-space: normal;
 }
 .story-hero h1 {
-  width: 100%;
-  font-size: clamp(2rem, 8.2vw, 4.1rem);
-  line-height: 1;
-  white-space: nowrap;
+  margin: 0;
+  color: var(--ink);
+  font-family: "Libre Baskerville", serif;
+  font-size: clamp(2.1rem, 6vw, 4rem);
+  font-weight: 400;
+  line-height: 1.08;
+}
+.story-hero-illustration {
+  display: block;
+  width: min(50%, 410px);
+  height: auto;
+  margin-top: clamp(16px, 3vw, 28px);
+  pointer-events: none;
+  user-select: none;
 }
 
 .story-timeline {
@@ -3065,13 +3070,13 @@ body.keepsake-preview-open { overflow: hidden; }
     font-size: .76rem;
   }
   .story-hero {
-    margin-top: 0px;
-  }
-  .story-hero .hero-cover {
-    aspect-ratio: 7 / 4;
+    margin-top: 0;
   }
   .story-hero h1 {
-    font-size: clamp(1.45rem, 6.2vw, 2.3rem);
+    font-size: clamp(2rem, 10vw, 2.7rem);
+  }
+  .story-hero-illustration {
+    margin-top: 16px;
   }
   .story-entry-header {
     grid-template-columns: 1fr;
