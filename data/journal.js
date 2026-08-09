@@ -141,6 +141,15 @@
           <button class="secondary-button" type="button" data-route="board">Back to Board</button>
         </div>`;
     } else {
+      const nextAdventureEndCap = finalQuestCompleted()
+        ? ""
+        : `
+          <section class="story-date-group story-next-adventure" aria-label="Your next adventure awaits">
+            <header class="story-date-heading">
+              <span class="story-date-dot" aria-hidden="true"></span>
+              <h2 class="label">Your next adventure awaits…</h2>
+            </header>
+          </section>`;
       storyTimeline.innerHTML = groups.map((group, groupIndex) => `
         <section id="storyDate-${groupIndex}" class="story-date-group" aria-labelledby="storyDateTitle-${groupIndex}">
           <header class="story-date-heading">
@@ -207,7 +216,7 @@
                 </article>`;
             }).join("")}
           </div>
-        </section>`).join("");
+        </section>`).join("") + nextAdventureEndCap;
     }
 
     const totals = getTotals();

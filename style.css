@@ -2583,6 +2583,9 @@ body.keepsake-preview-open { overflow: hidden; }
   margin-left: 36px;
   margin-top: 12px;
 }
+.story-next-adventure {
+  padding-bottom: clamp(28px, 5vw, 40px);
+}
 .story-entry {
   break-inside: avoid;
 }
