@@ -17,6 +17,7 @@
       const buildVersion = globalThis.SUMMER_QUEST_BUILD?.version;
       const testStorageKey = "summer-quest-pwa-validation";
       const testDatabaseName = "summer-quest-pwa-validation";
+      const legacyWorkerVersion = "080901";
       const oldCacheName = "summer-quest-app-previous-test";
       const unrelatedCacheName = "unrelated-cache-validation";
 
@@ -123,6 +124,17 @@
           navigator.serviceWorker.addEventListener("message", handleMessage);
           controller.postMessage({ type: "SUMMER_QUEST_GET_VERSION" });
         });
+      }
+
+      async function waitForControllerVersion(expectedVersion) {
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          const controller = navigator.serviceWorker.controller;
+          const version = await requestWorkerVersion(controller).catch(() => null);
+          if (version === expectedVersion) return controller;
+          await new Promise(resolve => window.setTimeout(resolve, 50));
+        }
+        throw new Error(`Controller did not advance to ${expectedVersion}`);
       }
 
       function loadAppFrame(url) {
@@ -241,10 +253,16 @@
             workerSource.includes("name !== CACHE_NAME")
         );
         check(
-          "Worker activates safely with clients.claim and opt-in skipWaiting",
+          "App shell precaches the current journal hero and excludes its obsolete path",
+          workerSource.includes('"./assets/hero-summer-journal.png"') &&
+            !workerSource.includes("hero-journal-new.png")
+        );
+        check(
+          "Worker activates a fully cached shell with clients.claim and skipWaiting",
           workerSource.includes("self.clients.claim()") &&
             workerSource.includes('SUMMER_QUEST_SKIP_WAITING') &&
-            workerSource.includes("self.skipWaiting()")
+            workerSource.includes("await cacheAppShell()") &&
+            workerSource.includes("await self.skipWaiting()")
         );
         check(
           "Navigations use one canonical app shell while static assets remain cache-first",
@@ -262,7 +280,8 @@
             updaterSource.includes("encodeURIComponent(buildVersion)") &&
             updaterSource.includes("registration.update()") &&
             updaterSource.includes('"updatefound"') &&
-            updaterSource.includes('"visibilitychange"')
+            updaterSource.includes('"visibilitychange"') &&
+            !updaterSource.includes("!registration || !navigator.onLine")
         );
         const registrations = updaterSource.match(/serviceWorker\.register\(/g) || [];
         const updateFoundListeners = updaterSource.match(/addEventListener\("updatefound"/g) || [];
@@ -282,11 +301,11 @@
           }
         );
         check(
-          "Update flow guards one Restart action and one controller-owned reload",
+          "Update flow guards one Restart action and one automatic controller-owned reload",
           updaterSource.includes("restartInProgress") &&
             updaterSource.includes("isReloadingForUpdate") &&
             updaterSource.includes("waitingWorker.postMessage") &&
-            reloadCalls.length === 1 &&
+            reloadCalls.length === 2 &&
             skipWaitingMessages.length === 1,
           { reloadCalls: reloadCalls.length, skipWaitingMessages: skipWaitingMessages.length }
         );
@@ -297,6 +316,11 @@
             updaterSource.includes("buildsMatch(waitingVersion, activeVersion)") &&
             updaterSource.includes("buildsMatch(waitingVersion, lastActiveVersion)") &&
             workerSource.includes("event.ports?.[0]")
+        );
+        check(
+          "Automatic controller handoff reloads only a newer shell",
+          updaterSource.includes("compareBuildVersions?.(activeVersion, buildVersion) !== 1") &&
+            updaterSource.includes("isReloadingForUpdate")
         );
         check(
           "PWA updater never clears player storage or databases",
@@ -329,6 +353,52 @@
             new Response("unrelated")
           );
 
+          // Test A: run a real older controller, then replace it with the
+          // current worker. The legacy worker is scoped only to /tests/.
+          const legacyRegistration = await navigator.serviceWorker.register(
+            "./legacy-080901-worker.js",
+            { scope: "./", updateViaCache: "none" }
+          );
+          await activateWorkerForValidation(
+            legacyRegistration,
+            legacyRegistration.installing || legacyRegistration.waiting || legacyRegistration.active
+          );
+          await waitForControllerVersion(legacyWorkerVersion);
+          const legacyCacheNames = await caches.keys();
+
+          const upgradeRegistration = await navigator.serviceWorker.register(
+            `../sw.js?v=${encodeURIComponent(buildVersion)}&upgrade-validation=${Date.now()}`,
+            { scope: "./", updateViaCache: "none" }
+          );
+          const upgradedController = await waitForControllerVersion(buildVersion);
+          // `controllerchange` can precede completion of the activate event's
+          // waitUntil work. Give cache cleanup its final event turn before
+          // checking the old cache name.
+          await new Promise(resolve => window.setTimeout(resolve, 100));
+          const upgradedCacheNames = await caches.keys();
+          const legacyShellResponse = await fetch("./legacy-shell");
+          const upgradeDatabase = await openTestDatabase();
+          const upgradeDatabaseSentinel = await readDatabaseSentinel(upgradeDatabase);
+          upgradeDatabase.close();
+
+          check(
+            "080901 controller is replaced automatically and no longer serves its shell",
+            legacyCacheNames.includes(`summer-quest-app-${legacyWorkerVersion}`) &&
+              upgradeRegistration.active === upgradedController &&
+              legacyShellResponse.status === 404,
+            {
+              legacyCacheNames,
+              upgradedCacheNames,
+              legacyShellStatus: legacyShellResponse.status
+            }
+          );
+          check(
+            "080901-to-current handoff preserves local progress",
+            localStorage.getItem(testStorageKey) === "preserved" &&
+              upgradeDatabaseSentinel === "preserved",
+            { databaseSentinel: upgradeDatabaseSentinel }
+          );
+
           const registration = await navigator.serviceWorker.register(
             `../sw.js?v=${encodeURIComponent(buildVersion)}&validation=${Date.now()}`,
             {
@@ -348,6 +418,9 @@
           const currentCache = await caches.open(expectedCacheName);
           const cachedAnalytics = await currentCache.match(
             new URL("../data/analytics.js", window.location.href).href
+          );
+          const cachedJournalHero = await currentCache.match(
+            new URL("../assets/hero-summer-journal.png", window.location.href).href
           );
           const preservedDatabase = await openTestDatabase();
           const databaseSentinel = await readDatabaseSentinel(preservedDatabase);
@@ -392,6 +465,11 @@
           check(
             "Current release cache includes analytics.js",
             Boolean(cachedAnalytics),
+            expectedCacheName
+          );
+          check(
+            "Current release cache includes the journal hero",
+            Boolean(cachedJournalHero),
             expectedCacheName
           );
           check(

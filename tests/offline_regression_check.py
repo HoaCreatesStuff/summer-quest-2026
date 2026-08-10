@@ -72,6 +72,16 @@ def main() -> int:
 
     worker_source = sources["sw.js"]
     precached_paths = set(re.findall(r"""["'](\./[^"']+)["']""", worker_source))
+    app_shell_match = re.search(
+        r"const APP_SHELL_URLS = \[(.*?)\];", worker_source, re.DOTALL
+    )
+    app_shell_paths = set(
+        re.findall(r"""["'](\./[^"']+)["']""", app_shell_match.group(1))
+        if app_shell_match
+        else []
+    )
+    if not app_shell_match:
+        failures.append("Unable to find APP_SHELL_URLS in sw.js")
 
     index_paths = {
         local_asset(match)
@@ -111,6 +121,11 @@ def main() -> int:
             failures.append(f"Missing local asset: {asset_path}")
         if asset_path not in precached_paths:
             failures.append(f"Asset is not precached: {asset_path}")
+
+    for asset_path in sorted(app_shell_paths):
+        disk_path = PROJECT_ROOT / asset_path.removeprefix("./")
+        if not disk_path.exists():
+            failures.append(f"App-shell asset is missing locally: {asset_path}")
 
     for font_file in FONT_FILES:
         font_path = PROJECT_ROOT / font_file

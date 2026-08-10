@@ -14,7 +14,7 @@ Open `index.html` in a browser.
 - Editable/removable submissions
 - Summer Journal, story PDF, and memory keepsake
 - Final Quest trivia gate followed by the `party-time` quest
-- Versioned, fully precached PWA app shell with automatic update checks and a player-controlled restart
+- Versioned, fully precached PWA app shell with automatic update checks and a controlled one-time refresh
 
 ## Local media storage
 Uploaded photos are cropped to 1400×1400 and encoded once as JPEG at
@@ -36,15 +36,19 @@ obsolete `summer-quest-app-*` caches during activation. It never clears
 localStorage or IndexedDB.
 
 The app checks for a new worker on launch, focus, reconnect, page restore, and
-every 30 minutes while it remains open. A downloaded update waits until the
-player chooses **Restart**, preventing an automatic reload during gameplay.
+every 30 minutes while it remains open. After a complete new shell has been
+cached, the worker activates immediately; a controlled client reload happens
+once only when that controller is newer than the loaded document. This avoids a
+Home Screen app remaining indefinitely on a waiting worker while retaining the
+existing 30-minute analytics session across the handoff.
 The application shell, local WOFF2 fonts, Cropper.js, illustrations, icons,
 home-screen help, and preview artwork use a cache-first strategy. Controlled app
 navigations reuse the cache's canonical `index.html`, so query parameters do not
 create shell variants or mix edge-cached HTML with another JavaScript build.
-New service workers fetch a complete, versioned shell during installation; the
-player then uses **Restart** to activate it without interrupting current
-gameplay.
+New service workers fetch a complete, versioned shell during installation,
+then activate before stale app-shell caches are removed. The old page is
+refreshed only after the new controller is active, so it cannot mix the old
+HTML/JavaScript shell with the new worker.
 
 For each release, run `python3 scripts/bump_build.py` before committing or
 deploying. It reads the local date, chooses the next unused `MMDDNN` build,

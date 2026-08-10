@@ -176,7 +176,10 @@
   }
 
   async function checkForUpdate({ force = false } = {}) {
-    if (!registration || !navigator.onLine) return false;
+    // `navigator.onLine` is only a hint and is notably unreliable for some
+    // standalone WebKit app states. Let the actual update request decide;
+    // failures are handled below and leave the active shell untouched.
+    if (!registration) return false;
     if (updateCheckPromise) return updateCheckPromise;
 
     const now = Date.now();
@@ -271,7 +274,22 @@
 
     if (!restartInProgress) {
       resetUpdateButton();
-      syncActiveBuild();
+      syncActiveBuild().then(activeVersion => {
+        // A worker that activated itself has already cached the complete new
+        // shell. Reload once only when it is newer than this document, so the
+        // page cannot keep running an old app shell under a new controller.
+        // The persisted analytics session carries the handoff without another
+        // app_opened event during the 30-minute session window.
+        if (
+          isReloadingForUpdate ||
+          compareBuildVersions?.(activeVersion, buildVersion) !== 1
+        ) {
+          return;
+        }
+
+        isReloadingForUpdate = true;
+        window.location.reload();
+      });
       return;
     }
 
