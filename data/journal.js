@@ -551,11 +551,11 @@
 
   const KEEPSAKE_LAYOUT = Object.freeze({
     width: 1800,
-    heightWithSummary: 2055,
+    heightWithSummary: 2076,
     heightWithoutSummary: 1986,
     marginX: 123,
     headerY: 105,
-    boardY: 320,
+    boardY: 331,
     boardGap: 21,
     footerOffset: 58
   });
@@ -596,7 +596,7 @@
     const tracking = footerFontSize * .095;
     const regular = `400 ${footerFontSize}px Montserrat, sans-serif`;
     const medium = `500 ${footerFontSize}px Montserrat, sans-serif`;
-    const bold = `700 ${footerFontSize}px Montserrat, sans-serif`;
+    const bold = `800 ${footerFontSize}px Montserrat, sans-serif`;
     const separator = `600 ${footerFontSize * 1.25}px Montserrat, sans-serif`;
     const neutral = cssVariableColor("--muted");
     const ink = cssVariableColor("--ink");
@@ -657,11 +657,11 @@
     context.fillStyle = cssVariableColor("--sand-2");
     context.fillRect(0, 0, width, height);
 
-    const ownerFontSize = boardSize * .0195;
+    const ownerFontSize = boardSize * .0215;
     const ownerTracking = ownerFontSize * .14;
     const titleFontSize = boardSize * .066;
     const ownerName = keepsakeNameInput.value.trim().toUpperCase() || "YOUR NAME";
-    context.font = `700 ${ownerFontSize}px Montserrat, sans-serif`;
+    context.font = `800 ${ownerFontSize}px Montserrat, sans-serif`;
     context.fillStyle = cssVariableColor("--ink");
     fillTrackedCanvasText(context, ownerName, boardX, headerY, ownerTracking);
     drawKeepsakeTitle(
@@ -674,7 +674,7 @@
     if (includePointSummary) {
       const scoreFontSize = boardSize * .045;
       const rankFontSize = boardSize * .0175;
-      const paddingX = boardSize * .014 + 3 * (width / KEEPSAKE_LAYOUT.width);
+      const paddingX = boardSize * .014 + 6 * (width / KEEPSAKE_LAYOUT.width);
       const paddingBottom = boardSize * .01 + 2 * (width / KEEPSAKE_LAYOUT.width);
       const paddingTop = paddingBottom + 1 * (width / KEEPSAKE_LAYOUT.width);
       const rankLineHeight = rankFontSize * 1.08;
@@ -686,7 +686,7 @@
       const fieldWidth = Math.min(tileSize, Math.max(scoreWidth, widestRankLine) + paddingX * 2);
       const fieldHeight = paddingTop
         + scoreFontSize * .86
-        + boardSize * .0035
+        + boardSize * .0055
         + rankLines.length * rankLineHeight
         + paddingBottom;
       const fieldX = boardX + boardSize - fieldWidth;
@@ -699,7 +699,7 @@
       context.fillText(String(summary.score), fieldTextX, headerY + paddingTop);
       context.fillStyle = cssVariableColor("--ink");
       context.font = `600 ${rankFontSize}px Montserrat, sans-serif`;
-      const rankY = headerY + paddingTop + scoreFontSize * .86 + boardSize * .0035;
+      const rankY = headerY + paddingTop + scoreFontSize * .86 + boardSize * .0055;
       rankLines.forEach((line, index) => {
         context.fillText(line, fieldTextX, rankY + index * rankLineHeight);
       });

@@ -2855,14 +2855,14 @@ body.keepsake-preview-open { overflow: hidden; }
   color: var(--ink);
 }
 .keepsake-preview-stage.has-point-summary {
-  aspect-ratio: 180 / 205.5;
+  aspect-ratio: 180 / 207.6;
 }
 .keepsake-artwork-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   column-gap: 2.2cqw;
   align-items: stretch;
-  margin-bottom: 4cqw;
+  margin-bottom: 4.7cqw;
 }
 .keepsake-artwork p,
 .keepsake-artwork h2 {
@@ -2873,8 +2873,8 @@ body.keepsake-preview-open { overflow: hidden; }
   margin: 0 0 1.2cqw;
   color: var(--ink);
   font-family: "Montserrat", sans-serif;
-  font-size: 1.95cqw;
-  font-weight: 700;
+  font-size: 2.15cqw;
+  font-weight: 800;
   letter-spacing: .14em;
   line-height: 1.28;
   text-transform: uppercase;
@@ -2901,12 +2901,12 @@ body.keepsake-preview-open { overflow: hidden; }
   justify-items: center;
   width: fit-content;
   max-width: 18.92cqw;
-  padding: calc(1cqw + 3px) calc(1.4cqw + 3px) calc(1cqw + 2px);
+  padding: calc(1cqw + 3px) calc(1.4cqw + 6px) calc(1cqw + 2px);
   background: var(--board-open-yellow);
   text-align: center;
 }
 .keepsake-score-field strong {
-  margin: 0 0 .35cqw;
+  margin: 0 0 .55cqw;
   color: var(--teal);
   font-family: "Libre Baskerville", serif;
   font-size: 4.5cqw;
@@ -2956,7 +2956,7 @@ body.keepsake-preview-open { overflow: hidden; }
 .keepsake-footer[hidden] { display: none; }
 .keepsake-footer-birthday { color: var(--ink); font-weight: 500; }
 .keepsake-footer-separator { color: #9d701d; font-size: 1.25em; font-weight: 600; justify-self: center; }
-.keepsake-footer strong { color: var(--ink); font-family: "Montserrat", sans-serif; font-size: 1em; font-weight: 700; letter-spacing: inherit; }
+.keepsake-footer strong { color: var(--ink); font-family: "Montserrat", sans-serif; font-size: 1em; font-weight: 800; letter-spacing: inherit; }
 .keepsake-board .keepsake-quest-card {
   border: none;
   border-radius: .16cqw;
@@ -3077,7 +3077,7 @@ body.keepsake-preview-open { overflow: hidden; }
   aspect-ratio: 180 / 198.6;
 }
 .keepsake-preview-stage.is-fullscreen.has-point-summary .keepsake-preview-transform {
-  aspect-ratio: 180 / 205.5;
+  aspect-ratio: 180 / 207.6;
 }
 .keepsake-shimmer {
   position: absolute;
