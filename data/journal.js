@@ -5,10 +5,17 @@
   const storyTimeline = document.querySelector("#storyTimeline");
   const summerGlanceGrid = document.querySelector("#summerGlanceGrid");
   const keepsakeNameInput = document.querySelector("#keepsakeNameInput");
+  const keepsakeSummaryInput = document.querySelector("#keepsakeSummaryInput");
+  const keepsakeArtworkDate = document.querySelector("#keepsakeArtworkDate");
   const keepsakeArtworkName = document.querySelector("#keepsakeArtworkName");
   const keepsakeArtworkCompleted = document.querySelector("#keepsakeArtworkCompleted");
+  const keepsakeArtworkScore = document.querySelector("#keepsakeArtworkScore");
   const keepsakeArtworkRank = document.querySelector("#keepsakeArtworkRank");
+  const keepsakeArtworkFriends = document.querySelector("#keepsakeArtworkFriends");
+  const keepsakeArtworkFriendsLabel = document.querySelector("#keepsakeArtworkFriendsLabel");
+  const keepsakeScoreField = document.querySelector("#keepsakeScoreField");
   const keepsakeBoard = document.querySelector("#keepsakeBoard");
+  const keepsakeGlance = document.querySelector("#keepsakeGlance");
   const keepsakePreviewStage = document.querySelector("#keepsakePreviewStage");
   const keepsakePreviewTransform = document.querySelector("#keepsakePreviewTransform");
   const keepsakeGeneratedPreview = document.querySelector("#keepsakeGeneratedPreview");
@@ -95,6 +102,84 @@
   const count = Math.max(0, Math.trunc(Number(value) || 0));
   return count === 0 ? "Solo" : String(count);
 }
+
+  function summerGlanceItems(entries = completedEntries()) {
+    const totals = getTotals();
+    const rank = currentRank(totals.score);
+    const friends = entries.reduce(
+      (sum, entry) => sum + normalizeFriendCount(entry.submission.friends),
+      0
+    );
+    return [
+      ["Completed Quests", totals.completed],
+      ["Current Rank", rank.title],
+      ["Points Earned", totals.score],
+      ["Friends Joined", friends]
+    ];
+  }
+
+  function summerGlanceMarkup(items) {
+    return items.map(([label, value]) => `
+      <div class="summer-glance-item">
+        <p>${label}</p>
+        <strong>${escapeStoryText(value)}</strong>
+      </div>`).join("");
+  }
+
+  function keepsakePointSummaryItems() {
+    return summerGlanceItems().filter(([label]) => label !== "Current Rank");
+  }
+
+  function pluralizedSummaryLabel(value, singular, plural) {
+    return Number(value) === 1 ? singular : plural;
+  }
+
+  function keepsakePointSummaryMarkup(items = keepsakePointSummaryItems()) {
+    const values = Object.fromEntries(items);
+    const completed = values["Completed Quests"];
+    const points = values["Points Earned"];
+    const friends = values["Friends Joined"];
+    return `
+      <span class="keepsake-glance-kicker">SUMMER AT A GLANCE :</span>
+      <span><strong>${escapeStoryText(completed)}</strong> ${escapeStoryText(pluralizedSummaryLabel(completed, "Quest Completed", "Quests Completed"))}</span>
+      <span aria-hidden="true"> · </span>
+      <span><strong>${escapeStoryText(points)}</strong> Points Earned</span>
+      <span aria-hidden="true"> · </span>
+      <span><strong>${escapeStoryText(friends)}</strong> ${escapeStoryText(pluralizedSummaryLabel(friends, "Friend Joined", "Friends Joined"))}</span>`;
+  }
+
+  function keepsakeSummaryData(monthYear = keepsakeArtworkDate.textContent || keepsakeGenerationMonthYear()) {
+    const totals = getTotals();
+    const values = Object.fromEntries(keepsakePointSummaryItems());
+    return {
+      completed: totals.completed,
+      score: totals.score,
+      rank: currentRank(totals.score).title,
+      friends: Number(values["Friends Joined"]) || 0,
+      monthYear
+    };
+  }
+
+  function keepsakeRankLines(rank) {
+    const words = String(rank || "").trim().split(/\s+/).filter(Boolean);
+    const splitAt = Math.ceil(words.length / 2);
+    return [
+      words.slice(0, splitAt).join(" "),
+      words.slice(splitAt).join(" ")
+    ].filter(Boolean);
+  }
+
+  function keepsakeGenerationMonthYear() {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "long",
+      year: "numeric"
+    }).format(new Date());
+  }
+
+  function syncKeepsakeGenerationDate(monthYear = keepsakeGenerationMonthYear()) {
+    keepsakeArtworkDate.textContent = monthYear;
+    return monthYear;
+  }
 
   function mediaMarkup(entry, className) {
     const { submission, quest } = entry;
@@ -219,23 +304,7 @@
         </section>`).join("") + nextAdventureEndCap;
     }
 
-    const totals = getTotals();
-    const rank = currentRank(totals.score);
-    const friends = entries.reduce(
-      (sum, entry) => sum + normalizeFriendCount(entry.submission.friends),
-      0
-    );
-    const glanceItems = [
-      ["Completed Quests", totals.completed],
-      ["Current Rank", rank.title],
-      ["Points Earned", totals.score],
-      ["Friends Joined", friends]
-    ];
-    summerGlanceGrid.innerHTML = glanceItems.map(([label, value]) => `
-      <div class="summer-glance-item">
-        <p>${label}</p>
-        <strong>${escapeStoryText(value)}</strong>
-      </div>`).join("");
+    summerGlanceGrid.innerHTML = summerGlanceMarkup(summerGlanceItems(entries));
 
     storyTimeline.querySelectorAll("video").forEach(async (video) => {
       const still = await captureVideoFrame(video.src, video.dataset.mediaId || video.src);
@@ -255,6 +324,13 @@
     final: "--board-final"
   });
 
+  const keepsakeBoardOpenColorVariables = Object.freeze({
+    experience: "--board-open-yellow",
+    community: "--board-open-teal",
+    challenges: "--board-open-coral",
+    final: "--board-open-final"
+  });
+
   function cssVariableColor(variableName) {
     return getComputedStyle(document.documentElement)
       .getPropertyValue(variableName)
@@ -264,6 +340,12 @@
   function boardTileColor(quest) {
     const colorVariable = boardCategoryColorVariables[quest.boardColor]
       || boardCategoryColorVariables.experience;
+    return cssVariableColor(colorVariable);
+  }
+
+  function keepsakeBoardOpenColor(quest) {
+    const colorVariable = keepsakeBoardOpenColorVariables[quest.boardColor]
+      || keepsakeBoardOpenColorVariables.experience;
     return cssVariableColor(colorVariable);
   }
 
@@ -288,8 +370,7 @@
   }
 
   async function renderKeepsake() {
-    const totals = getTotals();
-    const rank = currentRank(totals.score);
+    const summary = keepsakeSummaryData(keepsakeGenerationMonthYear());
     const quests = orderedQuests();
     const nextUrls = new Set();
     const mediaSources = await Promise.all(quests.map(quest => (
@@ -298,8 +379,15 @@
     revokeMediaUrls(keepsakeMediaUrls);
     keepsakeMediaUrls = nextUrls;
 
-    keepsakeArtworkCompleted.textContent = `${totals.completed}/${window.BOARD_ORDER.length} Quests`;
-    keepsakeArtworkRank.textContent = rank.title;
+    keepsakeArtworkCompleted.textContent = `${summary.completed}/${window.BOARD_ORDER.length}`;
+    keepsakeArtworkScore.textContent = summary.score;
+    keepsakeArtworkRank.textContent = keepsakeRankLines(summary.rank).join("\n");
+    keepsakeArtworkFriends.textContent = summary.friends;
+    keepsakeArtworkFriendsLabel.textContent = ` ${pluralizedSummaryLabel(summary.friends, "Friend Joined", "Friends Joined")}`;
+    syncKeepsakeGenerationDate(summary.monthYear);
+    keepsakeGlance.hidden = !keepsakeSummaryInput.checked;
+    keepsakeScoreField.hidden = !keepsakeSummaryInput.checked;
+    keepsakePreviewStage.classList.toggle("has-point-summary", keepsakeSummaryInput.checked);
     keepsakeBoard.innerHTML = quests.map((quest, index) => keepsakeTileMarkup(quest, mediaSources[index])).join("");
     keepsakeBoard.querySelectorAll("[data-keepsake-quest]").forEach(async (tile) => {
       const submission = completedSubmission(tile.dataset.keepsakeQuest);
@@ -321,6 +409,14 @@
     keepsakeArtworkName.textContent = name || "Your Name";
     saveKeepsakeBtn.disabled = !name;
     shareKeepsakeBtn.disabled = !name;
+    if (generatedKeepsake) invalidateGeneratedKeepsake();
+  }
+
+  function syncKeepsakeSummary() {
+    keepsakeGlance.hidden = !keepsakeSummaryInput.checked;
+    keepsakeScoreField.hidden = !keepsakeSummaryInput.checked;
+    keepsakePreviewStage.classList.toggle("has-point-summary", keepsakeSummaryInput.checked);
+    resetZoom();
     if (generatedKeepsake) invalidateGeneratedKeepsake();
   }
 
@@ -453,117 +549,200 @@
     return lines.slice(0, maxLines);
   }
 
+  const KEEPSAKE_LAYOUT = Object.freeze({
+    width: 1800,
+    heightWithSummary: 2055,
+    heightWithoutSummary: 1986,
+    marginX: 123,
+    headerY: 105,
+    boardY: 320,
+    boardGap: 21,
+    footerOffset: 58
+  });
+
+  function trackedCanvasWidth(context, text, tracking = 0) {
+    const characters = Array.from(String(text));
+    return characters.reduce((width, character, index) => (
+      width + context.measureText(character).width + (index ? tracking : 0)
+    ), 0);
+  }
+
+  function fillTrackedCanvasText(context, text, x, y, tracking = 0) {
+    let cursor = x;
+    Array.from(String(text)).forEach((character) => {
+      context.fillText(character, cursor, y);
+      cursor += context.measureText(character).width + tracking;
+    });
+    return cursor;
+  }
+
+  function drawKeepsakeTitle(context, x, y, fontSize) {
+    const tracking = fontSize * -.07;
+    const words = [
+      { text: "NYC", color: cssVariableColor("--teal"), gap: fontSize * .28 },
+      { text: "Summer", color: cssVariableColor("--coral"), gap: fontSize * .4 - 5 },
+      { text: "Quest", color: cssVariableColor("--coral"), gap: 0 }
+    ];
+    context.font = `700 ${fontSize}px "Libre Baskerville", serif`;
+    let cursor = x;
+    words.forEach(({ text, color, gap }) => {
+      context.fillStyle = color;
+      cursor = fillTrackedCanvasText(context, text, cursor, y, tracking) + gap;
+    });
+  }
+
+  function drawKeepsakeFooter(context, { boardX, boardSize, y, summary }) {
+    const footerFontSize = boardSize * .021;
+    const tracking = footerFontSize * .095;
+    const regular = `400 ${footerFontSize}px Montserrat, sans-serif`;
+    const medium = `500 ${footerFontSize}px Montserrat, sans-serif`;
+    const bold = `700 ${footerFontSize}px Montserrat, sans-serif`;
+    const separator = `600 ${footerFontSize * 1.25}px Montserrat, sans-serif`;
+    const neutral = cssVariableColor("--muted");
+    const ink = cssVariableColor("--ink");
+    const groups = [
+      [{ text: "Hoa & Erika's Birthday Edition", color: cssVariableColor("--ink"), font: medium, tracking }],
+      [{ text: "·", color: "#9d701d", font: separator, tracking: 0 }],
+      [{ text: summary.monthYear, color: neutral, font: regular, tracking }],
+      [{ text: "·", color: "#9d701d", font: separator, tracking: 0 }],
+      [
+        { text: `${summary.completed}/25`, color: ink, font: bold, tracking },
+        { text: " Quests", color: neutral, font: regular, tracking }
+      ],
+      [{ text: "·", color: "#9d701d", font: separator, tracking: 0 }],
+      [
+        { text: String(summary.friends), color: ink, font: bold, tracking },
+        { text: ` ${pluralizedSummaryLabel(summary.friends, "Friend Joined", "Friends Joined")}`, color: neutral, font: regular, tracking }
+      ]
+    ];
+    const groupWidths = groups.map(parts => parts.reduce((sum, part) => {
+      context.font = part.font;
+      return sum + trackedCanvasWidth(context, part.text, part.tracking);
+    }, 0));
+    const availableGap = Math.max(0, (boardSize - groupWidths.reduce((sum, width) => sum + width, 0)) / (groups.length - 1));
+    let cursor = boardX;
+    groups.forEach((parts, index) => {
+      parts.forEach((part) => {
+        context.font = part.font;
+        context.fillStyle = part.color;
+        cursor = fillTrackedCanvasText(context, part.text, cursor, y, part.tracking);
+      });
+      if (index < groups.length - 1) cursor += availableGap;
+    });
+  }
+
   async function renderKeepsakeCanvas() {
     await document.fonts?.ready;
     const quests = orderedQuests();
-    const illustrations = quests.map(
-      quest => questIllustrationPath(quest.id)
-    );
+    const illustrations = quests.map(quest => questIllustrationPath(quest.id));
     const [mediaImages, iconImages] = await Promise.all([
       Promise.all(quests.map(quest => loadSubmissionCanvasImage(completedSubmission(quest.id)))),
       Promise.all(illustrations.map(loadCanvasImage))
     ]);
-
-    const width = 1800;
-    const height = 2100;
+    const includePointSummary = keepsakeSummaryInput.checked;
+    const summary = keepsakeSummaryData();
+    syncKeepsakeGenerationDate(summary.monthYear);
+    const { width, marginX, headerY, boardY, boardGap, footerOffset } = KEEPSAKE_LAYOUT;
+    const height = includePointSummary
+      ? KEEPSAKE_LAYOUT.heightWithSummary
+      : KEEPSAKE_LAYOUT.heightWithoutSummary;
+    const boardX = marginX;
+    const boardSize = width - marginX * 2;
+    const tileSize = (boardSize - boardGap * 4) / 5;
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d", { alpha: false });
-    context.fillStyle = "#f7f2e9";
+    context.textBaseline = "top";
+    context.fillStyle = cssVariableColor("--sand-2");
     context.fillRect(0, 0, width, height);
 
-    const margin = 60;
-    context.textBaseline = "top";
-    context.fillStyle = "#272522";
-    context.font = '600 25px Montserrat, sans-serif';
-    context.fillText("Hoa & Erika's Birthday Edition", margin, 64);
-    context.font = '700 62px "Libre Baskerville", serif';
-    context.fillStyle = cssVariableColor("--coral");
-    context.fillText("NYC Summer Quest", margin, 120);
-    const totals = getTotals();
-    const rank = currentRank(totals.score);
-    context.textAlign = "right";
-    context.fillStyle = "#272522";
-    context.font = '600 25px Montserrat, sans-serif';
-    context.fillText("August 2026", width - margin, 64);
-    context.fillStyle = cssVariableColor("--teal");
-    context.font = '700 42px Montserrat, sans-serif';
-    context.fillText(keepsakeNameInput.value.trim(), width - margin, 110);
-    context.fillStyle = "#272522";
-    context.font = '400 30px "Libre Baskerville", serif';
-    context.fillText(rank.title, width - margin, 166);
-    context.textAlign = "left";
-
-    const boardX = margin;
-    const boardY = 315;
-    const boardSize = width - margin * 2;
-    const gap = 22;
-    const tileSize = (boardSize - gap * 4) / 5;
-    quests.forEach((quest, index) => {
-  const column = index % 5;
-  const row = Math.floor(index / 5);
-  const x = boardX + column * (tileSize + gap);
-  const y = boardY + row * (tileSize + gap);
-
-  context.save();
-  roundedRect(context, x, y, tileSize, tileSize, 26);
-  context.clip();
-
-  if (mediaImages[index]) {
-    drawCoverImage(
+    const ownerFontSize = boardSize * .0195;
+    const ownerTracking = ownerFontSize * .14;
+    const titleFontSize = boardSize * .066;
+    const ownerName = keepsakeNameInput.value.trim().toUpperCase() || "YOUR NAME";
+    context.font = `700 ${ownerFontSize}px Montserrat, sans-serif`;
+    context.fillStyle = cssVariableColor("--ink");
+    fillTrackedCanvasText(context, ownerName, boardX, headerY, ownerTracking);
+    drawKeepsakeTitle(
       context,
-      mediaImages[index],
-      x,
-      y,
-      tileSize,
-      tileSize
+      boardX,
+      headerY + ownerFontSize * 1.28 + boardSize * .012,
+      titleFontSize
     );
-  } else {
-    if (isFinalQuest(quest)) {
-      const gradient = context.createLinearGradient(
-        x,
-        y,
-        x + tileSize,
-        y + tileSize
-      );
 
-      gradient.addColorStop(0, "#fff4d5");
-      gradient.addColorStop(.52, "#ead19a");
-      gradient.addColorStop(1, "#f8e7bd");
-      context.fillStyle = gradient;
-    } else {
-      context.fillStyle = boardTileColor(quest);
+    if (includePointSummary) {
+      const scoreFontSize = boardSize * .045;
+      const rankFontSize = boardSize * .0175;
+      const paddingX = boardSize * .014 + 3 * (width / KEEPSAKE_LAYOUT.width);
+      const paddingBottom = boardSize * .01 + 2 * (width / KEEPSAKE_LAYOUT.width);
+      const paddingTop = paddingBottom + 1 * (width / KEEPSAKE_LAYOUT.width);
+      const rankLineHeight = rankFontSize * 1.08;
+      context.font = `600 ${rankFontSize}px Montserrat, sans-serif`;
+      const rankLines = keepsakeRankLines(summary.rank);
+      const widestRankLine = Math.max(...rankLines.map(line => context.measureText(line).width), 0);
+      context.font = `700 ${scoreFontSize}px "Libre Baskerville", serif`;
+      const scoreWidth = context.measureText(String(summary.score)).width;
+      const fieldWidth = Math.min(tileSize, Math.max(scoreWidth, widestRankLine) + paddingX * 2);
+      const fieldHeight = paddingTop
+        + scoreFontSize * .86
+        + boardSize * .0035
+        + rankLines.length * rankLineHeight
+        + paddingBottom;
+      const fieldX = boardX + boardSize - fieldWidth;
+      context.fillStyle = cssVariableColor("--board-open-yellow");
+      context.fillRect(fieldX, headerY, fieldWidth, fieldHeight);
+      context.textAlign = "center";
+      const fieldTextX = fieldX + fieldWidth / 2;
+      context.fillStyle = cssVariableColor("--teal");
+      context.font = `700 ${scoreFontSize}px "Libre Baskerville", serif`;
+      context.fillText(String(summary.score), fieldTextX, headerY + paddingTop);
+      context.fillStyle = cssVariableColor("--ink");
+      context.font = `600 ${rankFontSize}px Montserrat, sans-serif`;
+      const rankY = headerY + paddingTop + scoreFontSize * .86 + boardSize * .0035;
+      rankLines.forEach((line, index) => {
+        context.fillText(line, fieldTextX, rankY + index * rankLineHeight);
+      });
+      context.textAlign = "left";
     }
 
-    context.fillRect(x, y, tileSize, tileSize);
-
+    quests.forEach((quest, index) => {
+      const column = index % 5;
+      const row = Math.floor(index / 5);
+      const x = boardX + column * (tileSize + boardGap);
+      const y = boardY + row * (tileSize + boardGap);
+      context.save();
+      roundedRect(context, x, y, tileSize, tileSize, boardSize * .0016);
+      context.clip();
+      if (mediaImages[index]) {
+        drawCoverImage(context, mediaImages[index], x, y, tileSize, tileSize);
+      } else {
+        context.fillStyle = keepsakeBoardOpenColor(quest);
+        context.fillRect(x, y, tileSize, tileSize);
         if (iconImages[index]) {
-      const iconSize = tileSize * .52;
+          const iconSize = tileSize * .51;
+          context.drawImage(iconImages[index], x + (tileSize - iconSize) / 2, y + (tileSize - iconSize) / 2, iconSize, iconSize);
+        }
+      }
+      context.restore();
+    });
 
-      context.drawImage(
-        iconImages[index],
-        x + (tileSize - iconSize) / 2,
-        y + (tileSize - iconSize) / 2,
-        iconSize,
-        iconSize
-      );
+    if (includePointSummary) {
+      drawKeepsakeFooter(context, {
+        boardX,
+        boardSize,
+        y: boardY + boardSize + footerOffset,
+        summary
+      });
     }
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        blob => blob ? resolve(blob) : reject(new Error("PNG generation failed")),
+        "image/png"
+      );
+    });
   }
-
-  context.restore();
-});
-
-return new Promise((resolve, reject) => {
-  canvas.toBlob(
-    blob =>
-      blob
-        ? resolve(blob)
-        : reject(new Error("PNG generation failed")),
-    "image/png"
-  );
-});
-}
 
   function setKeepsakeActionState(isPreparing) {
     saveKeepsakeBtn.disabled = isPreparing || !validKeepsakeName();
@@ -1229,6 +1408,7 @@ return new Promise((resolve, reject) => {
     if (targetId) document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
   keepsakeNameInput.addEventListener("input", syncKeepsakeName);
+  keepsakeSummaryInput.addEventListener("change", syncKeepsakeSummary);
   saveKeepsakeBtn.addEventListener("click", saveKeepsake);
   shareKeepsakeBtn.addEventListener("click", openShareSheet);
   expandKeepsakeBtn.addEventListener("click", () => setFullscreenPreview(true));

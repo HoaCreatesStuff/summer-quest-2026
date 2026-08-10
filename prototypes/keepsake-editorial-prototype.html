@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Summer Quest Keepsake — Editorial Prototype</title>
+  <style>
+    @font-face { font-family: "Libre Baskerville"; src: url("../assets/fonts/LibreBaskerville-Variable.woff2") format("woff2"); }
+    @font-face { font-family: Montserrat; src: url("../assets/fonts/Montserrat-Variable.woff2") format("woff2"); }
+    :root { --sand: #e8d8c4; --sand-2: #f7f2e9; --teal: #1ba9b9; --board-open-final: #e8d2a2; --board-open-yellow: #f8edcf; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: #e5ddd0; color: #272522; font-family: Montserrat, sans-serif; }
+    .prototype-shell { width: min(100%, 1100px); margin: 0 auto; padding: 28px 20px 52px; }
+    .prototype-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 18px 32px; margin: 0 auto 26px; padding: 0 2px; }
+    .control-group { display: grid; gap: 8px; }
+    .control-label { color: #6f6a63; font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+    .control-options { display: flex; flex-wrap: wrap; gap: 7px; }
+    .control-options label { cursor: pointer; }
+    .control-options input { position: absolute; opacity: 0; pointer-events: none; }
+    .control-options span { display: block; border: 1px solid rgba(39,37,34,.18); border-radius: 999px; padding: 9px 12px; background: rgba(255,253,247,.52); color: #4f4a44; font-size: 11px; font-weight: 600; }
+    .control-options input:checked + span { border-color: #2f8f8c; background: #2f8f8c; color: #fffdf7; }
+    .artifact-frame { display: grid; place-items: center; }
+    .keepsake { container-type: inline-size; position: relative; width: min(100%, 974px); aspect-ratio: 180 / 205.5; overflow: hidden; padding: 5.5% 6.82%; background: var(--sand-2); box-shadow: 0 20px 54px rgba(71,58,42,.18); }
+    .masthead { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) max-content; column-gap: 2.2cqw; align-items: stretch; margin-bottom: 4cqw; }
+    h1 { margin: 0; color: #f35f59; font-family: "Libre Baskerville", serif; font-size: 6.6cqw; font-weight: 700; letter-spacing: -.07em; line-height: .96; white-space: nowrap; }
+    h1 .title-word { display: inline-block; font-size: 1em; letter-spacing: inherit; vertical-align: baseline; }
+    h1 .nyc { margin-right: .28em; color: var(--teal); }
+    h1 .summer { margin-right: calc(.4em - 5px); }
+    .identity { align-self: start; }
+    .issue-name { margin: 0 0 1.2cqw; color: #272522; font-family: Montserrat, sans-serif; font-size: 1.95cqw; font-weight: 700; letter-spacing: .14em; line-height: 1.28; text-transform: uppercase; white-space: nowrap; }
+    .achievement-panel { display: grid; align-self: stretch; align-content: center; justify-items: center; width: 18.92cqw; padding: calc(1cqw + 3px) 1.4cqw calc(1cqw + 1px); background: var(--board-open-yellow); text-align: center; }
+    .achievement-score { margin: 0 0 .35cqw; color: var(--teal); font-family: "Libre Baskerville", serif; font-size: 4.5cqw; font-weight: 700; letter-spacing: -.07em; line-height: .86; }
+    .achievement-rank { width: fit-content; max-width: 16.12cqw; margin: 0; color: #4f4a44; font-size: 1.75cqw; font-weight: 600; letter-spacing: .015em; line-height: 1.08; }
+    .board-area { position: relative; }
+    .contact-sheet { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1.35cqw; width: 100%; }
+    .tile { position: relative; display: grid; aspect-ratio: 1; overflow: hidden; place-items: center; background: var(--tile-color); border-radius: .16cqw; }
+    .tile img { width: 51%; height: 51%; object-fit: contain; }
+    .tile.is-complete { background: var(--memory); }
+    .tile.is-complete::after { content: ""; position: absolute; inset: 0; opacity: .14; background: linear-gradient(135deg, rgba(255,255,255,.82), transparent 43%, rgba(39,37,34,.45)); mix-blend-mode: soft-light; }
+    .tile.is-photo { background-image: var(--memory); }
+    .tile.is-photo img { display: none; }
+    .tile.final { background: linear-gradient(135deg, #fff4d5, #e8cf98 62%, #f8e7bd); }
+    .colophon { position: relative; display: grid; grid-template-columns: max-content minmax(.5cqw, 1fr) max-content minmax(.5cqw, 1fr) max-content minmax(.5cqw, 1fr) max-content; align-items: center; width: 100%; padding-top: 2.1cqw; color: #6f6a63; font-size: 2.1cqw; font-weight: 400; letter-spacing: .095em; line-height: 1.65; text-align: left; white-space: nowrap; }
+    .colophon[hidden] { display: none; }
+    .colophon .lead { color: #272522; font-weight: 500; }
+    .colophon .footer-group { color: #272522; font-weight: 400; }
+    .colophon .footer-number { font-weight: 700; }
+    .colophon .separator { color: #9d701d; font-size: 1.25em; font-weight: 600; justify-self: center; }
+    .colophon strong { color: #272522; font-family: "Libre Baskerville", serif; font-size: 1.08em; font-weight: 700; letter-spacing: 0; }
+    @media (max-width: 520px) { .prototype-shell { padding: 20px 12px 36px; } .prototype-controls { gap: 14px; margin-bottom: 18px; } .control-options span { padding: 8px 10px; } .keepsake { width: 100%; } }
+  </style>
+</head>
+<body>
+  <main class="prototype-shell">
+    <section class="prototype-controls" aria-label="Prototype controls">
+      <div class="control-group">
+        <span class="control-label">Point summary</span>
+        <div class="control-options">
+          <label><input id="footerOn" type="radio" name="footer" checked /><span>Footer ON</span></label>
+          <label><input id="footerOff" type="radio" name="footer" /><span>Footer OFF</span></label>
+        </div>
+      </div>
+      <div class="control-group">
+        <span class="control-label">Completion density</span>
+        <div class="control-options">
+          <label><input type="radio" name="progress" value="5" /><span>Early · 5</span></label>
+          <label><input type="radio" name="progress" value="13" checked /><span>Mid · 13</span></label>
+          <label><input type="radio" name="progress" value="25" /><span>Complete · 25</span></label>
+        </div>
+      </div>
+    </section>
+
+    <div class="artifact-frame">
+      <article class="keepsake" aria-label="Editorial Summer Quest keepsake prototype">
+        <header class="masthead">
+          <div class="identity">
+            <p class="issue-name">Angelica Schuyler</p>
+            <h1><span class="title-word nyc">NYC</span><span class="title-word summer">Summer</span><span class="title-word quest">Quest</span></h1>
+          </div>
+          <div class="achievement-panel">
+            <p class="achievement-score">64</p>
+            <p class="achievement-rank">Neighborhood Explorer</p>
+          </div>
+        </header>
+        <section class="board-area" aria-label="Quest contact sheet">
+          <div id="contactSheet" class="contact-sheet"></div>
+        </section>
+        <footer id="colophon" class="colophon"><span class="lead">Hoa &amp; Erika's Birthday Edition</span><span class="separator" aria-hidden="true">·</span><span id="generationDate"></span><span class="separator" aria-hidden="true">·</span><span class="footer-group"><span class="footer-number"><span id="completedCount">13</span>/25</span> Quests</span><span class="separator" aria-hidden="true">·</span><span class="footer-group"><span id="friendsCount" class="footer-number">7</span><span id="friendsLabel"> Friends Joined</span></span></footer>
+      </article>
+    </div>
+  </main>
+
+  <script>
+    const quests = [
+      ["ny-eats", "experience"], ["bodega-cat", "community"], ["subway-romance", "challenges"], ["waterfront-wonders", "experience"], ["city-freebies", "community"],
+      ["animal-statue", "challenges"], ["time-capsule", "experience"], ["park-picnic", "community"], ["pup-arazzi", "challenges"], ["hidden-gems", "experience"],
+      ["showtime", "community"], ["get-sweaty", "challenges"], ["golden-hour", "experience"], ["favorite-art", "community"], ["street-fashion", "challenges"],
+      ["street-mural", "experience"], ["random-kindness", "community"], ["diy-craft", "challenges"], ["open-market", "experience"], ["live-events", "community"],
+      ["off-the-map", "challenges"], ["cinema-moment", "experience"], ["nyc-spirit", "community"], ["human-pyramid", "challenges"], ["celebrate-together", "final"]
+    ];
+    const colors = { experience: "#f8e6b2", community: "#b4e0d5", challenges: "#f5d0ca", final: "#ead19a" };
+    const memoryStyles = [
+      "linear-gradient(145deg, #f5a58f 0 28%, #e6c46a 28% 49%, #2d6c75 49% 100%)", "linear-gradient(120deg, #222a39 0 35%, #e37669 35% 60%, #f7d89d 60%)", "linear-gradient(35deg, #d9e8dc 0 42%, #6f9b8b 42% 58%, #f3b3a9 58%)", "linear-gradient(155deg, #f7d0a6 0 36%, #bf6a5b 36% 58%, #3c6579 58%)", "linear-gradient(65deg, #ecb4a5 0 32%, #efd59c 32% 61%, #557e75 61%)",
+      "linear-gradient(130deg, #335a72 0 37%, #f1b175 37% 57%, #f7e2b1 57%)", "linear-gradient(42deg, #d2c4b3 0 30%, #9b584b 30% 49%, #f1d8a7 49%)", "linear-gradient(150deg, #5e8b82 0 39%, #f4be8f 39% 65%, #e76e62 65%)", "linear-gradient(20deg, #efc896 0 31%, #537a8d 31% 56%, #e7927f 56%)", "linear-gradient(140deg, #e4ae72 0 35%, #736d9a 35% 57%, #d5e7dc 57%)",
+      "linear-gradient(55deg, #497882 0 32%, #f1ce9e 32% 58%, #d56962 58%)", "linear-gradient(125deg, #f2ad88 0 33%, #e5dfc4 33% 54%, #49768a 54%)", "linear-gradient(30deg, #c77563 0 34%, #f2d591 34% 65%, #7ca99e 65%)", "linear-gradient(145deg, #6f879e 0 37%, #eeb078 37% 60%, #efd9ad 60%)", "linear-gradient(75deg, #e69c85 0 34%, #edcb7f 34% 55%, #4c777a 55%)",
+      "linear-gradient(135deg, #344f68 0 36%, #e98068 36% 58%, #f2d9a8 58%)", "linear-gradient(25deg, #d9e4c7 0 35%, #759185 35% 54%, #d78070 54%)", "linear-gradient(150deg, #e7c381 0 33%, #b16057 33% 54%, #5f8091 54%)", "linear-gradient(50deg, #5d857e 0 34%, #f3b689 34% 60%, #e9d8b0 60%)", "linear-gradient(120deg, #c26f61 0 31%, #e5a76f 31% 52%, #517382 52%)",
+      "linear-gradient(40deg, #e5d9b7 0 34%, #668a8a 34% 60%, #d67869 60%)", "linear-gradient(135deg, #3f6077 0 39%, #f5c893 39% 63%, #df8270 63%)", "linear-gradient(15deg, #d48472 0 31%, #f0d497 31% 57%, #6e998c 57%)", "linear-gradient(150deg, #eec18c 0 35%, #ba6358 35% 55%, #517b8a 55%)", "linear-gradient(55deg, #f4d8a5 0 32%, #e47c69 32% 55%, #3f6d78 55%)"
+    ];
+    const sheet = document.getElementById("contactSheet");
+    const date = document.getElementById("generationDate");
+    const footer = document.getElementById("colophon");
+    const completedCount = document.getElementById("completedCount");
+    const friendsCount = document.getElementById("friendsCount");
+    const friendsLabel = document.getElementById("friendsLabel");
+    let density = 13;
+
+    date.textContent = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date());
+
+    function renderBoard() {
+      sheet.innerHTML = "";
+      quests.forEach(([icon, category], index) => {
+        const tile = document.createElement("div");
+        const completed = index < density;
+        tile.className = `tile ${completed ? "is-complete" : ""} ${category === "final" ? "final" : ""}`;
+        tile.style.setProperty("--tile-color", colors[category]);
+        if (completed) {
+          tile.classList.add("is-photo");
+          tile.style.setProperty("--memory", memoryStyles[index]);
+        }
+        const image = document.createElement("img");
+        image.src = `../assets/illustrations/icons/${icon}.png`;
+        image.alt = "";
+        tile.append(image);
+        sheet.append(tile);
+      });
+      completedCount.textContent = density;
+      friendsCount.textContent = ({ 5: 4, 13: 7, 25: 18 })[density];
+      friendsLabel.textContent = ({ 5: 4, 13: 7, 25: 18 })[density] === 1 ? " Friend Joined" : " Friends Joined";
+    }
+
+    document.querySelectorAll('input[name="footer"]').forEach(input => input.addEventListener("change", () => { footer.hidden = document.getElementById("footerOff").checked; }));
+    document.querySelectorAll('input[name="progress"]').forEach(input => input.addEventListener("change", event => { density = Number(event.target.value); renderBoard(); }));
+    renderBoard();
+  </script>
+</body>
+</html>

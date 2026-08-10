@@ -196,23 +196,34 @@
         <span id="keepsakeNameLabel">Your name *</span>
         <input id="keepsakeNameInput" class="text-input" type="text" autocomplete="name" required aria-required="true" />
       </label>
+      <label class="keepsake-summary-field">
+        <input id="keepsakeSummaryInput" type="checkbox" />
+        <span>Include point summary</span>
+      </label>
 
       <div id="keepsakePreviewStage" class="keepsake-preview-stage" tabindex="0" aria-label="Keepsake preview">
         <div id="keepsakePreviewTransform" class="keepsake-preview-transform">
           <article id="keepsakeArtwork" class="keepsake-artwork" aria-label="NYC Summer Quest keepsake">
             <header class="keepsake-artwork-header">
               <div class="keepsake-artwork-left">
-                <p>Hoa &amp; Erika's Birthday Edition</p>
-                <h2>NYC Summer Quest</h2>
+                <p id="keepsakeArtworkName">Your Name</p>
+                <h2><span class="keepsake-title-nyc">NYC</span><span class="keepsake-title-summer">Summer</span><span class="keepsake-title-quest">Quest</span></h2>
               </div>
-              <div class="keepsake-artwork-right">
-                <p>August 2026</p>
-                <strong id="keepsakeArtworkName">Your Name</strong>
-                <span id="keepsakeArtworkCompleted">0/25 Quests</span>
+              <div id="keepsakeScoreField" class="keepsake-score-field">
+                <strong id="keepsakeArtworkScore">0</strong>
                 <em id="keepsakeArtworkRank">Summer Rookie</em>
               </div>
             </header>
             <div id="keepsakeBoard" class="quest-grid keepsake-board" aria-label="Keepsake quest board"></div>
+            <footer id="keepsakeGlance" class="keepsake-footer" hidden aria-label="Keepsake summary">
+              <span class="keepsake-footer-birthday">Hoa &amp; Erika's Birthday Edition</span>
+              <span class="keepsake-footer-separator" aria-hidden="true">·</span>
+              <span id="keepsakeArtworkDate"></span>
+              <span class="keepsake-footer-separator" aria-hidden="true">·</span>
+              <span><strong id="keepsakeArtworkCompleted">0/25</strong> Quests</span>
+              <span class="keepsake-footer-separator" aria-hidden="true">·</span>
+              <span><strong id="keepsakeArtworkFriends">0</strong><span id="keepsakeArtworkFriendsLabel"> Friends Joined</span></span>
+            </footer>
           </article>
           <img id="keepsakeGeneratedPreview" class="keepsake-generated-preview" alt="Generated Summer Quest keepsake" hidden />
         </div>
