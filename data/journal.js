@@ -551,14 +551,72 @@
 
   const KEEPSAKE_LAYOUT = Object.freeze({
     width: 1800,
-    heightWithSummary: 2076,
+    heightWithSummary: 2084,
     heightWithoutSummary: 1986,
     marginX: 123,
     headerY: 105,
-    boardY: 331,
     boardGap: 21,
-    footerOffset: 58
+    contentGap: 66,
+    ownerFontRatio: .0215,
+    ownerTrackingRatio: .14,
+    ownerLineHeight: 1.28,
+    ownerTitleGapRatio: .012,
+    titleFontRatio: .066,
+    titleLineHeight: .96,
+    titleTrackingRatio: -.07,
+    titleNycGapRatio: .28,
+    titleSummerGapRatio: .4,
+    titleSummerGapAdjustment: 10,
+    scoreFontRatio: .045,
+    rankFontRatio: .0175,
+    scorePaddingX: 6,
+    scorePaddingTop: 3,
+    scorePaddingBottom: 2,
+    scoreRankGapRatio: .0055,
+    footerFontRatio: .021
   });
+
+  function keepsakeBoardY() {
+    const boardSize = KEEPSAKE_LAYOUT.width - KEEPSAKE_LAYOUT.marginX * 2;
+    const mastheadHeight = boardSize * KEEPSAKE_LAYOUT.ownerFontRatio * KEEPSAKE_LAYOUT.ownerLineHeight
+      + boardSize * KEEPSAKE_LAYOUT.ownerTitleGapRatio
+      + boardSize * KEEPSAKE_LAYOUT.titleFontRatio * KEEPSAKE_LAYOUT.titleLineHeight;
+    return KEEPSAKE_LAYOUT.headerY + mastheadHeight + KEEPSAKE_LAYOUT.contentGap;
+  }
+
+  function syncKeepsakePreviewLayout() {
+    const { width, heightWithSummary, heightWithoutSummary, marginX, headerY, boardGap } = KEEPSAKE_LAYOUT;
+    const boardSize = width - marginX * 2;
+    const boardY = keepsakeBoardY();
+    const unit = value => `${(value / width) * 100}cqw`;
+    const style = keepsakePreviewStage.style;
+    const values = {
+      "--keepsake-aspect-with-summary": `${width} / ${heightWithSummary}`,
+      "--keepsake-aspect-without-summary": `${width} / ${heightWithoutSummary}`,
+      "--keepsake-margin-x": unit(marginX),
+      "--keepsake-header-y": unit(headerY),
+      "--keepsake-board-y": unit(boardY),
+      "--keepsake-board-size": unit(boardSize),
+      "--keepsake-tile-size": unit((boardSize - boardGap * 4) / 5),
+      "--keepsake-board-gap": unit(boardGap),
+      "--keepsake-footer-y": unit(boardY + boardSize + KEEPSAKE_LAYOUT.contentGap),
+      "--keepsake-owner-font-size": unit(boardSize * KEEPSAKE_LAYOUT.ownerFontRatio),
+      "--keepsake-owner-title-gap": unit(boardSize * KEEPSAKE_LAYOUT.ownerTitleGapRatio),
+      "--keepsake-title-font-size": unit(boardSize * KEEPSAKE_LAYOUT.titleFontRatio),
+      "--keepsake-title-summer-adjustment": unit(KEEPSAKE_LAYOUT.titleSummerGapAdjustment),
+      "--keepsake-score-font-size": unit(boardSize * KEEPSAKE_LAYOUT.scoreFontRatio),
+      "--keepsake-rank-font-size": unit(boardSize * KEEPSAKE_LAYOUT.rankFontRatio),
+      "--keepsake-score-padding-x": unit(boardSize * .014 + KEEPSAKE_LAYOUT.scorePaddingX),
+      "--keepsake-score-padding-top": unit(boardSize * .01 + KEEPSAKE_LAYOUT.scorePaddingTop),
+      "--keepsake-score-padding-bottom": unit(boardSize * .01 + KEEPSAKE_LAYOUT.scorePaddingBottom),
+      "--keepsake-score-rank-gap": unit(boardSize * KEEPSAKE_LAYOUT.scoreRankGapRatio),
+      "--keepsake-footer-font-size": unit(boardSize * KEEPSAKE_LAYOUT.footerFontRatio),
+      "--keepsake-footer-spacing": unit(boardSize * .031)
+    };
+    Object.entries(values).forEach(([name, value]) => style.setProperty(name, value));
+  }
+
+  syncKeepsakePreviewLayout();
 
   function trackedCanvasWidth(context, text, tracking = 0) {
     const characters = Array.from(String(text));
@@ -576,11 +634,22 @@
     return cursor;
   }
 
+  function fillMeasuredTrackedCanvasText(context, text, x, y, tracking = 0) {
+    const characters = Array.from(String(text));
+    let cursor = x;
+    characters.forEach((character, index) => {
+      context.fillText(character, cursor, y);
+      cursor += context.measureText(character).width;
+      if (index < characters.length - 1) cursor += tracking;
+    });
+    return cursor;
+  }
+
   function drawKeepsakeTitle(context, x, y, fontSize) {
-    const tracking = fontSize * -.07;
+    const tracking = fontSize * KEEPSAKE_LAYOUT.titleTrackingRatio;
     const words = [
-      { text: "NYC", color: cssVariableColor("--teal"), gap: fontSize * .28 },
-      { text: "Summer", color: cssVariableColor("--coral"), gap: fontSize * .4 - 5 },
+      { text: "NYC", color: cssVariableColor("--teal"), gap: fontSize * KEEPSAKE_LAYOUT.titleNycGapRatio },
+      { text: "Summer", color: cssVariableColor("--coral"), gap: fontSize * KEEPSAKE_LAYOUT.titleSummerGapRatio - KEEPSAKE_LAYOUT.titleSummerGapAdjustment },
       { text: "Quest", color: cssVariableColor("--coral"), gap: 0 }
     ];
     context.font = `700 ${fontSize}px "Libre Baskerville", serif`;
@@ -592,7 +661,7 @@
   }
 
   function drawKeepsakeFooter(context, { boardX, boardSize, y, summary }) {
-    const footerFontSize = boardSize * .021;
+    const footerFontSize = boardSize * KEEPSAKE_LAYOUT.footerFontRatio;
     const tracking = footerFontSize * .095;
     const regular = `400 ${footerFontSize}px Montserrat, sans-serif`;
     const medium = `500 ${footerFontSize}px Montserrat, sans-serif`;
@@ -625,7 +694,7 @@
       parts.forEach((part) => {
         context.font = part.font;
         context.fillStyle = part.color;
-        cursor = fillTrackedCanvasText(context, part.text, cursor, y, part.tracking);
+        cursor = fillMeasuredTrackedCanvasText(context, part.text, cursor, y, part.tracking);
       });
       if (index < groups.length - 1) cursor += availableGap;
     });
@@ -642,7 +711,8 @@
     const includePointSummary = keepsakeSummaryInput.checked;
     const summary = keepsakeSummaryData();
     syncKeepsakeGenerationDate(summary.monthYear);
-    const { width, marginX, headerY, boardY, boardGap, footerOffset } = KEEPSAKE_LAYOUT;
+    const { width, marginX, headerY, boardGap } = KEEPSAKE_LAYOUT;
+    const boardY = keepsakeBoardY();
     const height = includePointSummary
       ? KEEPSAKE_LAYOUT.heightWithSummary
       : KEEPSAKE_LAYOUT.heightWithoutSummary;
@@ -657,9 +727,9 @@
     context.fillStyle = cssVariableColor("--sand-2");
     context.fillRect(0, 0, width, height);
 
-    const ownerFontSize = boardSize * .0215;
-    const ownerTracking = ownerFontSize * .14;
-    const titleFontSize = boardSize * .066;
+    const ownerFontSize = boardSize * KEEPSAKE_LAYOUT.ownerFontRatio;
+    const ownerTracking = ownerFontSize * KEEPSAKE_LAYOUT.ownerTrackingRatio;
+    const titleFontSize = boardSize * KEEPSAKE_LAYOUT.titleFontRatio;
     const ownerName = keepsakeNameInput.value.trim().toUpperCase() || "YOUR NAME";
     context.font = `800 ${ownerFontSize}px Montserrat, sans-serif`;
     context.fillStyle = cssVariableColor("--ink");
@@ -667,16 +737,16 @@
     drawKeepsakeTitle(
       context,
       boardX,
-      headerY + ownerFontSize * 1.28 + boardSize * .012,
+      headerY + ownerFontSize * KEEPSAKE_LAYOUT.ownerLineHeight + boardSize * KEEPSAKE_LAYOUT.ownerTitleGapRatio,
       titleFontSize
     );
 
     if (includePointSummary) {
-      const scoreFontSize = boardSize * .045;
-      const rankFontSize = boardSize * .0175;
-      const paddingX = boardSize * .014 + 6 * (width / KEEPSAKE_LAYOUT.width);
-      const paddingBottom = boardSize * .01 + 2 * (width / KEEPSAKE_LAYOUT.width);
-      const paddingTop = paddingBottom + 1 * (width / KEEPSAKE_LAYOUT.width);
+      const scoreFontSize = boardSize * KEEPSAKE_LAYOUT.scoreFontRatio;
+      const rankFontSize = boardSize * KEEPSAKE_LAYOUT.rankFontRatio;
+      const paddingX = boardSize * .014 + KEEPSAKE_LAYOUT.scorePaddingX * (width / KEEPSAKE_LAYOUT.width);
+      const paddingBottom = boardSize * .01 + KEEPSAKE_LAYOUT.scorePaddingBottom * (width / KEEPSAKE_LAYOUT.width);
+      const paddingTop = boardSize * .01 + KEEPSAKE_LAYOUT.scorePaddingTop * (width / KEEPSAKE_LAYOUT.width);
       const rankLineHeight = rankFontSize * 1.08;
       context.font = `600 ${rankFontSize}px Montserrat, sans-serif`;
       const rankLines = keepsakeRankLines(summary.rank);
@@ -686,7 +756,7 @@
       const fieldWidth = Math.min(tileSize, Math.max(scoreWidth, widestRankLine) + paddingX * 2);
       const fieldHeight = paddingTop
         + scoreFontSize * .86
-        + boardSize * .0055
+        + boardSize * KEEPSAKE_LAYOUT.scoreRankGapRatio
         + rankLines.length * rankLineHeight
         + paddingBottom;
       const fieldX = boardX + boardSize - fieldWidth;
@@ -699,7 +769,7 @@
       context.fillText(String(summary.score), fieldTextX, headerY + paddingTop);
       context.fillStyle = cssVariableColor("--ink");
       context.font = `600 ${rankFontSize}px Montserrat, sans-serif`;
-      const rankY = headerY + paddingTop + scoreFontSize * .86 + boardSize * .0055;
+      const rankY = headerY + paddingTop + scoreFontSize * .86 + boardSize * KEEPSAKE_LAYOUT.scoreRankGapRatio;
       rankLines.forEach((line, index) => {
         context.fillText(line, fieldTextX, rankY + index * rankLineHeight);
       });
@@ -731,7 +801,7 @@
       drawKeepsakeFooter(context, {
         boardX,
         boardSize,
-        y: boardY + boardSize + footerOffset,
+        y: boardY + boardSize + KEEPSAKE_LAYOUT.contentGap,
         summary
       });
     }

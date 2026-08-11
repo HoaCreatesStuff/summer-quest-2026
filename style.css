@@ -2820,7 +2820,7 @@ body.keepsake-preview-open { overflow: hidden; }
   position: relative;
   width: 100%;
   max-height: none;
-  aspect-ratio: 180 / 198.6;
+  aspect-ratio: var(--keepsake-aspect-without-summary, 1800 / 1986);
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -2844,25 +2844,29 @@ body.keepsake-preview-open { overflow: hidden; }
 }
 .keepsake-artwork {
   container-type: inline-size;
+  position: relative;
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  display: block;
   margin: 0;
-  padding: 5.5% 6.82%;
+  padding: 0;
   overflow: hidden;
   background: var(--sand-2);
   color: var(--ink);
 }
 .keepsake-preview-stage.has-point-summary {
-  aspect-ratio: 180 / 207.6;
+  aspect-ratio: var(--keepsake-aspect-with-summary, 1800 / 2076);
 }
 .keepsake-artwork-header {
+  position: absolute;
+  top: var(--keepsake-header-y);
+  left: var(--keepsake-margin-x);
+  width: var(--keepsake-board-size);
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   column-gap: 2.2cqw;
-  align-items: stretch;
-  margin-bottom: 4.7cqw;
+  align-items: start;
+  margin: 0;
 }
 .keepsake-artwork p,
 .keepsake-artwork h2 {
@@ -2870,10 +2874,10 @@ body.keepsake-preview-open { overflow: hidden; }
 }
 .keepsake-artwork-left { align-self: start; }
 .keepsake-artwork-left p {
-  margin: 0 0 1.2cqw;
+  margin: 0 0 var(--keepsake-owner-title-gap);
   color: var(--ink);
   font-family: "Montserrat", sans-serif;
-  font-size: 2.15cqw;
+  font-size: var(--keepsake-owner-font-size);
   font-weight: 800;
   letter-spacing: .14em;
   line-height: 1.28;
@@ -2883,7 +2887,7 @@ body.keepsake-preview-open { overflow: hidden; }
 .keepsake-artwork-left h2 {
   margin: 0;
   font-family: "Libre Baskerville", serif;
-  font-size: 6.6cqw;
+  font-size: var(--keepsake-title-font-size);
   font-weight: 700;
   line-height: .96;
   color: var(--coral);
@@ -2893,23 +2897,23 @@ body.keepsake-preview-open { overflow: hidden; }
 }
 .keepsake-artwork-left h2 span { display: inline-block; font-size: 1em; letter-spacing: inherit; vertical-align: baseline; }
 .keepsake-title-nyc { margin-right: .28em; color: var(--teal); }
-.keepsake-title-summer { margin-right: calc(.4em - 5px); }
+.keepsake-title-summer { margin-right: calc(.4em - var(--keepsake-title-summer-adjustment)); }
 .keepsake-score-field {
   display: grid;
-  align-self: stretch;
+  align-self: start;
   align-content: center;
   justify-items: center;
   width: fit-content;
-  max-width: 18.92cqw;
-  padding: calc(1cqw + 3px) calc(1.4cqw + 6px) calc(1cqw + 2px);
+  max-width: var(--keepsake-tile-size);
+  padding: var(--keepsake-score-padding-top) var(--keepsake-score-padding-x) var(--keepsake-score-padding-bottom);
   background: var(--board-open-yellow);
   text-align: center;
 }
 .keepsake-score-field strong {
-  margin: 0 0 .55cqw;
+  margin: 0 0 var(--keepsake-score-rank-gap);
   color: var(--teal);
   font-family: "Libre Baskerville", serif;
-  font-size: 4.5cqw;
+  font-size: var(--keepsake-score-font-size);
   font-weight: 700;
   letter-spacing: -.07em;
   line-height: .86;
@@ -2917,11 +2921,11 @@ body.keepsake-preview-open { overflow: hidden; }
 .keepsake-score-field em {
   display: block;
   width: fit-content;
-  max-width: 16.12cqw;
+  max-width: calc(var(--keepsake-tile-size) - var(--keepsake-score-padding-x) - var(--keepsake-score-padding-x));
   margin: 0;
   color: var(--ink);
   font-family: "Montserrat", sans-serif;
-  font-size: 1.75cqw;
+  font-size: var(--keepsake-rank-font-size);
   font-weight: 600;
   letter-spacing: .015em;
   line-height: 1.08;
@@ -2933,19 +2937,24 @@ body.keepsake-preview-open { overflow: hidden; }
   display: none;
 }
 .keepsake-board {
-  width: 100%;
-  align-self: start;
-  gap: 1.35cqw;
+  position: absolute;
+  top: var(--keepsake-board-y);
+  left: var(--keepsake-margin-x);
+  width: var(--keepsake-board-size);
+  gap: var(--keepsake-board-gap);
 }
 .keepsake-footer {
+  position: absolute;
+  top: var(--keepsake-footer-y);
+  left: var(--keepsake-margin-x);
   display: grid;
-  grid-template-columns: max-content minmax(.5cqw, 1fr) max-content minmax(.5cqw, 1fr) max-content minmax(.5cqw, 1fr) max-content;
+  grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr) max-content minmax(0, 1fr) max-content minmax(0, 1fr) max-content minmax(0, 1fr) max-content minmax(0, 1fr) max-content;
   align-items: center;
-  width: 100%;
-  margin-top: 3.1cqw;
+  width: var(--keepsake-board-size);
+  margin: 0;
   color: var(--muted);
   font-family: "Montserrat", sans-serif;
-  font-size: 2.1cqw;
+  font-size: var(--keepsake-footer-font-size);
   font-weight: 400;
   letter-spacing: .095em;
   font-style: normal;
@@ -2953,6 +2962,13 @@ body.keepsake-preview-open { overflow: hidden; }
   text-align: left;
   white-space: nowrap;
 }
+.keepsake-footer > :nth-child(1) { grid-column: 1; }
+.keepsake-footer > :nth-child(2) { grid-column: 3; }
+.keepsake-footer > :nth-child(3) { grid-column: 5; }
+.keepsake-footer > :nth-child(4) { grid-column: 7; }
+.keepsake-footer > :nth-child(5) { grid-column: 9; }
+.keepsake-footer > :nth-child(6) { grid-column: 11; }
+.keepsake-footer > :nth-child(7) { grid-column: 13; }
 .keepsake-footer[hidden] { display: none; }
 .keepsake-footer-birthday { color: var(--ink); font-weight: 500; }
 .keepsake-footer-separator { color: #9d701d; font-size: 1.25em; font-weight: 600; justify-self: center; }
@@ -3074,10 +3090,10 @@ body.keepsake-preview-open { overflow: hidden; }
 .keepsake-preview-stage.is-fullscreen .keepsake-preview-transform {
   width: min(100vw, 85dvh);
   height: auto;
-  aspect-ratio: 180 / 198.6;
+  aspect-ratio: var(--keepsake-aspect-without-summary, 1800 / 1986);
 }
 .keepsake-preview-stage.is-fullscreen.has-point-summary .keepsake-preview-transform {
-  aspect-ratio: 180 / 207.6;
+  aspect-ratio: var(--keepsake-aspect-with-summary, 1800 / 2076);
 }
 .keepsake-shimmer {
   position: absolute;
