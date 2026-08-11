@@ -900,7 +900,7 @@
   }
 
   // === Ported from standalone prototype (prototypes/journal-export) ===
-  const JE_DPI = 96, JE_PAGE_W = 612, JE_PAGE_H = 792, JE_M_TOP = 0.85*96, JE_M_SIDE=0.90*96, JE_M_BOTTOM=0.55*96, JE_FOOTER_H=32, JE_CONT_EXTRA=18, JE_CONTENT_W=6.7, JE_GAP_PREF=42, JE_GAP_MAX=50;
+  const JE_DPI = 96, JE_PAGE_W = 612, JE_PAGE_H = 792, JE_CANVAS_W=8.5*96, JE_CANVAS_H=11*96, JE_M_TOP = 0.85*96, JE_STORY_TOP=0.55*96, JE_M_SIDE=0.90*96, JE_FOOTER_H=32, JE_FOOTER_CLEARANCE=30, JE_CONT_EXTRA=18, JE_HEADER_GAP=28, JE_CONTENT_W=6.7, JE_GAP_PREF=42, JE_GAP_MAX=50;
   const JE_TILTS=[-1.2,5.8,-0.7,3.9,-5.4,1.4,-3.1,6.1];
   // Keep the prototype's bounded rotation variation (within the ±45° cap),
   // but anchor the stamp to its frame rather than the entry coordinate space.
@@ -1021,13 +1021,15 @@
     const boardIcons = await Promise.all(boardQuests.map(q=>loadCanvasImage(questIllustrationPath(q.id))));
     console.log('[Journal Export] board assets loaded');
 
-    const CONTENT_H = 1056 - JE_M_TOP - 0.55*96 - JE_FOOTER_H;
+    const FOOTER_HAIRLINE_Y = JE_CANVAS_H - 0.45*JE_DPI - JE_FOOTER_H;
+    const CONTENT_BOTTOM = FOOTER_HAIRLINE_Y - JE_FOOTER_CLEARANCE;
+    const CONTENT_H = CONTENT_BOTTOM - JE_STORY_TOP;
     const CONTENT_H_CONT = CONTENT_H - JE_CONT_EXTRA;
     const CONTENT_W_PX = JE_CONTENT_W*96;
     const measureCtx = document.createElement('canvas').getContext('2d');
-    const heroW=560;
+    const heroW=410;
     const heroH=heroImg ? heroImg.height*(heroW/heroImg.width) : 110;
-    // Matches the source header's block flow: eyebrow, two-line title, 560px hero,
+    // Matches the source header's block flow: eyebrow, two-line title, 410px hero,
     // generated date, and the 4-column glance block.
     const headerH=27.5+104+heroH+34.2+218.5;
     function measureEntry(entry, idx){
@@ -1089,11 +1091,21 @@
       // additional vertical space.
       return Math.max(0,-measure.decoration.top-JE_CONT_EXTRA);
     }
+    function visualBottomAt(structuralTop, measure){
+      return structuralTop + measure.layoutHeight + measure.decoration.bottom;
+    }
     const pages = [];
     const measures=entries.map((entry,idx)=>measureEntry(entry,idx));
-    // The first page is the journal cover, always; entries begin on Page 2.
-    pages.push({header:true, entries:[], gap:0});
-    let remainingIdx = 0;
+    const firstMeasure=measures[0];
+    const firstTopInset=firstMeasure ? Math.max(0,-firstMeasure.decoration.top-JE_HEADER_GAP) : 0;
+    const firstStructuralTop=JE_M_TOP+headerH+JE_HEADER_GAP+firstTopInset;
+    const firstFitsOnCover=Boolean(firstMeasure) && visualBottomAt(firstStructuralTop,firstMeasure)<=CONTENT_BOTTOM+.5;
+    pages.push({
+      header:true,
+      entries:firstFitsOnCover ? [{entry:entries[0], img:mediaImages[0], icon:iconImgs[0], idx:0, measure:firstMeasure}] : [],
+      gap:firstFitsOnCover ? JE_HEADER_GAP+firstTopInset : 0
+    });
+    let remainingIdx = firstFitsOnCover ? 1 : 0;
     let cur=[], curGaps=[], used=0, curTopInset=0, pageIdx=1;
     function capFor(i){return i===0?CONTENT_H:CONTENT_H_CONT;}
     for(let i=remainingIdx;i<entries.length;i++){
@@ -1103,7 +1115,7 @@
       const topInset=cur.length ? 0 : continuationTopInset(measure);
       const gap=cur.length ? transformedClearance(cur[cur.length-1],wrapped) : 0;
       const need=gap+topInset+measure.layoutHeight;
-      if(used+need <= cap + 0.5){ if(cur.length){ used+=gap; curGaps.push(gap); } else { used+=topInset; curTopInset=topInset; } cur.push(wrapped); used+=measure.layoutHeight; }
+      if(used+need+measure.decoration.bottom <= cap + 0.5){ if(cur.length){ used+=gap; curGaps.push(gap); } else { used+=topInset; curTopInset=topInset; } cur.push(wrapped); used+=measure.layoutHeight; }
       else {
         if(!cur.length) throw new Error(`Quest Entry “${entries[i].quest.title}” is too tall to fit on one Letter page.`);
         const gaps=cur.length-1, leftover=cap-used;
@@ -1113,6 +1125,7 @@
         cur=[wrapped];
         curGaps=[];
         curTopInset=continuationTopInset(measure);
+        if(curTopInset+measure.layoutHeight+measure.decoration.bottom > capFor(pageIdx)+.5) throw new Error(`Quest Entry “${entries[i].quest.title}” is too tall to fit above the Journal footer.`);
         used=curTopInset+measure.layoutHeight;
       }
     }
@@ -1121,7 +1134,7 @@
       const extra=gaps ? Math.min(leftover/gaps,JE_GAP_MAX-JE_GAP_PREF) : 0;
       pages.push({header:false, entries:cur, gap:JE_GAP_PREF+extra, entryGaps:curGaps.map(g=>g+extra), topInset:curTopInset});
     }
-    console.log('[Journal Export] pagination', {headerH, contentHeight:CONTENT_H, continuationHeight:CONTENT_H_CONT, entryHeights:measures.map(m=>Math.round(m.layoutHeight*10)/10), longestEntryHeight:Math.round(Math.max(0,...measures.map(m=>m.layoutHeight))*10)/10, entriesPerPage:pages.map(page=>page.entries.length)});
+    console.log('[Journal Export] pagination', {headerH, storyTop:JE_STORY_TOP, footerSafeBottom:CONTENT_BOTTOM, contentHeight:CONTENT_H, continuationHeight:CONTENT_H_CONT, firstFitsOnCover, entryHeights:measures.map(m=>Math.round(m.layoutHeight*10)/10), longestEntryHeight:Math.round(Math.max(0,...measures.map(m=>m.layoutHeight))*10)/10, entriesPerPage:pages.map(page=>page.entries.length)});
     // Ending dedicated
     pages.push({ending:true, boardQuests, boardMedia, boardIcons, totals, rank, friendsJoined});
 
@@ -1130,16 +1143,16 @@
     for(let pi=0; pi<pages.length; pi++){
       const page = pages[pi];
       const canvas = document.createElement('canvas');
-      canvas.width = 816; canvas.height = 1056;
+      canvas.width = JE_CANVAS_W; canvas.height = JE_CANVAS_H;
       const ctx = canvas.getContext('2d', {alpha:false});
       ctx.fillStyle = '#fffefb'; ctx.fillRect(0,0,canvas.width,canvas.height);
       // footer
-      const fy = canvas.height - 0.45*96 - 32;
+      const fy = FOOTER_HAIRLINE_Y;
       ctx.fillStyle='rgba(39,37,34,.09)'; ctx.fillRect(0.90*96, fy, canvas.width-1.8*96, 0.8);
       ctx.fillStyle='#9a958f'; ctx.font='600 11px Montserrat, sans-serif'; ctx.textBaseline='middle';
       ctx.fillText('NYC Summer Quest · 2026 Birthday Edition', 0.90*96, fy+16);
       const num = String(pi+1).padStart(2,'0'); ctx.fillStyle='#6f6a63'; ctx.textAlign='right'; ctx.fillText(num, canvas.width-0.90*96, fy+16); ctx.textAlign='left';
-      let y = JE_M_TOP;
+      let y = (page.header || page.ending) ? JE_M_TOP : JE_STORY_TOP;
       if(page.header){
         ctx.fillStyle='#1ba9b9'; ctx.font='600 16px Montserrat'; ctx.textAlign='center'; ctx.fillText("Hoa & Erika's 2026 Birthday Edition".toUpperCase(), canvas.width/2, y+16); ctx.textAlign='left';
         y+=27.5;
@@ -1172,6 +1185,7 @@
       const ents = page.entries || [];
       for(let ei=0; ei<ents.length; ei++){
         const {entry, img, icon, idx} = ents[ei];
+        if(visualBottomAt(y,ents[ei].measure)>CONTENT_BOTTOM+.5) throw new Error(`Quest Entry “${entry.quest.title}” would enter the Journal footer clearance zone.`);
         const isRev = idx%2===1;
         const polaroidW=JE_POLAROID_W, polaroidH=JE_POLAROID_H, photo=188;
         const tilt = JE_TILTS[idx%JE_TILTS.length];
