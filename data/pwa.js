@@ -15,6 +15,8 @@
   let announcedWorkerVersion = null;
   let restartInProgress = false;
   let isReloadingForUpdate = false;
+  let workerRequestedNavigation = false;
+  let workerNavigationFallbackScheduled = false;
   let lastUpdateCheck = 0;
   let updateCheckPromise = null;
   const watchedWorkers = new WeakSet();
@@ -205,6 +207,18 @@
     return updateCheckPromise;
   }
 
+  function activateWaitingWorker(worker = registration?.waiting) {
+    if (!worker || worker.state !== "installed") return false;
+
+    try {
+      worker.postMessage({ type: "SUMMER_QUEST_SKIP_WAITING" });
+      return true;
+    } catch (error) {
+      console.warn("[PWA update] Automatic activation request failed; Restart remains available.", error);
+      return false;
+    }
+  }
+
   async function registerServiceWorker() {
     if (!("serviceWorker" in navigator)) return;
 
@@ -216,7 +230,12 @@
       await syncActiveBuild();
 
       if (registration.installing) watchInstallingWorker(registration.installing);
-      if (registration.waiting) await announceWaitingWorker(registration.waiting);
+      if (
+        registration.waiting &&
+        !activateWaitingWorker(registration.waiting)
+      ) {
+        await announceWaitingWorker(registration.waiting);
+      }
 
       registration.addEventListener("updatefound", () => {
         watchInstallingWorker(registration.installing);
@@ -253,15 +272,10 @@
     const waitingVersion = await workerVersion(waitingWorker);
     writeStorage(sessionStorage, PENDING_UPDATE_BUILD_KEY, waitingVersion);
 
-    try {
-      waitingWorker.postMessage({
-        type: "SUMMER_QUEST_SKIP_WAITING"
-      });
-    } catch (error) {
+    if (!activateWaitingWorker(waitingWorker)) {
       restartInProgress = false;
       removeStorage(sessionStorage, PENDING_UPDATE_BUILD_KEY);
       showUpdateNotice();
-      console.warn("[PWA update] Restart request failed; the update remains ready.", error);
     }
   });
 
@@ -274,6 +288,18 @@
 
     if (!restartInProgress) {
       resetUpdateButton();
+      if (workerRequestedNavigation) {
+        if (!workerNavigationFallbackScheduled) {
+          workerNavigationFallbackScheduled = true;
+          window.setTimeout(() => {
+            if (isReloadingForUpdate) return;
+            isReloadingForUpdate = true;
+            window.location.reload();
+          }, 500);
+        }
+        return;
+      }
+
       syncActiveBuild().then(activeVersion => {
         // A worker that activated itself has already cached the complete new
         // shell. Reload once only when it is newer than this document, so the
@@ -303,6 +329,9 @@
   navigator.serviceWorker?.addEventListener("message", event => {
     if (event.data?.type !== "SUMMER_QUEST_SW_ACTIVATED") return;
     const activeVersion = event.data.version || null;
+    if (event.data?.reloadRequested) {
+      workerRequestedNavigation = true;
+    }
     if (activeVersion) rememberActiveBuild(activeVersion);
 
     if (activeVersion && activeVersion === announcedWorkerVersion) {

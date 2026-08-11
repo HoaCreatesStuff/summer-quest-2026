@@ -320,7 +320,12 @@
         check(
           "Automatic controller handoff reloads only a newer shell",
           updaterSource.includes("compareBuildVersions?.(activeVersion, buildVersion) !== 1") &&
-            updaterSource.includes("isReloadingForUpdate")
+            updaterSource.includes("isReloadingForUpdate") &&
+            updaterSource.includes("workerRequestedNavigation") &&
+            updaterSource.includes("workerNavigationFallbackScheduled") &&
+            updaterSource.includes("activateWaitingWorker(registration.waiting)") &&
+            workerSource.includes("shouldRefreshExistingAppClients") &&
+            workerSource.includes("client.navigate(client.url)")
         );
         check(
           "PWA updater never clears player storage or databases",
