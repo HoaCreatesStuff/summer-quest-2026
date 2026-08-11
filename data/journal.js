@@ -551,12 +551,12 @@
 
   const KEEPSAKE_LAYOUT = Object.freeze({
     width: 1800,
-    heightWithSummary: 2084,
+    heightWithSummary: 2104,
     heightWithoutSummary: 1986,
     marginX: 123,
     headerY: 105,
     boardGap: 21,
-    contentGap: 66,
+    contentGap: 76,
     ownerFontRatio: .0215,
     ownerTrackingRatio: .14,
     ownerLineHeight: 1.28,
@@ -566,13 +566,14 @@
     titleTrackingRatio: -.07,
     titleNycGapRatio: .28,
     titleSummerGapRatio: .4,
-    titleSummerGapAdjustment: 10,
+    titleSummerGapAdjustment: 12,
     scoreFontRatio: .045,
     rankFontRatio: .0175,
+    rankLineHeight: 1.08,
     scorePaddingX: 6,
     scorePaddingTop: 3,
     scorePaddingBottom: 2,
-    scoreRankGapRatio: .0055,
+    scoreRankGapRatio: .0105,
     footerFontRatio: .021
   });
 
@@ -747,7 +748,7 @@
       const paddingX = boardSize * .014 + KEEPSAKE_LAYOUT.scorePaddingX * (width / KEEPSAKE_LAYOUT.width);
       const paddingBottom = boardSize * .01 + KEEPSAKE_LAYOUT.scorePaddingBottom * (width / KEEPSAKE_LAYOUT.width);
       const paddingTop = boardSize * .01 + KEEPSAKE_LAYOUT.scorePaddingTop * (width / KEEPSAKE_LAYOUT.width);
-      const rankLineHeight = rankFontSize * 1.08;
+      const rankLineHeight = rankFontSize * KEEPSAKE_LAYOUT.rankLineHeight;
       context.font = `600 ${rankFontSize}px Montserrat, sans-serif`;
       const rankLines = keepsakeRankLines(summary.rank);
       const widestRankLine = Math.max(...rankLines.map(line => context.measureText(line).width), 0);
