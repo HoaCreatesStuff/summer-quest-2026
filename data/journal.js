@@ -1,4 +1,6 @@
 (() => {
+  const KEEPSAKE_NAME_STORAGE_KEY = "nyc-summer-quest-keepsake-name";
+  const KEEPSAKE_SUMMARY_STORAGE_KEY = "nyc-summer-quest-keepsake-include-summary";
   const pageElements = Array.from(document.querySelectorAll(".app-page"));
   const storyPage = document.querySelector("#storyPage");
   const keepsakePage = document.querySelector("#keepsakePage");
@@ -33,6 +35,33 @@
   let storyMediaUrls = new Set();
   let keepsakeMediaUrls = new Set();
   const videoFrameCache = new Map();
+
+  function readKeepsakePreference(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (error) {
+      console.warn("[Keepsake] Preference could not be read.", error);
+      return null;
+    }
+  }
+
+  function writeKeepsakePreference(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (error) {
+      console.warn("[Keepsake] Preference could not be saved.", error);
+    }
+  }
+
+  function restoreKeepsakePreferences() {
+    const savedName = readKeepsakePreference(KEEPSAKE_NAME_STORAGE_KEY);
+    if (savedName !== null) keepsakeNameInput.value = savedName;
+
+    const savedSummary = readKeepsakePreference(KEEPSAKE_SUMMARY_STORAGE_KEY);
+    if (savedSummary === "true" || savedSummary === "false") {
+      keepsakeSummaryInput.checked = savedSummary === "true";
+    }
+  }
 
   function analytics() {
     return window.SummerQuestAnalytics;
@@ -418,6 +447,17 @@
     keepsakePreviewStage.classList.toggle("has-point-summary", keepsakeSummaryInput.checked);
     resetZoom();
     if (generatedKeepsake) invalidateGeneratedKeepsake();
+  }
+
+  function persistKeepsakeName() {
+    writeKeepsakePreference(KEEPSAKE_NAME_STORAGE_KEY, keepsakeNameInput.value);
+  }
+
+  function persistKeepsakeSummary() {
+    writeKeepsakePreference(
+      KEEPSAKE_SUMMARY_STORAGE_KEY,
+      String(keepsakeSummaryInput.checked)
+    );
   }
 
   function invalidateGeneratedKeepsake() {
@@ -1494,8 +1534,15 @@
     const targetId = event.target.closest("[data-next-target]")?.dataset.nextTarget;
     if (targetId) document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
+  restoreKeepsakePreferences();
+  syncKeepsakeName();
+  syncKeepsakeSummary();
   keepsakeNameInput.addEventListener("input", syncKeepsakeName);
-  keepsakeSummaryInput.addEventListener("change", syncKeepsakeSummary);
+  keepsakeNameInput.addEventListener("change", persistKeepsakeName);
+  keepsakeSummaryInput.addEventListener("change", () => {
+    syncKeepsakeSummary();
+    persistKeepsakeSummary();
+  });
   saveKeepsakeBtn.addEventListener("click", saveKeepsake);
   shareKeepsakeBtn.addEventListener("click", openShareSheet);
   expandKeepsakeBtn.addEventListener("click", () => setFullscreenPreview(true));

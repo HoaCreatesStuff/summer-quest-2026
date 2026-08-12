@@ -91,6 +91,8 @@
       };
 
       try {
+        localStorage.removeItem("nyc-summer-quest-keepsake-name");
+        localStorage.removeItem("nyc-summer-quest-keepsake-include-summary");
         localStorage.setItem(STORAGE_KEY, JSON.stringify(seededState));
         const loaded = new Promise(resolve => {
           frame.addEventListener("load", resolve, { once: true });
@@ -111,6 +113,12 @@
         const documentUnderTest = frame.contentDocument;
         const dates = app.SummerQuestTestHooks.dates;
         const today = dates.localCalendarDate();
+        const lateNightLocalDate = {
+          getTime: () => Date.now(),
+          getFullYear: () => 2026,
+          getMonth: () => 7,
+          getDate: () => 12
+        };
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
         const tomorrowKey = dates.localCalendarDate(tomorrow);
@@ -149,6 +157,10 @@
             Math.abs(dateInputRect.width - dateControlRect.width) <= 2 &&
             Math.abs(dateInputRect.height - dateControlRect.height) <= 2 &&
             app.getComputedStyle(dateInput).position === "absolute"
+        );
+        check(
+          "Local date keys use local calendar getters instead of a UTC ISO date",
+          dates.localCalendarDate(lateNightLocalDate) === "2026-08-12"
         );
         check(
           "Date appears before the original friend stepper at its default",
@@ -290,12 +302,14 @@
         await waitFor(
           () =>
             documentUnderTest.body.dataset.page === "story" &&
-            documentUnderTest.querySelectorAll(".story-date-group").length ===
+            documentUnderTest.querySelectorAll(".story-date-group:not(.story-next-adventure)").length ===
               2,
           "Journal groups did not render."
         );
         const dateHeadings = Array.from(
-          documentUnderTest.querySelectorAll(".story-date-heading h2")
+          documentUnderTest.querySelectorAll(
+            ".story-date-group:not(.story-next-adventure) .story-date-heading h2"
+          )
         ).map(heading => heading.textContent.trim());
         const julyNinthQuestIds = Array.from(
           documentUnderTest
@@ -313,6 +327,65 @@
           "Quests on the same adventure date retain completion ordering",
           JSON.stringify(julyNinthQuestIds) ===
             JSON.stringify(["subway-romance", "bodega-cat"])
+        );
+
+        documentUnderTest.querySelector("#saveBoardBtn").click();
+        await waitFor(
+          () => documentUnderTest.body.dataset.page === "keepsake",
+          "Keepsake page did not open."
+        );
+        const keepsakeName = documentUnderTest.querySelector("#keepsakeNameInput");
+        const keepsakeSummary = documentUnderTest.querySelector("#keepsakeSummaryInput");
+        check(
+          "Keepsake summary defaults to checked when no preference is stored",
+          keepsakeSummary.checked
+        );
+        keepsakeName.value = "Alex Quest";
+        keepsakeName.dispatchEvent(new app.Event("input", { bubbles: true }));
+        keepsakeName.dispatchEvent(new app.Event("change", { bubbles: true }));
+        keepsakeSummary.checked = false;
+        keepsakeSummary.dispatchEvent(new app.Event("change", { bubbles: true }));
+        check(
+          "Keepsake name and summary preference persist on committed changes",
+          app.localStorage.getItem("nyc-summer-quest-keepsake-name") === "Alex Quest" &&
+            app.localStorage.getItem("nyc-summer-quest-keepsake-include-summary") === "false" &&
+            documentUnderTest.querySelector("#keepsakeArtworkName").textContent === "Alex Quest" &&
+            documentUnderTest.querySelector("#keepsakeGlance").hidden
+        );
+
+        const reloaded = new Promise(resolve => {
+          frame.addEventListener("load", resolve, { once: true });
+        });
+        frame.src = "../index.html?release-critical-validation=1&adventure-date-validation=1&reload=1";
+        await reloaded;
+        await waitFor(
+          () => frame.contentDocument?.querySelector("#saveBoardBtn"),
+          "Timed out reloading the app for Keepsake preference validation."
+        );
+        const reloadedApp = frame.contentWindow;
+        const reloadedDocument = frame.contentDocument;
+        reloadedDocument.querySelector("#saveBoardBtn").click();
+        await waitFor(
+          () => reloadedDocument.body.dataset.page === "keepsake",
+          "Keepsake page did not reopen after reload."
+        );
+        const reloadedName = reloadedDocument.querySelector("#keepsakeNameInput");
+        const reloadedSummary = reloadedDocument.querySelector("#keepsakeSummaryInput");
+        check(
+          "Keepsake preferences survive reload and preserve an explicit unchecked summary",
+          reloadedName.value === "Alex Quest" && !reloadedSummary.checked
+        );
+        reloadedName.value = "Jordan Quest";
+        reloadedName.dispatchEvent(new reloadedApp.Event("input", { bubbles: true }));
+        reloadedName.dispatchEvent(new reloadedApp.Event("change", { bubbles: true }));
+        reloadedSummary.checked = true;
+        reloadedSummary.dispatchEvent(new reloadedApp.Event("change", { bubbles: true }));
+        check(
+          "Latest Keepsake name replaces the prior value and summary can be restored",
+          reloadedApp.localStorage.getItem("nyc-summer-quest-keepsake-name") === "Jordan Quest" &&
+            reloadedApp.localStorage.getItem("nyc-summer-quest-keepsake-include-summary") === "true" &&
+            reloadedDocument.querySelector("#keepsakeArtworkName").textContent === "Jordan Quest" &&
+            !reloadedDocument.querySelector("#keepsakeGlance").hidden
         );
       } catch (error) {
         checks.push({
