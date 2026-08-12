@@ -39,7 +39,11 @@
   }
   function questionMarkup(item) {
     const [name, label, type, choices, config = {}] = item;
-    const numberedLabel = `${Number(name.slice(1))}. ${label}`;
+    // Q12 is the conditional contact extension of Q11; the final standalone
+    // prompt is therefore displayed as Question 12 while retaining its q13
+    // storage key for the agreed sheet schema.
+    const displayNumber = name === "q13" ? 12 : Number(name.slice(1));
+    const numberedLabel = `${displayNumber}. ${label}`;
     if (type === "textarea") return `<div class="survey-question">${textField(name, numberedLabel, true, config.helper || "").replace(" hidden", "")}</div>`;
     const helper = config.max ? `<p class="survey-helper">Choose up to ${config.max}.</p>` : "";
     const after = `${config.max ? `<p id="${name}Limit" class="survey-limit" aria-live="polite">Choose up to ${config.max}.</p>` : ""}${config.follow ? textField(config.follow[0], config.follow[1], false, config.helper || "") : ""}${config.other ? textField(config.other[0], config.other[1]) : ""}`;
