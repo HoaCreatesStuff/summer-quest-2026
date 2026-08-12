@@ -131,20 +131,10 @@ function adventureDateForSubmission(submission, fallback = localCalendarDate()) 
   return localCalendarDate(completedDate) || fallback;
 }
 
-function adventureDateForEditableRecord(
-  record,
-  savedSubmission,
-  fallback = localCalendarDate()
-) {
-  if (isValidLocalCalendarDate(record?.adventureDate)) {
-    return record.adventureDate;
-  }
-
-  if (savedSubmission) {
-    return adventureDateForSubmission(savedSubmission, fallback);
-  }
-
-  return adventureDateForSubmission(record, fallback);
+function adventureDateForQuestForm(savedSubmission, fallback = localCalendarDate()) {
+  return isValidLocalCalendarDate(savedSubmission?.adventureDate)
+    ? savedSubmission.adventureDate
+    : fallback;
 }
 
 function isSelectableAdventureDate(value, today = localCalendarDate()) {
@@ -1504,17 +1494,6 @@ function validateAdventureDateInput({ focus = false } = {}) {
   return message ? null : value;
 }
 
-function draftAdventureDate() {
-  const selectedDate = els.adventureDate.value;
-  if (isSelectableAdventureDate(selectedDate)) return selectedDate;
-
-  const savedSubmission = completedSubmission(activeQuest?.id);
-  return adventureDateForEditableRecord(
-    state.drafts[activeQuest?.id] || savedSubmission,
-    savedSubmission
-  );
-}
-
 function renderFriendControls() {
   els.friendCount.textContent = friendCount;
   els.decrementFriends.disabled = friendCount <= 0;
@@ -2005,7 +1984,6 @@ function captureDraft() {
     questId: activeQuest.id,
     mediaId: activeMediaId,
     mediaType: activeMediaType || completedSubmission(activeQuest.id)?.mediaType || null,
-    adventureDate: draftAdventureDate(),
     friends: finalQuest ? 0 : friendCount,
     location: els.location.value,
     caption: els.caption.value,
@@ -2033,8 +2011,6 @@ function draftDiffersFromSavedMemory(draft, saved) {
 
   return (
     (draft.mediaId || "") !== (saved.mediaId || "") ||
-    adventureDateForEditableRecord(draft, saved) !==
-      adventureDateForSubmission(saved) ||
     normalizeFriendCount(draft.friends) !== normalizeFriendCount(saved.friends) ||
     String(draft.location || "").trim() !== String(saved.location || "").trim() ||
     String(draft.caption || "").trim() !== String(saved.caption || "").trim() ||
@@ -2061,11 +2037,7 @@ function renderQuest(quest, announce = false) {
   selectedBonusIds = selectedBonusIdsFrom(draft);
   const today = localCalendarDate();
   els.adventureDate.max = today;
-  els.adventureDate.value = adventureDateForEditableRecord(
-    draft,
-    existing,
-    today
-  );
+  els.adventureDate.value = adventureDateForQuestForm(existing, today);
   syncAdventureDateDisplay();
   setAdventureDateError();
   const meta = window.QUEST_CATEGORIES[quest.category];
@@ -3606,7 +3578,7 @@ if (new URLSearchParams(window.location.search).has("release-critical-validation
       isSelectableAdventureDate,
       formatAdventureDate,
       adventureDateForSubmission,
-      adventureDateForEditableRecord
+      adventureDateForQuestForm
     })
   });
 }

@@ -78,11 +78,15 @@
           }) === "2026-07-24"
         );
         check(
-          "Legacy drafts without a date inherit the saved completion date",
-          dates.adventureDateForEditableRecord(
-            { caption: "Legacy draft without an adventure date" },
-            { completedAt: new Date(2026, 6, 12, 12).toISOString() }
-          ) === "2026-07-12"
+          "Quest form dates use a saved adventure date or the supplied local today fallback",
+          dates.adventureDateForQuestForm(
+            { completedAt: new Date(2026, 6, 12, 12).toISOString() },
+            "2026-07-30"
+          ) === "2026-07-30" &&
+            dates.adventureDateForQuestForm(
+              { adventureDate: "2026-07-12" },
+              "2026-07-30"
+            ) === "2026-07-12"
         );
         check(
           "Explicit adventure dates remain independent of completion timestamps",

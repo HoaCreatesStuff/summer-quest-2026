@@ -86,7 +86,13 @@
             completedAt: completionIso(9, 12)
           }
         },
-        drafts: {},
+        drafts: {
+          "city-freebies": {
+            questId: "city-freebies",
+            adventureDate: "2026-07-01",
+            location: "Stale draft date must not hydrate the form"
+          }
+        },
         questDataMigrationVersion: 3
       };
 
@@ -163,6 +169,11 @@
           dates.localCalendarDate(lateNightLocalDate) === "2026-08-12"
         );
         check(
+          "A stale per-quest draft date cannot override a new quest default",
+          dateInput.value === today &&
+            storedState().drafts["city-freebies"].adventureDate === "2026-07-01"
+        );
+        check(
           "Date appears before the original friend stepper at its default",
           Boolean(
             dateField.compareDocumentPosition(friendsField) &
@@ -172,6 +183,33 @@
             friendOutput.textContent === "0" &&
             decrement.disabled &&
             !increment.disabled
+        );
+
+        const freshQuestIds = [
+          "golden-hour",
+          "street-style",
+          "water-wonders",
+          "showtime",
+          "random-kindness"
+        ];
+        const freshQuestDates = [];
+        for (const questId of freshQuestIds) {
+          await openQuest(questId);
+          freshQuestDates.push(dateInput.value);
+        }
+        check(
+          "Five never-completed quests each initialize to the same local today",
+          freshQuestDates.every(value => value === today)
+        );
+
+        await openQuest("city-freebies");
+        dateInput.value = "2026-07-01";
+        dateInput.dispatchEvent(new app.Event("input", { bubbles: true }));
+        documentUnderTest.querySelector("#nextQuest").click();
+        await wait(250);
+        check(
+          "Switching quests directly cannot leak the prior modal date",
+          dateInput.value === today
         );
 
         await openQuest("ny-eats");
@@ -245,13 +283,10 @@
         );
 
         await openQuest("subway-romance");
-        const expectedLegacyDate = dates.adventureDateForSubmission(
-          seededState.submissions["subway-romance"]
-        );
         check(
-          "Legacy submissions preload a local fallback from completedAt",
-          dateInput.value === expectedLegacyDate &&
-            dateDisplay.textContent === dates.formatAdventureDate(expectedLegacyDate) &&
+          "Completed records without a saved adventure date use today in the form",
+          dateInput.value === today &&
+            dateDisplay.textContent === dates.formatAdventureDate(today) &&
             friendOutput.textContent === "2" &&
             !Object.hasOwn(
               storedState().submissions["subway-romance"],
@@ -261,7 +296,7 @@
         documentUnderTest.querySelector("#closeSheet").click();
         await nextFrame();
         check(
-          "Opening and closing a legacy submission does not persist its derived date",
+          "Opening and closing a record without a saved date does not persist a fallback date",
           !Object.hasOwn(
             storedState().submissions["subway-romance"],
             "adventureDate"
@@ -286,13 +321,13 @@
         await waitFor(
           () =>
             storedState().submissions["subway-romance"].adventureDate ===
-              expectedLegacyDate,
-          "Legacy fallback was not saved as an explicit adventure date."
+              today,
+          "Current local date was not saved for the edited record."
         );
         check(
-          "Saving a legacy edit writes adventureDate transparently",
+          "Saving an edit writes the current local date as its explicit adventure date",
           storedState().submissions["subway-romance"].adventureDate ===
-            expectedLegacyDate &&
+            today &&
             storedState().submissions["subway-romance"].completedAt ===
               seededState.submissions["subway-romance"].completedAt
         );
@@ -303,7 +338,7 @@
           () =>
             documentUnderTest.body.dataset.page === "story" &&
             documentUnderTest.querySelectorAll(".story-date-group:not(.story-next-adventure)").length ===
-              2,
+              3,
           "Journal groups did not render."
         );
         const dateHeadings = Array.from(
@@ -320,13 +355,14 @@
           "Journal orders and formats groups by adventureDate",
           JSON.stringify(dateHeadings) === JSON.stringify([
             "July 8, 2026",
-            "July 9, 2026"
+            "July 9, 2026",
+            dates.formatAdventureDate(today)
           ])
         );
         check(
-          "Quests on the same adventure date retain completion ordering",
+          "Saved historical quests retain completion ordering within their date group",
           JSON.stringify(julyNinthQuestIds) ===
-            JSON.stringify(["subway-romance", "bodega-cat"])
+            JSON.stringify(["bodega-cat"])
         );
 
         documentUnderTest.querySelector("#saveBoardBtn").click();
@@ -386,6 +422,41 @@
             reloadedApp.localStorage.getItem("nyc-summer-quest-keepsake-include-summary") === "true" &&
             reloadedDocument.querySelector("#keepsakeArtworkName").textContent === "Jordan Quest" &&
             !reloadedDocument.querySelector("#keepsakeGlance").hidden
+        );
+        reloadedDocument.querySelector("#keepsakeBackBtn").click();
+        await waitFor(
+          () => reloadedDocument.body.dataset.page === "board",
+          "Board did not reopen after the reload check."
+        );
+        reloadedDocument
+          .querySelector('#questGrid [data-quest-id="golden-hour"]')
+          .click();
+        await nextFrame();
+        check(
+          "Fresh quests still use local today after an app reload",
+          reloadedDocument.querySelector("#adventureDateInput").value === today
+        );
+        reloadedDocument.querySelector("#closeSheet").click();
+        await nextFrame();
+        reloadedDocument
+          .querySelector('#questGrid [data-quest-id="ny-eats"]')
+          .click();
+        await nextFrame();
+        reloadedDocument.querySelector("#removeQuest").click();
+        reloadedDocument.querySelector("#confirmRemoveMemory").click();
+        await waitFor(
+          () => !JSON.parse(
+            reloadedApp.localStorage.getItem(STORAGE_KEY)
+          ).submissions["ny-eats"],
+          "Completed quest was not removed."
+        );
+        reloadedDocument
+          .querySelector('#questGrid [data-quest-id="ny-eats"]')
+          .click();
+        await nextFrame();
+        check(
+          "Removing a completed memory removes its date record, so reopening uses today",
+          reloadedDocument.querySelector("#adventureDateInput").value === today
         );
       } catch (error) {
         checks.push({
