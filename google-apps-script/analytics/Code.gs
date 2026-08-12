@@ -97,7 +97,8 @@ const SURVEY_RESPONSE_HEADERS = Object.freeze([
   "Survey Response ID", "Installation ID", "Session ID", "Submission Timestamp",
   "Build", "Platform", "Q1", "Q2", "Q2 Follow-up", "Q3 selections", "Q3 Other",
   "Q4 selections", "Q4 Other", "Q5", "Q5 Other", "Q6", "Q7", "Q7 Other", "Q8",
-  "Q9", "Q10 selections", "Q10 Other", "Q11 Interview Opt-In", "Q13 Additional Comments"
+  "Q9", "Q10 selections", "Q10 Other", "Q11 Interview Opt-In", "Q13 Additional Comments",
+  "Journal Usage", "Journal Usage Other", "Journal Friction / Why Less Useful", "Keepsake Value"
 ]);
 const INTERVIEW_CONTACT_HEADERS = Object.freeze([
   "Survey Response ID", "Name / Contact Info", "Submitted At"
@@ -358,8 +359,16 @@ function surveySheetFor(spreadsheet, name, headers) {
     sheet.setFrozenRows(1);
     return sheet;
   }
-  const existing = sheet.getLastRow() ? sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0]
+  const existing = sheet.getLastRow() ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
     .map(value => String(value || "").trim()) : [];
+  const isCompatiblePrefix = existing.length < headers.length &&
+    existing.every((value, index) => value === headers[index]);
+  if (isCompatiblePrefix) {
+    sheet.getRange(1, existing.length + 1, 1, headers.length - existing.length)
+      .setValues([headers.slice(existing.length)]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
   if (existing.length !== headers.length || existing.some((value, index) => value !== headers[index])) {
     throw new Error(`Survey schema validation failed for ${name}`);
   }
@@ -380,7 +389,9 @@ function surveyResponseRow(payload, responseId) {
     surveyAnswer(payload, "q5Other"), surveyAnswer(payload, "q6"), surveyAnswer(payload, "q7"),
     surveyAnswer(payload, "q7Other"), surveyAnswer(payload, "q8"), surveyAnswer(payload, "q9"),
     surveyAnswer(payload, "q10"), surveyAnswer(payload, "q10Other"), surveyAnswer(payload, "q11"),
-    surveyAnswer(payload, "q13")
+    surveyAnswer(payload, "q13"), surveyAnswer(payload, "journalUsage"),
+    surveyAnswer(payload, "journalUsageOther"), surveyAnswer(payload, "journalFriction"),
+    surveyAnswer(payload, "keepsakeValue")
   ];
 }
 

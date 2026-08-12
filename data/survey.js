@@ -18,6 +18,8 @@
       ["q5", "Which part of Summer Quest felt MOST valuable to you?", "radio", ["Discovering places or activities", "Having an excuse to get out and do things", "Spending time with people", "The challenge/game itself", "Tracking my progress", "Looking back at my Summer Story", "Creating a keepsake of the summer", "Being part of the birthday experience", "Other"], { other: ["q5Other", "Please describe"] }],
       ["q6", "Which quest or Summer Quest moment do you think you’ll remember a year from now, and why?", "textarea"],
       ["q7", "Which part of Summer Quest did you enjoy the most?", "radio", ["The quests themselves", "Quest Board / watching it fill up", "Points and scoring", "Ranks / progression", "Friend bonuses", "Summer Story / journal", "Photo keepsake", "Birthday picnic / finale", "Other"], { other: ["q7Other", "Please describe"] }],
+      ["journalUsage", "How did you use your Summer Story / Journal?", "checkbox", ["I regularly looked back at my completed quests", "I enjoyed seeing my adventures collected in one place", "I added captions/reflections to preserve the memories", "I looked at it occasionally, but it wasn’t a major part of the experience", "I rarely or never used it", "I didn’t realize it was there / wasn’t sure what it was for", "Other"], { other: ["journalUsageOther", "Please describe"], friction: ["journalFriction", "What made the Summer Story / Journal less useful or appealing to you?"] }],
+      ["keepsakeValue", "How valuable was having a finished visual keepsake of your Summer Quest?", "radio", ["Very valuable", "Somewhat valuable", "Neutral", "Not very valuable", "Not valuable at all", "I didn’t use/create one"]],
       ["q8", "Was there anything about Summer Quest that made participating harder than it needed to be?", "textarea", null, { helper: "This could be the app, the quests, scheduling, rules, motivation, or anything else." }]
     ]},
     { title: "Looking Ahead", note: "These questions are about future interest, rather than your past Summer Quest experience.", questions: [
@@ -39,14 +41,22 @@
   }
   function questionMarkup(item) {
     const [name, label, type, choices, config = {}] = item;
-    // Q12 is the conditional contact extension of Q11; the final standalone
-    // prompt is therefore displayed as Question 12 while retaining its q13
-    // storage key for the agreed sheet schema.
-    const displayNumber = name === "q13" ? 12 : Number(name.slice(1));
+    const displayNumbers = {
+      journalUsage: 8,
+      keepsakeValue: 9,
+      q8: 10,
+      q9: 11,
+      q10: 12,
+      q11: 13,
+      // The contact field is an extension of Q11; retain q13 for the agreed
+      // sheet schema while displaying the final standalone prompt as Q14.
+      q13: 14
+    };
+    const displayNumber = displayNumbers[name] || Number(name.slice(1));
     const numberedLabel = `${displayNumber}. ${label}`;
     if (type === "textarea") return `<div class="survey-question">${textField(name, numberedLabel, true, config.helper || "").replace(" hidden", "")}</div>`;
     const helper = config.max ? `<p class="survey-helper">Choose up to ${config.max}.</p>` : "";
-    const after = `${config.max ? `<p id="${name}Limit" class="survey-limit" aria-live="polite">Choose up to ${config.max}.</p>` : ""}${config.follow ? textField(config.follow[0], config.follow[1], false, config.helper || "") : ""}${config.other ? textField(config.other[0], config.other[1]) : ""}`;
+    const after = `${config.max ? `<p id="${name}Limit" class="survey-limit" aria-live="polite">Choose up to ${config.max}.</p>` : ""}${config.follow ? textField(config.follow[0], config.follow[1], false, config.helper || "") : ""}${config.other ? textField(config.other[0], config.other[1]) : ""}${config.friction ? textField(config.friction[0], config.friction[1]) : ""}`;
     return `<fieldset class="survey-question" data-question="${name}"><legend>${numberedLabel}</legend>${helper}${optionsMarkup(name, type, choices)}${after}</fieldset>`;
   }
   function render() {
@@ -73,8 +83,14 @@
   function setShown(name, shown) { const wrap = document.querySelector(`#${name}Wrap`); if (wrap) wrap.hidden = !shown; }
   function syncConditions() {
     const q2 = selected("q2")[0]; setShown("q2FollowUp", ["Yes, definitely", "Maybe / a little"].includes(q2));
-    ["q3", "q4", "q5", "q7", "q10"].forEach(name => setShown(`${name}Other`, selected(name).includes("Other")));
+    ["q3", "q4", "q5", "q7", "q10", "journalUsage"].forEach(name => setShown(`${name}Other`, selected(name).includes("Other")));
     setShown("q12", selected("q11")[0] === "Yes");
+    const journalLowUseChoices = [
+      "I looked at it occasionally, but it wasn’t a major part of the experience",
+      "I rarely or never used it",
+      "I didn’t realize it was there / wasn’t sure what it was for"
+    ];
+    setShown("journalFriction", selected("journalUsage").some(choice => journalLowUseChoices.includes(choice)));
     const q4 = selected("q4"); const reached = q4.length >= 3;
     form.querySelectorAll("input[name='q4']").forEach(input => { input.disabled = reached && !input.checked; input.closest("label").classList.toggle("is-disabled", input.disabled); });
     const limit = document.querySelector("#q4Limit"); if (limit) { limit.textContent = reached ? "You’ve selected the maximum of 3 choices." : `${q4.length} of 3 choices selected.`; limit.classList.toggle("is-limit", reached); }
