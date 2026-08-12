@@ -85,7 +85,7 @@ const RETIRED_QUEST_RECORD_HEADERS = Object.freeze([
   "Running Total Points",
   "Has Reflection"
 ]);
-const RECEIVER_VERSION = "12";
+const RECEIVER_VERSION = "13";
 const FALLBACK_ANALYTICS_SECRET = "sq_8Fz3mQ7pL2xN9vK4cR6tY1wX5bD8eM";
 const DEFAULT_ANALYTICS_SHEET_NAME = "Events";
 const DEFAULT_ANALYTICS_TEST_SHEET_NAME = "Analytics Testing";
@@ -352,27 +352,74 @@ function surveyMissingFields(payload) {
 }
 
 function surveySheetFor(spreadsheet, name, headers) {
-  let sheet = spreadsheet.getSheetByName(name);
+  return ensureSurveySchemaSheet(spreadsheet, name, headers).sheet;
+}
+
+function inspectSurveySchemaSheet(spreadsheet, name, headers) {
+  const sheet = spreadsheet.getSheetByName(name);
+  const report = {
+    sheetName: name,
+    exists: Boolean(sheet),
+    currentHeaders: [],
+    targetHeaders: Array.from(headers),
+    creationRequired: !sheet,
+    columnsToAppend: [],
+    rowCount: 0,
+    frozenRows: sheet ? sheet.getFrozenRows() : 0,
+    validationPassed: false,
+    errors: []
+  };
   if (!sheet) {
+    report.validationPassed = true;
+    return report;
+  }
+
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  report.rowCount = lastRow;
+  if (lastRow < 1 || lastColumn < 1) {
+    report.errors.push("row 1 must contain headers");
+    return report;
+  }
+  const currentHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0]
+    .map(value => String(value || "").trim());
+  report.currentHeaders = currentHeaders;
+  if (currentHeaders.some(header => !header)) report.errors.push("header row contains a blank header");
+  if (new Set(currentHeaders).size !== currentHeaders.length) report.errors.push("header row contains duplicate headers");
+  if (currentHeaders.length > headers.length ||
+      currentHeaders.some((header, index) => header !== headers[index])) {
+    report.errors.push("headers are incompatible, reordered, or unexpected");
+    return report;
+  }
+  report.columnsToAppend = headers.slice(currentHeaders.length);
+  report.validationPassed = report.errors.length === 0;
+  return report;
+}
+
+function ensureSurveySchemaSheet(spreadsheet, name, headers) {
+  const report = inspectSurveySchemaSheet(spreadsheet, name, headers);
+  if (!report.validationPassed) {
+    throw new Error(`Survey schema validation failed for ${name}: ${report.errors.join("; ")}`);
+  }
+
+  let sheet = spreadsheet.getSheetByName(name);
+  if (report.creationRequired) {
     sheet = spreadsheet.insertSheet(name);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
-    return sheet;
+    return { ...inspectSurveySchemaSheet(spreadsheet, name, headers), sheet, action: "created" };
   }
-  const existing = sheet.getLastRow() ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
-    .map(value => String(value || "").trim()) : [];
-  const isCompatiblePrefix = existing.length < headers.length &&
-    existing.every((value, index) => value === headers[index]);
-  if (isCompatiblePrefix) {
-    sheet.getRange(1, existing.length + 1, 1, headers.length - existing.length)
-      .setValues([headers.slice(existing.length)]);
+  if (report.columnsToAppend.length) {
+    sheet.getRange(1, report.currentHeaders.length + 1, 1, report.columnsToAppend.length)
+      .setValues([report.columnsToAppend]);
     sheet.setFrozenRows(1);
-    return sheet;
+    return { ...inspectSurveySchemaSheet(spreadsheet, name, headers), sheet, action: "columns_appended" };
   }
-  if (existing.length !== headers.length || existing.some((value, index) => value !== headers[index])) {
-    throw new Error(`Survey schema validation failed for ${name}`);
+  if (sheet.getFrozenRows() < 1) {
+    sheet.setFrozenRows(1);
+    return { ...inspectSurveySchemaSheet(spreadsheet, name, headers), sheet, action: "header_frozen" };
   }
-  return sheet;
+  return { ...inspectSurveySchemaSheet(spreadsheet, name, headers), sheet, action: "unchanged" };
 }
 
 function surveyAnswer(payload, key) {
@@ -462,7 +509,7 @@ function migrateAnalyticsSchemaToV11() {
 }
 
 // Retain the former entry points for operators who have them bookmarked; all
-// now preview/migrate the v12 schema.
+// now preview/migrate the v13 schema.
 function previewAnalyticsSchemaMigrationToV10() {
   return previewAnalyticsSchemaMigrationToV12();
 }
@@ -474,30 +521,71 @@ function migrateAnalyticsSchemaToV10() {
 function runAnalyticsSchemaMigration(dryRun) {
   const properties = PropertiesService.getScriptProperties();
   const spreadsheet = analyticsSpreadsheet(properties);
-  const reports = ANALYTICS_SCHEMA_MIGRATION_SHEETS.map(spec => {
+  const spreadsheetReport = {
+    name: spreadsheet.getName(),
+    id: spreadsheet.getId(),
+    sheetsPresentBeforeMigration: {
+      events: Boolean(spreadsheet.getSheetByName(DEFAULT_ANALYTICS_SHEET_NAME)),
+      analyticsTesting: Boolean(spreadsheet.getSheetByName(DEFAULT_ANALYTICS_TEST_SHEET_NAME)),
+      questRecords: Boolean(spreadsheet.getSheetByName(DEFAULT_QUEST_RECORD_SHEET_NAME)),
+      questRecordsTesting: Boolean(spreadsheet.getSheetByName(DEFAULT_QUEST_RECORD_TEST_SHEET_NAME)),
+      surveyResponses: Boolean(spreadsheet.getSheetByName(SURVEY_RESPONSES_SHEET_NAME)),
+      interviewContacts: Boolean(spreadsheet.getSheetByName(INTERVIEW_CONTACTS_SHEET_NAME))
+    }
+  };
+  const analyticsReports = ANALYTICS_SCHEMA_MIGRATION_SHEETS.map(spec => {
     const sheet = spreadsheet.getSheetByName(spec.name);
     return inspectAnalyticsSchemaSheet(sheet, spec.name, spec.headers);
   });
+  const surveyReports = [
+    inspectSurveySchemaSheet(spreadsheet, SURVEY_RESPONSES_SHEET_NAME, SURVEY_RESPONSE_HEADERS),
+    inspectSurveySchemaSheet(spreadsheet, INTERVIEW_CONTACTS_SHEET_NAME, INTERVIEW_CONTACT_HEADERS)
+  ];
+  const result = {
+    receiverVersion: RECEIVER_VERSION,
+    dryRun,
+    spreadsheet: spreadsheetReport,
+    analyticsAndQuestRecords: analyticsReports,
+    surveyResponses: surveyReports[0],
+    interviewContacts: surveyReports[1]
+  };
 
-  // Validate every target before changing any sheet structure.
-  if (reports.some(report => !report.validationPassed)) {
-    console.error(`[Analytics schema v12] ${JSON.stringify(reports)}`);
-    return reports;
+  // Validate every target before changing any sheet structure. Missing survey
+  // tabs are valid creation candidates; legacy analytics/quest sheets are not.
+  if (analyticsReports.some(report => !report.validationPassed) ||
+      surveyReports.some(report => !report.validationPassed)) {
+    console.error(`[Analytics schema v13] ${JSON.stringify(result)}`);
+    return result;
   }
   if (dryRun) {
-    console.info(`[Analytics schema v12 preview] ${JSON.stringify(reports)}`);
-    return reports;
+    console.info(`[Analytics schema v13 preview] ${JSON.stringify(result)}`);
+    return result;
   }
 
-  const migratedReports = ANALYTICS_SCHEMA_MIGRATION_SHEETS.map(spec =>
+  result.analyticsAndQuestRecords = ANALYTICS_SCHEMA_MIGRATION_SHEETS.map(spec =>
     migrateAnalyticsSchemaSheet(
       spreadsheet.getSheetByName(spec.name),
       spec.name,
       spec.headers
     )
   );
-  console.info(`[Analytics schema v12] ${JSON.stringify(migratedReports)}`);
-  return migratedReports;
+  result.surveyResponses = surveyMigrationReport(
+    ensureSurveySchemaSheet(spreadsheet, SURVEY_RESPONSES_SHEET_NAME, SURVEY_RESPONSE_HEADERS)
+  );
+  result.interviewContacts = surveyMigrationReport(
+    ensureSurveySchemaSheet(spreadsheet, INTERVIEW_CONTACTS_SHEET_NAME, INTERVIEW_CONTACT_HEADERS)
+  );
+  result.spreadsheet.sheetsPresentAfterMigration = {
+    surveyResponses: Boolean(spreadsheet.getSheetByName(SURVEY_RESPONSES_SHEET_NAME)),
+    interviewContacts: Boolean(spreadsheet.getSheetByName(INTERVIEW_CONTACTS_SHEET_NAME))
+  };
+  console.info(`[Analytics schema v13] ${JSON.stringify(result)}`);
+  return result;
+}
+
+function surveyMigrationReport(result) {
+  const { sheet, ...report } = result;
+  return report;
 }
 
 function migrateAnalyticsSchemaSheet(sheet, sheetName, expectedHeaders, dryRun = false) {
