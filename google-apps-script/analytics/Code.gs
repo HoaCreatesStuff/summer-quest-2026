@@ -91,6 +91,17 @@ const DEFAULT_ANALYTICS_SHEET_NAME = "Events";
 const DEFAULT_ANALYTICS_TEST_SHEET_NAME = "Analytics Testing";
 const DEFAULT_QUEST_RECORD_SHEET_NAME = "Quest Records";
 const DEFAULT_QUEST_RECORD_TEST_SHEET_NAME = "Quest Records Testing";
+const SURVEY_RESPONSES_SHEET_NAME = "Survey Responses";
+const INTERVIEW_CONTACTS_SHEET_NAME = "Interview Contacts";
+const SURVEY_RESPONSE_HEADERS = Object.freeze([
+  "Survey Response ID", "Installation ID", "Session ID", "Submission Timestamp",
+  "Build", "Platform", "Q1", "Q2", "Q2 Follow-up", "Q3 selections", "Q3 Other",
+  "Q4 selections", "Q4 Other", "Q5", "Q5 Other", "Q6", "Q7", "Q7 Other", "Q8",
+  "Q9", "Q10 selections", "Q10 Other", "Q11 Interview Opt-In", "Q13 Additional Comments"
+]);
+const INTERVIEW_CONTACT_HEADERS = Object.freeze([
+  "Survey Response ID", "Name / Contact Info", "Submitted At"
+]);
 const ANALYTICS_SCHEMA_MIGRATION_SHEETS = Object.freeze([
   { name: DEFAULT_ANALYTICS_SHEET_NAME, headers: ANALYTICS_HEADERS },
   { name: DEFAULT_ANALYTICS_TEST_SHEET_NAME, headers: ANALYTICS_HEADERS },
@@ -130,6 +141,33 @@ function doPost(event) {
           missingProperties: authorization.missingProperties
         }
       });
+    }
+
+    if (payload.requestType === "survey_submission") {
+      stage = "survey_validation";
+      const surveyMissingFields = surveyMissingFields(payload);
+      if (surveyMissingFields.length) {
+        return analyticsErrorResponse({
+          code: "invalid_survey_payload", stage, payload, properties,
+          details: { missingFields: surveyMissingFields }
+        });
+      }
+      stage = "lock";
+      lock.waitLock(5000);
+      stage = "spreadsheet_lookup";
+      const surveySpreadsheet = analyticsSpreadsheet(properties);
+      stage = "survey_sheet_setup";
+      const surveySheet = surveySheetFor(surveySpreadsheet, SURVEY_RESPONSES_SHEET_NAME, SURVEY_RESPONSE_HEADERS);
+      const contactSheet = surveySheetFor(surveySpreadsheet, INTERVIEW_CONTACTS_SHEET_NAME, INTERVIEW_CONTACT_HEADERS);
+      stage = "survey_row_insert";
+      const responseId = String(payload.surveyResponseId || "").trim();
+      const existingSurveyRow = surveyRowByResponseId(surveySheet, responseId);
+      const contact = String(payload.answers?.q12 || "").trim();
+      if (!existingSurveyRow) surveySheet.appendRow(surveyResponseRow(payload, responseId));
+      if (payload.answers?.q11 === "Yes" && contact && !surveyRowByResponseId(contactSheet, responseId)) {
+        contactSheet.appendRow([responseId, contact, cellValue(payload.timestamp)]);
+      }
+      return jsonResponse({ ok: true, responseId, duplicate: Boolean(existingSurveyRow) });
     }
 
     if (payload.requestType === "quest_reconciliation") {
@@ -293,6 +331,57 @@ function analyticsMissingReconciliationFields(payload) {
   );
   if (!Array.isArray(payload?.records)) missing.push("records");
   return missing;
+}
+
+function surveyRowByResponseId(sheet, responseId) {
+  if (!responseId || sheet.getLastRow() < 2) return 0;
+  const ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  const index = ids.findIndex(row => String(row[0]) === responseId);
+  return index < 0 ? 0 : index + 2;
+}
+
+function surveyMissingFields(payload) {
+  const missing = ["installationId", "timestamp", "surveyResponseId"].filter(field =>
+    typeof payload?.[field] !== "string" || !payload[field].trim()
+  );
+  if (!payload?.answers || typeof payload.answers !== "object" || Array.isArray(payload.answers)) {
+    missing.push("answers");
+  }
+  return missing;
+}
+
+function surveySheetFor(spreadsheet, name, headers) {
+  let sheet = spreadsheet.getSheetByName(name);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(name);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+  const existing = sheet.getLastRow() ? sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0]
+    .map(value => String(value || "").trim()) : [];
+  if (existing.length !== headers.length || existing.some((value, index) => value !== headers[index])) {
+    throw new Error(`Survey schema validation failed for ${name}`);
+  }
+  return sheet;
+}
+
+function surveyAnswer(payload, key) {
+  const value = payload.answers?.[key];
+  return Array.isArray(value) ? JSON.stringify(value) : cellValue(value);
+}
+
+function surveyResponseRow(payload, responseId) {
+  return [
+    responseId, cellValue(payload.installationId), cellValue(payload.sessionId), cellValue(payload.timestamp),
+    cellValue(payload.build), cellValue(payload.platform), surveyAnswer(payload, "q1"), surveyAnswer(payload, "q2"),
+    surveyAnswer(payload, "q2FollowUp"), surveyAnswer(payload, "q3"), surveyAnswer(payload, "q3Other"),
+    surveyAnswer(payload, "q4"), surveyAnswer(payload, "q4Other"), surveyAnswer(payload, "q5"),
+    surveyAnswer(payload, "q5Other"), surveyAnswer(payload, "q6"), surveyAnswer(payload, "q7"),
+    surveyAnswer(payload, "q7Other"), surveyAnswer(payload, "q8"), surveyAnswer(payload, "q9"),
+    surveyAnswer(payload, "q10"), surveyAnswer(payload, "q10Other"), surveyAnswer(payload, "q11"),
+    surveyAnswer(payload, "q13")
+  ];
 }
 
 function analyticsSpreadsheet(properties) {

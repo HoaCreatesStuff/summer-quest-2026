@@ -46,7 +46,9 @@
     keepsake_opened: "keepsake",
     keepsake_generated: "keepsake",
     privacy_opened: "privacy",
-    feedback_submitted: "feedback"
+    feedback_submitted: "feedback",
+    survey_opened: "survey",
+    survey_submitted: "survey"
   });
   const PERSISTENT_DEDUPE_KEYS = new Set([
     "app_first_opened",
@@ -2041,6 +2043,45 @@
         source: "formspree_success",
         additionalDedupeKeys: [historicalKey("feedback_submitted")]
       });
+    },
+    trackSurveyOpened() {
+      return trackLive("survey_opened", {}, {
+        source: "survey_navigation",
+        sessionKey: "survey_opened"
+      });
+    },
+    async submitSurveyResponse(answers = {}, surveyResponseId = "") {
+      const installationId = getInstallationId({ create: true });
+      if (!installationId || navigator.onLine === false) return { ok: false };
+      const payload = {
+        secret: ANALYTICS_SECRET,
+        requestType: "survey_submission",
+        surveyResponseId,
+        installationId,
+        sessionId: sessionId || "",
+        timestamp: nowIso(),
+        build: appVersion(),
+        platform: platform(),
+        answers,
+        ...runtimeEnvironment()
+      };
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(ANALYTICS_ENDPOINT, {
+          method: "POST",
+          mode: "cors",
+          headers: { "Content-Type": "text/plain;charset=UTF-8" },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || result?.ok !== true) return { ok: false };
+        trackLive("survey_submitted", {}, { source: "survey_submission" });
+        return result;
+      } finally {
+        window.clearTimeout(timeout);
+      }
     },
     trackQuestSaved({
       questId,

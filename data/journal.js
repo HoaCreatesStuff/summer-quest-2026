@@ -1365,6 +1365,8 @@
       ? "My Summer Story — NYC Summer Quest"
       : page === "keepsake"
         ? "Create Memory Keepsake — NYC Summer Quest"
+        : page === "survey"
+          ? "Summer Quest Survey — NYC Summer Quest"
         : "NYC Summer Quest";
 
     window.scrollTo({ top: 0, behavior: "auto" });

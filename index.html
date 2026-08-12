@@ -149,6 +149,8 @@
         <button id="openPrivacyModal" class="site-footer-link" type="button">Privacy</button>
         <span aria-hidden="true">•</span>
         <button id="openContactModal" class="site-footer-link" type="button">Contact</button>
+        <span aria-hidden="true">•</span>
+        <button id="openSurveyPage" class="site-footer-link" type="button" data-route="survey">Survey</button>
         <span id="footerInstallItem" class="site-footer-install-item">
           <span aria-hidden="true">•</span>
           <button id="footerInstallApp" class="site-footer-link" type="button">Install App</button>
@@ -157,6 +159,34 @@
         <span id="footerBuildText">Build <span data-build-version></span></span>
       </nav>
     </footer>
+  </main>
+
+  <main id="surveyPage" class="app-shell app-page survey-page" data-page="survey" hidden>
+    <nav class="page-sticky-header survey-sticky-header" aria-label="Survey navigation">
+      <button class="sticky-back-button" type="button" data-route="board">&lt; Back to Board</button>
+      <span>Summer Quest Survey</span>
+    </nav>
+    <section class="survey-content" aria-labelledby="surveyTitle">
+      <header class="survey-intro">
+        <p class="eyebrow">Post-summer reflection</p>
+        <h1 id="surveyTitle">Summer Quest Survey</h1>
+        <p>Thanks for spending part of your summer questing around NYC with us!</p>
+        <p class="survey-callout">This survey is meant to capture your experience after you’ve had some time to actually play Summer Quest. If you’ve only just started, please come back after you’ve completed a few quests and experienced more of the adventure.</p>
+        <p>When you’re ready, it should take about 3–5 minutes.</p>
+        <p>There are no right answers. I’m interested in what you actually did, what mattered, and what didn’t.</p>
+      </header>
+      <form id="surveyForm" class="survey-form">
+        <div id="surveyQuestions"></div>
+        <p id="surveyStatus" class="survey-status" role="status" aria-live="polite"></p>
+        <button id="submitSurvey" class="primary-button survey-submit" type="submit">Submit Survey</button>
+      </form>
+      <section id="surveySuccess" class="survey-success" hidden aria-labelledby="surveySuccessTitle">
+        <p class="eyebrow">Thank you</p>
+        <h2 id="surveySuccessTitle">Thanks for being part of our Summer Quest.</h2>
+        <p>Your feedback helps us understand what actually made the experience memorable.</p>
+        <button class="secondary-button" type="button" data-route="board">Back to Quest Board</button>
+      </section>
+    </section>
   </main>
 
   <main id="storyPage" class="app-shell app-page story-page" data-page="story" hidden>
@@ -676,6 +706,7 @@
         versioned("data/analytics.js"),
         "assets/vendor/cropperjs/cropper.min.js?v=1.6.2",
         versioned("data/app.js"),
+        versioned("data/survey.js"),
         versioned("data/journal.js")
       ];
 

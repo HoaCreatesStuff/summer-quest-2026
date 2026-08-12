@@ -631,6 +631,14 @@ line-height: normal;
     flex-wrap: wrap;
   }
 }
+
+@media (min-width: 320px) and (max-width: 360px) {
+  .site-footer,
+  .site-footer-links {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+}
 .text-button {
   border: 0;
   background: transparent;
@@ -2445,7 +2453,8 @@ body.finale-open {
 /* Journal and keepsake pages */
 .app-page[hidden] { display: none !important; }
 body[data-page="story"],
-body[data-page="keepsake"] {
+body[data-page="keepsake"],
+body[data-page="survey"] {
   background: var(--paper);
 }
 body.keepsake-preview-open { overflow: hidden; }
@@ -2468,10 +2477,47 @@ body.keepsake-preview-open { overflow: hidden; }
 }
 
 .story-page,
-.keepsake-page {
+.keepsake-page,
+.survey-page {
   width: min(100%, 900px);
   padding-bottom: max(72px, env(safe-area-inset-bottom));
 }
+
+/* Post-summer survey */
+.survey-content {
+  width: min(100%, 680px);
+  margin: 0 auto;
+  padding-top: clamp(26px, 5vw, 48px);
+}
+.survey-intro h1 { margin: 0 0 20px; font-family: "Libre Baskerville", serif; font-size: clamp(2rem, 6vw, 3.15rem); line-height: 1.08; }
+.survey-intro > p:not(.eyebrow) { max-width: 62ch; margin: 0 0 16px; line-height: 1.65; }
+.survey-callout { border-left: 3px solid var(--yellow); padding: 14px 16px; background: rgba(246,185,0,.11); border-radius: 0 8px 8px 0; }
+.survey-form { margin-top: 44px; }
+.survey-section { margin: 0 0 50px; padding-top: 28px; border-top: 1px solid var(--line); }
+.survey-section:first-child { border-top: 0; padding-top: 0; }
+.survey-section-heading { margin: 0 0 28px; }
+.survey-section-heading h2 { margin: 6px 0 0; font-family: "Libre Baskerville", serif; font-size: clamp(1.35rem, 4vw, 1.8rem); }
+.survey-section-note { margin: 10px 0 0; color: var(--muted); line-height: 1.55; }
+.survey-question { margin: 0 0 34px; }
+.survey-question legend, .survey-question-label { display: block; margin-bottom: 12px; color: var(--ink); font-size: 1rem; font-weight: 700; line-height: 1.45; }
+.survey-helper { margin: -4px 0 13px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+.survey-options { display: grid; gap: 9px; }
+.survey-option { display: flex; align-items: flex-start; gap: 11px; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.28); cursor: pointer; line-height: 1.4; }
+.survey-option:focus-within { outline: 3px solid rgba(47,143,140,.36); outline-offset: 2px; }
+.survey-option input { flex: 0 0 auto; width: 19px; height: 19px; margin: 1px 0 0; accent-color: var(--teal); }
+.survey-option.is-disabled { opacity: .52; cursor: not-allowed; }
+.survey-follow-up { margin-top: 14px; }
+.survey-textarea, .survey-short-input { box-sizing: border-box; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: rgba(255,255,255,.6); color: var(--ink); font: inherit; line-height: 1.5; }
+.survey-textarea { min-height: 132px; resize: vertical; }
+.survey-short-input:focus, .survey-textarea:focus { outline: 3px solid rgba(47,143,140,.36); outline-offset: 2px; border-color: var(--teal); }
+.survey-limit { min-height: 1.4em; margin: 10px 0 0; color: var(--muted); font-size: .88rem; }
+.survey-limit.is-limit { color: var(--teal); font-weight: 600; }
+.survey-submit { min-width: 160px; }
+.survey-status { min-height: 1.5em; margin: 0 0 14px; color: var(--muted); }
+.survey-status.is-error { color: #a53d38; }
+.survey-success { margin-top: 40px; padding: 32px 0; }
+.survey-success h2 { font-family: "Libre Baskerville", serif; line-height: 1.35; }
+.survey-success p { max-width: 52ch; line-height: 1.6; }
 .page-sticky-header {
   position: sticky;
   z-index: 12;
