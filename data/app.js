@@ -312,7 +312,6 @@ let pendingCropFile = null;
 let cropTrigger = null;
 let friendCount = 0;
 let selectedBonusIds = [];
-let finalScoreResizeObserver = null;
 let saveInProgress = false;
 let removeInProgress = false;
 let questHasUnsavedChanges = false;
@@ -478,7 +477,6 @@ const els = {
 };
 
 const storyIcons = {
-  location: "location_on",
   completed: "flag",
   friends: "groups",
   bonuses: "auto_awesome"
@@ -1586,41 +1584,8 @@ function completedStandardQuestEntries() {
     .filter((entry) => Boolean(entry.submission));
 }
 
-function questStoryCandidate(entry) {
-  const quest = window.QUESTS[entry.quest.id];
-  if (!quest) return null;
-
-  const location = String(entry.submission.location || "").trim();
-  const hasLocationToken = quest.story.includes("{locationSentence}");
-  const locationSentence = hasLocationToken && location
-    ? ` at <strong>${escapeStoryText(location)}</strong>`
-    : "";
-  const baseHtml = renderStoryMarkup(
-    quest.story.replaceAll("{locationSentence}", locationSentence)
-  );
-  if (!baseHtml) return null;
-
-  const earnedBonusIds = new Set(selectedBonusIdsFrom(entry.submission));
-
-const bonusHtml = quest.bonuses
-  .filter((bonus) => earnedBonusIds.has(bonus.id))
-  .map((bonus) => renderStoryMarkup(quest.bonusMemories[bonus.id]))
-  .filter(Boolean);
-
-const reflectionHtml =
-  bonusHtml.length === 0
-    ? renderStoryMarkup(quest.reflection)
-    : "";
-
-return {
-  html: [baseHtml, reflectionHtml, ...bonusHtml].filter(Boolean).join(" "),
-  kind: hasLocationToken && location ? "location" : null,
-  completedAt: entry.submission.completedAt || ""
-};
-}
-
 function storyIconName(story) {
-  return storyIcons[story.kind] || "";
+  return storyIcons[story.kind] || "auto_awesome";
 }
 
 function buildFinalSummary() {
@@ -1641,76 +1606,20 @@ function buildFinalSummary() {
     0
   );
 
-  const summary = [
+  return [
     {
       kind: "completed",
       html: `One adventure at a time, you completed <strong>${completedCount} NYC ${completedCount === 1 ? "quest" : "quests"}</strong>.`
+    },
+    {
+      kind: "friends",
+      html: `Along the way, <strong>${friendCount} ${friendCount === 1 ? "person" : "people"}</strong> joined your adventures.`
+    },
+    {
+      kind: "bonuses",
+      html: `You even unlocked <strong>${bonusCount} ${bonusCount === 1 ? "bonus memory" : "bonus memories"}</strong> along the way.`
     }
   ];
-
-  if (friendCount === 1) {
-    summary.push({
-      kind: "friends",
-      html: "Along the way, <strong>1 person</strong> joined your adventures."
-    });
-  } else if (friendCount > 1) {
-    summary.push({
-      kind: "friends",
-      html: `Along the way, <strong>${friendCount} people</strong> joined your adventures.`
-    });
-  }
-
-  if (bonusCount === 1) {
-    summary.push({
-      kind: "bonuses",
-      html: `You even unlocked <strong>1 bonus memory</strong> along the way.`
-    });
-  } else if (bonusCount > 1) {
-    summary.push({
-      kind: "bonuses",
-      html: `You even unlocked <strong>${bonusCount} bonus memories</strong> along the way.`
-    });
-  }
-
-  const baseStories = completedEntries
-    .map((entry) => questStoryCandidate(entry))
-    .filter(Boolean);
-
-  const featuredCount = Math.min(2, baseStories.length);
-
-  return [
-    ...summary,
-    ...baseStories.slice(0, featuredCount)
-  ];
-}
-
-function syncFinalScoreToRank() {
-  const scoreValue = els.finalResults.querySelector(".adventure-score-value");
-  const rankCopy = els.finalResults.querySelector(".adventure-rank-copy");
-  if (!scoreValue || !rankCopy) return;
-
-  const rankHeight = rankCopy.getBoundingClientRect().height;
-  if (!rankHeight) return;
-
-  const matchedHeight = `${Math.round(rankHeight * 100) / 100}px`;
-  scoreValue.style.setProperty("--final-score-height", matchedHeight);
-  scoreValue.style.setProperty("--final-score-font-size", matchedHeight);
-}
-
-function startFinalScoreSync() {
-  finalScoreResizeObserver?.disconnect();
-  finalScoreResizeObserver = null;
-
-  const rankCopy = els.finalResults.querySelector(".adventure-rank-copy");
-  if (!rankCopy) return;
-
-  requestAnimationFrame(syncFinalScoreToRank);
-  document.fonts?.ready.then(syncFinalScoreToRank);
-
-  if ("ResizeObserver" in window) {
-    finalScoreResizeObserver = new ResizeObserver(syncFinalScoreToRank);
-    finalScoreResizeObserver.observe(rankCopy);
-  }
 }
 
 function renderFinalResults() {
@@ -1774,7 +1683,6 @@ function renderFinalResults() {
   `;
   els.finalCompleteHeading.hidden = false;
   els.sheet.setAttribute("aria-labelledby", "finalCompleteHeading");
-  startFinalScoreSync();
 }
 
 function renderFinalQuest(quest, existing, draft) {
@@ -1804,8 +1712,6 @@ function renderFinalQuest(quest, existing, draft) {
     return;
   }
 
-  finalScoreResizeObserver?.disconnect();
-  finalScoreResizeObserver = null;
   els.standardFields.hidden = true;
   els.finalFlow.hidden = false;
   els.missionCodeSection.hidden = false;
@@ -1860,8 +1766,6 @@ function markQuestAsChanged() {
 }
 
 function renderStandardQuest(existing, finalQuest = false) {
-  finalScoreResizeObserver?.disconnect();
-  finalScoreResizeObserver = null;
   els.standardFields.hidden = false;
   els.finalFlow.hidden = true;
   els.friendsField.hidden = finalQuest;

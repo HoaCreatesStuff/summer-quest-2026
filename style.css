@@ -1862,7 +1862,7 @@ textarea.text-input {
 }
 .adventure-results-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.35fr);
   align-items: stretch;
   margin-top: 16px;
   border-block: 1px solid rgba(157,112,29,.28);
@@ -1882,11 +1882,10 @@ textarea.text-input {
 .adventure-score-value {
   margin: 0;
   color: #5f481d;
-  block-size: var(--final-score-height, auto);
   font-family: "Libre Baskerville", serif;
-  font-size: var(--final-score-font-size, 3rem);
+  font-size: clamp(3rem, 14vw, 6.5rem);
   font-weight: 700;
-  line-height: var(--final-score-height, normal);
+  line-height: .82;
   letter-spacing: -.045em;
   white-space: nowrap;
 }
@@ -1910,7 +1909,7 @@ textarea.text-input {
 }
 .adventure-story-lines {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   margin-top: 14px;
 }
 .adventure-story-lines:empty { display: none; }
@@ -1935,7 +1934,7 @@ textarea.text-input {
   color: var(--teal);
 }
 .adventure-closing {
-  margin: 24px 0 0;
+  margin: 18px 0 0;
   color: var(--ink);
   font-family: "Montserrat", sans-serif;
   line-height: 1.65;
