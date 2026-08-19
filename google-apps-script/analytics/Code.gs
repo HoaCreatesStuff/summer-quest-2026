@@ -146,11 +146,11 @@ function doPost(event) {
 
     if (payload.requestType === "survey_submission") {
       stage = "survey_validation";
-      const surveyMissingFields = surveyMissingFields(payload);
-      if (surveyMissingFields.length) {
+      const missingSurveyFields = surveyMissingFields(payload);
+      if (missingSurveyFields.length) {
         return analyticsErrorResponse({
           code: "invalid_survey_payload", stage, payload, properties,
-          details: { missingFields: surveyMissingFields }
+          details: { missingFields: missingSurveyFields }
         });
       }
       stage = "lock";
