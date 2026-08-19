@@ -98,7 +98,8 @@ const SURVEY_RESPONSE_HEADERS = Object.freeze([
   "Build", "Platform", "Q1", "Q2", "Q2 Follow-up", "Q3 selections", "Q3 Other",
   "Q4 selections", "Q4 Other", "Q5", "Q5 Other", "Q6", "Q7", "Q7 Other", "Q8",
   "Q9", "Q10 selections", "Q10 Other", "Q11 Interview Opt-In", "Q13 Additional Comments",
-  "Journal Usage", "Journal Usage Other", "Journal Friction / Why Less Useful", "Keepsake Value"
+  "Journal Usage", "Journal Usage Other", "Journal Friction / Why Less Useful", "Keepsake Value",
+  "Original Response ID", "Previous Response ID", "Submission Number"
 ]);
 const INTERVIEW_CONTACT_HEADERS = Object.freeze([
   "Survey Response ID", "Name / Contact Info", "Submitted At"
@@ -161,7 +162,7 @@ function doPost(event) {
       const surveySheet = surveySheetFor(surveySpreadsheet, SURVEY_RESPONSES_SHEET_NAME, SURVEY_RESPONSE_HEADERS);
       const contactSheet = surveySheetFor(surveySpreadsheet, INTERVIEW_CONTACTS_SHEET_NAME, INTERVIEW_CONTACT_HEADERS);
       stage = "survey_row_insert";
-      const responseId = String(payload.surveyResponseId || "").trim();
+      const responseId = surveyResponseId(payload);
       const existingSurveyRow = surveyRowByResponseId(surveySheet, responseId);
       const contact = String(payload.answers?.q12 || "").trim();
       if (!existingSurveyRow) surveySheet.appendRow(surveyResponseRow(payload, responseId));
@@ -342,13 +343,29 @@ function surveyRowByResponseId(sheet, responseId) {
 }
 
 function surveyMissingFields(payload) {
-  const missing = ["installationId", "timestamp", "surveyResponseId"].filter(field =>
+  const missing = ["installationId", "timestamp"].filter(field =>
     typeof payload?.[field] !== "string" || !payload[field].trim()
   );
+  if (!surveyResponseId(payload)) missing.push("responseId");
   if (!payload?.answers || typeof payload.answers !== "object" || Array.isArray(payload.answers)) {
     missing.push("answers");
   }
+  if (payload?.responseId !== undefined || payload?.originalResponseId !== undefined ||
+      payload?.previousResponseId !== undefined || payload?.submissionNumber !== undefined) {
+    const responseId = surveyResponseId(payload);
+    const originalResponseId = String(payload.originalResponseId || "").trim();
+    const previousResponseId = String(payload.previousResponseId || "").trim();
+    const submissionNumber = Number(payload.submissionNumber);
+    if (!originalResponseId) missing.push("originalResponseId");
+    if (!Number.isInteger(submissionNumber) || submissionNumber < 1) missing.push("submissionNumber");
+    if (submissionNumber === 1 && (originalResponseId !== responseId || previousResponseId)) missing.push("firstSubmissionLineage");
+    if (submissionNumber > 1 && !previousResponseId) missing.push("previousResponseId");
+  }
   return missing;
+}
+
+function surveyResponseId(payload) {
+  return String(payload?.responseId || payload?.surveyResponseId || "").trim();
 }
 
 function surveySheetFor(spreadsheet, name, headers) {
@@ -438,7 +455,8 @@ function surveyResponseRow(payload, responseId) {
     surveyAnswer(payload, "q10"), surveyAnswer(payload, "q10Other"), surveyAnswer(payload, "q11"),
     surveyAnswer(payload, "q13"), surveyAnswer(payload, "journalUsage"),
     surveyAnswer(payload, "journalUsageOther"), surveyAnswer(payload, "journalFriction"),
-    surveyAnswer(payload, "keepsakeValue")
+    surveyAnswer(payload, "keepsakeValue"), cellValue(payload.originalResponseId || responseId),
+    cellValue(payload.previousResponseId), cellValue(payload.submissionNumber || 1)
   ];
 }
 

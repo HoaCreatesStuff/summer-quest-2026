@@ -2050,13 +2050,18 @@
         sessionKey: "survey_opened"
       });
     },
-    async submitSurveyResponse(answers = {}, surveyResponseId = "") {
+    async submitSurveyResponse(answers = {}, submission = {}) {
       const installationId = getInstallationId({ create: true });
       if (!installationId || navigator.onLine === false) return { ok: false };
+      const responseId = typeof submission === "string" ? submission : submission.responseId || "";
       const payload = {
         secret: ANALYTICS_SECRET,
         requestType: "survey_submission",
-        surveyResponseId,
+        surveyResponseId: responseId,
+        responseId,
+        originalResponseId: typeof submission === "object" ? submission.originalResponseId || responseId : responseId,
+        previousResponseId: typeof submission === "object" ? submission.previousResponseId || "" : "",
+        submissionNumber: typeof submission === "object" ? submission.submissionNumber || 1 : 1,
         installationId,
         sessionId: sessionId || "",
         timestamp: nowIso(),

@@ -1,6 +1,7 @@
 (() => {
   const KEEPSAKE_NAME_STORAGE_KEY = "nyc-summer-quest-keepsake-name";
   const KEEPSAKE_SUMMARY_STORAGE_KEY = "nyc-summer-quest-keepsake-include-summary";
+  const LAST_ACTIVE_PAGE_STORAGE_KEY = "summerQuestLastActivePage";
   const pageElements = Array.from(document.querySelectorAll(".app-page"));
   const storyPage = document.querySelector("#storyPage");
   const keepsakePage = document.querySelector("#keepsakePage");
@@ -50,6 +51,23 @@
       localStorage.setItem(key, value);
     } catch (error) {
       console.warn("[Keepsake] Preference could not be saved.", error);
+    }
+  }
+
+  function readLastActivePage() {
+    try {
+      const page = localStorage.getItem(LAST_ACTIVE_PAGE_STORAGE_KEY);
+      return pageElements.some(element => element.dataset.page === page) ? page : "board";
+    } catch {
+      return "board";
+    }
+  }
+
+  function writeLastActivePage(page) {
+    try {
+      localStorage.setItem(LAST_ACTIVE_PAGE_STORAGE_KEY, page);
+    } catch {
+      // Navigation should still work when persistent storage is unavailable.
     }
   }
 
@@ -1397,6 +1415,7 @@
     });
 
     currentPage = page;
+    writeLastActivePage(page);
     document.body.dataset.page = page;
     document.dispatchEvent(new CustomEvent("summerquest:pagechange", {
       detail: { page }
@@ -1526,6 +1545,7 @@
     const route = event.target.closest("[data-route]")?.dataset.route;
     if (route) navigateTo(route);
   });
+  if (readLastActivePage() === "survey") navigateTo("survey");
   document.querySelector("#viewBoardBtn").addEventListener("click", () => navigateTo("story"));
   document.querySelector("#saveBoardBtn").addEventListener("click", () => navigateTo("keepsake"));
   document.querySelector("#keepsakeBackBtn").addEventListener("click", () => navigateTo("board"));

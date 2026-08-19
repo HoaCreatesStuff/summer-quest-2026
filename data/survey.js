@@ -1,5 +1,6 @@
 (() => {
-  const DRAFT_KEY = "summerQuestSurveyDraftV1";
+  const DRAFT_KEY = "summerQuestSurveyDraft";
+  const HISTORY_KEY = "summerQuestSurveyHistory";
   const SUBMITTED_KEY = "summerQuestSurveySubmittedV1";
   const RESPONSE_ID_KEY = "summerQuestSurveyResponseIdV1";
   const form = document.querySelector("#surveyForm");
@@ -62,8 +63,28 @@
   function render() {
     questions.innerHTML = sections.map((section, index) => `<section class="survey-section"><header class="survey-section-heading"><p class="label section-eyebrow">Section ${index + 1}</p><h2>${section.title}</h2>${section.note ? `<p class="survey-section-note">${section.note}</p>` : ""}</header>${section.questions.map(questionMarkup).join("")}</section>`).join("");
   }
-  function readDraft() { try { return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "{}") || {}; } catch { return {}; } }
-  function writeDraft(values) { try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(values)); } catch {} }
+  function readDraft() { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}") || {}; } catch { return {}; } }
+  function writeDraft(currentValues) { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(currentValues)); } catch {} }
+  function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch {} }
+  function readHistory() {
+    try {
+      const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "{}") || {};
+      return typeof history.originalResponseId === "string" &&
+        typeof history.latestResponseId === "string" &&
+        Number.isInteger(history.submissionNumber)
+        ? history
+        : null;
+    } catch { return null; }
+  }
+  function writeHistory(submission, confirmedResponseId) {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify({
+        originalResponseId: submission.originalResponseId,
+        latestResponseId: confirmedResponseId,
+        submissionNumber: submission.submissionNumber
+      }));
+    } catch {}
+  }
   function values() {
     const result = {};
     form.querySelectorAll("input[type='radio']:checked").forEach(input => { result[input.name] = input.value; });
@@ -101,7 +122,15 @@
     if (none && target.checked) form.querySelectorAll("input[name='q10']").forEach(input => { if (input !== target) input.checked = false; });
     if (!none && target.checked) form.querySelector("input[name='q10'][value='None']").checked = false;
   }
-  function submitted() { try { return sessionStorage.getItem(SUBMITTED_KEY) === "true"; } catch { return false; } }
+  function submitted() {
+    try {
+      return localStorage.getItem(SUBMITTED_KEY) === "true" ||
+        sessionStorage.getItem(SUBMITTED_KEY) === "true";
+    } catch { return false; }
+  }
+  function markSubmitted() {
+    try { localStorage.setItem(SUBMITTED_KEY, "true"); sessionStorage.setItem(SUBMITTED_KEY, "true"); } catch {}
+  }
   function responseId() {
     try {
       const existing = sessionStorage.getItem(RESPONSE_ID_KEY);
@@ -111,16 +140,49 @@
       return id;
     } catch { return crypto.randomUUID ? crypto.randomUUID() : `survey-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
   }
+  function submission() {
+    const currentResponseId = responseId();
+    const history = readHistory();
+    return history
+      ? {
+          responseId: currentResponseId,
+          originalResponseId: history.originalResponseId,
+          previousResponseId: history.latestResponseId,
+          submissionNumber: history.submissionNumber + 1
+        }
+      : {
+          responseId: currentResponseId,
+          originalResponseId: currentResponseId,
+          previousResponseId: "",
+          submissionNumber: 1
+        };
+  }
   function showSubmitted() { form.hidden = true; success.hidden = false; }
+  function redoSurvey() {
+    try {
+      localStorage.removeItem(SUBMITTED_KEY);
+      sessionStorage.removeItem(SUBMITTED_KEY);
+      sessionStorage.removeItem(RESPONSE_ID_KEY);
+    } catch {}
+    clearDraft();
+    form.reset();
+    syncConditions();
+    status.textContent = ""; status.className = "survey-status";
+    success.hidden = true; form.hidden = false;
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
   async function submit(event) {
     event.preventDefault();
     if (submitting || submitted()) return;
     if (!navigator.onLine) { status.textContent = "You’re offline. Reconnect to submit your survey."; status.className = "survey-status is-error"; return; }
     submitting = true; submitButton.disabled = true; submitButton.textContent = "Submitting…"; status.textContent = ""; status.className = "survey-status";
     try {
-      const result = await window.SummerQuestAnalytics?.submitSurveyResponse?.(values(), responseId());
+      const currentSubmission = submission();
+      const result = await window.SummerQuestAnalytics?.submitSurveyResponse?.(values(), currentSubmission);
       if (!result?.ok) throw new Error("Survey receiver did not confirm submission.");
-      sessionStorage.removeItem(DRAFT_KEY); sessionStorage.removeItem(RESPONSE_ID_KEY); sessionStorage.setItem(SUBMITTED_KEY, "true");
+      clearDraft();
+      writeHistory(currentSubmission, result.responseId || currentSubmission.responseId);
+      sessionStorage.removeItem(RESPONSE_ID_KEY); markSubmitted();
       showSubmitted();
     } catch (error) {
       console.warn("[Survey] Submission failed.", error);
@@ -133,5 +195,6 @@
   form.addEventListener("input", () => writeDraft(values()));
   form.addEventListener("change", event => { syncNone(event.target); syncConditions(); writeDraft(values()); });
   form.addEventListener("submit", submit);
+  document.querySelector("#redoSurvey")?.addEventListener("click", redoSurvey);
   document.addEventListener("summerquest:pagechange", event => { if (event.detail?.page === "survey") window.SummerQuestAnalytics?.trackSurveyOpened?.(); });
 })();

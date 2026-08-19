@@ -2500,6 +2500,7 @@ body.keepsake-preview-open { overflow: hidden; }
 .survey-question { margin: 0 0 34px; }
 .survey-question legend, .survey-question-label { display: block; margin-bottom: 12px; color: var(--ink); font-size: 1rem; font-weight: 700; line-height: 1.45; }
 .survey-helper { margin: -4px 0 13px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+.survey-draft-notice { margin-top: -4px; }
 .survey-options { display: grid; gap: 9px; }
 .survey-option { display: flex; align-items: flex-start; gap: 11px; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.28); cursor: pointer; line-height: 1.4; }
 .survey-option:focus-within { outline: 3px solid rgba(47,143,140,.36); outline-offset: 2px; }
@@ -2517,6 +2518,7 @@ body.keepsake-preview-open { overflow: hidden; }
 .survey-success { margin-top: 40px; padding: 32px 0; }
 .survey-success h2 { font-family: "Libre Baskerville", serif; line-height: 1.35; }
 .survey-success p { max-width: 52ch; line-height: 1.6; }
+.survey-redo { display: block; margin-top: 16px; }
 .page-sticky-header {
   position: sticky;
   z-index: 12;
