@@ -85,30 +85,24 @@ const RETIRED_QUEST_RECORD_HEADERS = Object.freeze([
   "Running Total Points",
   "Has Reflection"
 ]);
-const RECEIVER_VERSION = "13";
+const RECEIVER_VERSION = "14";
 const FALLBACK_ANALYTICS_SECRET = "sq_8Fz3mQ7pL2xN9vK4cR6tY1wX5bD8eM";
 const DEFAULT_ANALYTICS_SHEET_NAME = "Events";
-const DEFAULT_ANALYTICS_TEST_SHEET_NAME = "Analytics Testing";
 const DEFAULT_QUEST_RECORD_SHEET_NAME = "Quest Records";
-const DEFAULT_QUEST_RECORD_TEST_SHEET_NAME = "Quest Records Testing";
 const SURVEY_RESPONSES_SHEET_NAME = "Survey Responses";
-const INTERVIEW_CONTACTS_SHEET_NAME = "Interview Contacts";
 const SURVEY_RESPONSE_HEADERS = Object.freeze([
   "Survey Response ID", "Installation ID", "Session ID", "Submission Timestamp",
   "Build", "Platform", "Q1", "Q2", "Q2 Follow-up", "Q3 selections", "Q3 Other",
   "Q4 selections", "Q4 Other", "Q5", "Q5 Other", "Q6", "Q7", "Q7 Other", "Q8",
   "Q9", "Q10 selections", "Q10 Other", "Q11 Interview Opt-In", "Q13 Additional Comments",
   "Journal Usage", "Journal Usage Other", "Journal Friction / Why Less Useful", "Keepsake Value",
-  "Original Response ID", "Previous Response ID", "Submission Number"
-]);
-const INTERVIEW_CONTACT_HEADERS = Object.freeze([
-  "Survey Response ID", "Name / Contact Info", "Submitted At"
+  "Original Response ID", "Previous Response ID", "Submission Number",
+  "Name / Contact Info", "Contact Submitted At", "Source Response IDs",
+  "Response Count", "Prior Submission Snapshots"
 ]);
 const ANALYTICS_SCHEMA_MIGRATION_SHEETS = Object.freeze([
   { name: DEFAULT_ANALYTICS_SHEET_NAME, headers: ANALYTICS_HEADERS },
-  { name: DEFAULT_ANALYTICS_TEST_SHEET_NAME, headers: ANALYTICS_HEADERS },
-  { name: DEFAULT_QUEST_RECORD_SHEET_NAME, headers: QUEST_RECORD_HEADERS },
-  { name: DEFAULT_QUEST_RECORD_TEST_SHEET_NAME, headers: QUEST_RECORD_HEADERS }
+  { name: DEFAULT_QUEST_RECORD_SHEET_NAME, headers: QUEST_RECORD_HEADERS }
 ]);
 
 function doPost(event) {
@@ -145,6 +139,12 @@ function doPost(event) {
       });
     }
 
+    // Testing tabs were retired. A legacy developer-mode client must never
+    // fall through and contaminate production analytics after that retirement.
+    if (analyticsPayloadIsTest(payload)) {
+      return jsonResponse({ ok: true, ignored: true, reason: "testing_retired" });
+    }
+
     if (payload.requestType === "survey_submission") {
       stage = "survey_validation";
       const missingSurveyFields = surveyMissingFields(payload);
@@ -160,16 +160,15 @@ function doPost(event) {
       const surveySpreadsheet = analyticsSpreadsheet(properties);
       stage = "survey_sheet_setup";
       const surveySheet = surveySheetFor(surveySpreadsheet, SURVEY_RESPONSES_SHEET_NAME, SURVEY_RESPONSE_HEADERS);
-      const contactSheet = surveySheetFor(surveySpreadsheet, INTERVIEW_CONTACTS_SHEET_NAME, INTERVIEW_CONTACT_HEADERS);
       stage = "survey_row_insert";
       const responseId = surveyResponseId(payload);
-      const existingSurveyRow = surveyRowByResponseId(surveySheet, responseId);
+      const canonicalResponseId = surveyCanonicalResponseId(payload, responseId);
+      const existingSurveyRow = surveyRowByCanonicalResponseId(surveySheet, canonicalResponseId);
       const contact = String(payload.answers?.q12 || "").trim();
-      if (!existingSurveyRow) surveySheet.appendRow(surveyResponseRow(payload, responseId));
-      if (payload.answers?.q11 === "Yes" && contact && !surveyRowByResponseId(contactSheet, responseId)) {
-        contactSheet.appendRow([responseId, contact, cellValue(payload.timestamp)]);
-      }
-      return jsonResponse({ ok: true, responseId, duplicate: Boolean(existingSurveyRow) });
+      const result = upsertSurveyResponse(
+        surveySheet, payload, responseId, canonicalResponseId, contact, existingSurveyRow
+      );
+      return jsonResponse({ ok: true, responseId, canonicalResponseId, ...result });
     }
 
     if (payload.requestType === "quest_reconciliation") {
@@ -289,19 +288,11 @@ function analyticsPayloadIsTest(payload) {
 }
 
 function analyticsSheetName(payload, properties) {
-  if (analyticsPayloadIsTest(payload)) {
-    return properties.getProperty("ANALYTICS_TEST_SHEET_NAME") ||
-      DEFAULT_ANALYTICS_TEST_SHEET_NAME;
-  }
   return properties.getProperty("ANALYTICS_SHEET_NAME") ||
     DEFAULT_ANALYTICS_SHEET_NAME;
 }
 
 function questRecordSheetName(payload, properties) {
-  if (analyticsPayloadIsTest(payload)) {
-    return properties.getProperty("ANALYTICS_QUEST_TEST_SHEET_NAME") ||
-      DEFAULT_QUEST_RECORD_TEST_SHEET_NAME;
-  }
   return properties.getProperty("ANALYTICS_QUEST_SHEET_NAME") ||
     DEFAULT_QUEST_RECORD_SHEET_NAME;
 }
@@ -335,10 +326,17 @@ function analyticsMissingReconciliationFields(payload) {
   return missing;
 }
 
-function surveyRowByResponseId(sheet, responseId) {
-  if (!responseId || sheet.getLastRow() < 2) return 0;
-  const ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
-  const index = ids.findIndex(row => String(row[0]) === responseId);
+function surveyCanonicalResponseId(payload, responseId) {
+  return String(payload?.originalResponseId || responseId || "").trim();
+}
+
+function surveyRowByCanonicalResponseId(sheet, canonicalResponseId) {
+  if (!canonicalResponseId || sheet.getLastRow() < 2) return 0;
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const originalResponseIdColumn = headers.indexOf("Original Response ID") + 1;
+  if (!originalResponseIdColumn) throw new Error("Survey Responses is missing Original Response ID");
+  const ids = sheet.getRange(2, originalResponseIdColumn, sheet.getLastRow() - 1, 1).getValues();
+  const index = ids.findIndex(row => String(row[0]) === canonicalResponseId);
   return index < 0 ? 0 : index + 2;
 }
 
@@ -456,8 +454,63 @@ function surveyResponseRow(payload, responseId) {
     surveyAnswer(payload, "q13"), surveyAnswer(payload, "journalUsage"),
     surveyAnswer(payload, "journalUsageOther"), surveyAnswer(payload, "journalFriction"),
     surveyAnswer(payload, "keepsakeValue"), cellValue(payload.originalResponseId || responseId),
-    cellValue(payload.previousResponseId), cellValue(payload.submissionNumber || 1)
+    cellValue(payload.previousResponseId), cellValue(payload.submissionNumber || 1),
+    payload.answers?.q11 === "Yes" ? surveyAnswer(payload, "q12") : "",
+    payload.answers?.q11 === "Yes" ? cellValue(payload.timestamp) : "",
+    JSON.stringify([responseId]), 1, ""
   ];
+}
+
+function upsertSurveyResponse(sheet, payload, responseId, canonicalResponseId, contact, existingRow) {
+  if (!existingRow) {
+    sheet.appendRow(surveyResponseRow(payload, responseId));
+    return { action: "inserted", duplicate: false };
+  }
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const existing = sheet.getRange(existingRow, 1, 1, headers.length).getValues()[0];
+  const sourceIdsIndex = headers.indexOf("Source Response IDs");
+  const responseCountIndex = headers.indexOf("Response Count");
+  const historyIndex = headers.indexOf("Prior Submission Snapshots");
+  const contactIndex = headers.indexOf("Name / Contact Info");
+  const contactTimestampIndex = headers.indexOf("Contact Submitted At");
+  if ([sourceIdsIndex, responseCountIndex, historyIndex, contactIndex, contactTimestampIndex].some(index => index < 0)) {
+    throw new Error("Survey Responses is missing consolidated-participant columns");
+  }
+
+  const sourceIds = surveyJsonArray(existing[sourceIdsIndex], [existing[0]]);
+  if (sourceIds.includes(responseId)) return { action: "unchanged", duplicate: true };
+
+  const history = surveyJsonArray(existing[historyIndex], []);
+  history.push(surveySubmissionSnapshot(headers, existing));
+  const next = surveyResponseRow(payload, responseId);
+  next[headers.indexOf("Original Response ID")] = canonicalResponseId;
+  next[contactIndex] = payload.answers?.q11 === "Yes" && contact ? contact : existing[contactIndex];
+  next[contactTimestampIndex] = payload.answers?.q11 === "Yes" && contact
+    ? cellValue(payload.timestamp)
+    : existing[contactTimestampIndex];
+  next[sourceIdsIndex] = JSON.stringify([...sourceIds, responseId]);
+  next[responseCountIndex] = sourceIds.length + 1;
+  next[historyIndex] = JSON.stringify(history);
+  sheet.getRange(existingRow, 1, 1, next.length).setValues([next]);
+  return { action: "updated", duplicate: false };
+}
+
+function surveyJsonArray(value, fallback) {
+  try {
+    const parsed = JSON.parse(String(value || ""));
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function surveySubmissionSnapshot(headers, row) {
+  const snapshot = {};
+  SURVEY_RESPONSE_HEADERS.slice(0, 31).forEach((header, index) => {
+    snapshot[header] = row[index];
+  });
+  return snapshot;
 }
 
 function analyticsSpreadsheet(properties) {
@@ -544,11 +597,8 @@ function runAnalyticsSchemaMigration(dryRun) {
     id: spreadsheet.getId(),
     sheetsPresentBeforeMigration: {
       events: Boolean(spreadsheet.getSheetByName(DEFAULT_ANALYTICS_SHEET_NAME)),
-      analyticsTesting: Boolean(spreadsheet.getSheetByName(DEFAULT_ANALYTICS_TEST_SHEET_NAME)),
       questRecords: Boolean(spreadsheet.getSheetByName(DEFAULT_QUEST_RECORD_SHEET_NAME)),
-      questRecordsTesting: Boolean(spreadsheet.getSheetByName(DEFAULT_QUEST_RECORD_TEST_SHEET_NAME)),
-      surveyResponses: Boolean(spreadsheet.getSheetByName(SURVEY_RESPONSES_SHEET_NAME)),
-      interviewContacts: Boolean(spreadsheet.getSheetByName(INTERVIEW_CONTACTS_SHEET_NAME))
+      surveyResponses: Boolean(spreadsheet.getSheetByName(SURVEY_RESPONSES_SHEET_NAME))
     }
   };
   const analyticsReports = ANALYTICS_SCHEMA_MIGRATION_SHEETS.map(spec => {
@@ -556,16 +606,14 @@ function runAnalyticsSchemaMigration(dryRun) {
     return inspectAnalyticsSchemaSheet(sheet, spec.name, spec.headers);
   });
   const surveyReports = [
-    inspectSurveySchemaSheet(spreadsheet, SURVEY_RESPONSES_SHEET_NAME, SURVEY_RESPONSE_HEADERS),
-    inspectSurveySchemaSheet(spreadsheet, INTERVIEW_CONTACTS_SHEET_NAME, INTERVIEW_CONTACT_HEADERS)
+    inspectSurveySchemaSheet(spreadsheet, SURVEY_RESPONSES_SHEET_NAME, SURVEY_RESPONSE_HEADERS)
   ];
   const result = {
     receiverVersion: RECEIVER_VERSION,
     dryRun,
     spreadsheet: spreadsheetReport,
     analyticsAndQuestRecords: analyticsReports,
-    surveyResponses: surveyReports[0],
-    interviewContacts: surveyReports[1]
+    surveyResponses: surveyReports[0]
   };
 
   // Validate every target before changing any sheet structure. Missing survey
@@ -590,12 +638,8 @@ function runAnalyticsSchemaMigration(dryRun) {
   result.surveyResponses = surveyMigrationReport(
     ensureSurveySchemaSheet(spreadsheet, SURVEY_RESPONSES_SHEET_NAME, SURVEY_RESPONSE_HEADERS)
   );
-  result.interviewContacts = surveyMigrationReport(
-    ensureSurveySchemaSheet(spreadsheet, INTERVIEW_CONTACTS_SHEET_NAME, INTERVIEW_CONTACT_HEADERS)
-  );
   result.spreadsheet.sheetsPresentAfterMigration = {
-    surveyResponses: Boolean(spreadsheet.getSheetByName(SURVEY_RESPONSES_SHEET_NAME)),
-    interviewContacts: Boolean(spreadsheet.getSheetByName(INTERVIEW_CONTACTS_SHEET_NAME))
+    surveyResponses: Boolean(spreadsheet.getSheetByName(SURVEY_RESPONSES_SHEET_NAME))
   };
   console.info(`[Analytics schema v13] ${JSON.stringify(result)}`);
   return result;

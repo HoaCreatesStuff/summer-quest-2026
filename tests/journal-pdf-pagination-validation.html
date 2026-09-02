@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Summer Quest Journal PDF pagination validation</title>
+</head>
+<body>
+  <h1>Summer Quest Journal PDF pagination validation</h1>
+  <pre id="result">Running…</pre>
+  <iframe id="appFrame" title="Summer Quest PDF export test app" hidden></iframe>
+
+  <script>
+    (async () => {
+      const STORAGE_KEY = "nyc-summer-quest-mvp-v1";
+      const result = document.querySelector("#result");
+      const frame = document.querySelector("#appFrame");
+      const checks = [];
+      const check = (name, condition, details = "") => checks.push({ name, passed: Boolean(condition), details });
+      const waitFor = async (predicate, message, timeout = 30000) => {
+        const deadline = Date.now() + timeout;
+        while (Date.now() < deadline) {
+          if (await predicate()) return;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error(message);
+      };
+      const submission = (questId, index, caption) => ({
+        questId,
+        completed: true,
+        selectedBonusIds: [],
+        friends: index % 2,
+        location: index % 2 ? "Fixture location" : "",
+        caption,
+        adventureDate: `2026-07-${String(index + 1).padStart(2, "0")}`,
+        completedAt: `2026-07-${String(index + 1).padStart(2, "0")}T12:00:00.000Z`
+      });
+      const loadSeed = async records => {
+        frame.contentWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          submissions: Object.fromEntries(records.map(record => [record.questId, record])),
+          drafts: {},
+          questDataMigrationVersion: 3
+        }));
+        const loaded = new Promise(resolve => frame.addEventListener("load", resolve, { once: true }));
+        frame.src = "../index.html";
+        await loaded;
+        await waitFor(
+          () => frame.contentDocument?.querySelector("#shareStoryBtn"),
+          "Timed out waiting for the Journal PDF export button."
+        );
+      };
+      const exportThroughButton = async () => {
+        const app = frame.contentWindow;
+        const button = frame.contentDocument.querySelector("#shareStoryBtn");
+        const reports = [];
+        const errors = [];
+        let downloads = 0;
+        const originalLog = app.console.log;
+        const originalError = app.console.error;
+        const originalClick = app.HTMLAnchorElement.prototype.click;
+        const originalAlert = app.alert;
+        app.console.log = (...args) => {
+          if (args[0] === "[Journal Export] pagination") reports.push(args[1]);
+          return originalLog.apply(app.console, args);
+        };
+        app.console.error = (...args) => {
+          if (String(args[0]).includes("[Journal Export] FAILED")) errors.push(args);
+          return originalError.apply(app.console, args);
+        };
+        app.HTMLAnchorElement.prototype.click = function () {
+          if (this.download === "Summer-Journal-2026.pdf") downloads += 1;
+        };
+        app.alert = message => errors.push(["alert", message]);
+        button.click();
+        await waitFor(() => !button.disabled && (downloads || errors.length), "Timed out waiting for PDF export.");
+        app.console.log = originalLog;
+        app.console.error = originalError;
+        app.HTMLAnchorElement.prototype.click = originalClick;
+        app.alert = originalAlert;
+        return { report: reports.at(-1), downloads, errors };
+      };
+
+      try {
+        await new Promise(resolve => {
+          frame.addEventListener("load", resolve, { once: true });
+          frame.src = "../index.html";
+        });
+
+        await loadSeed([submission("ny-eats", 0, "A short Journal memory.")]);
+        const fitting = await exportThroughButton();
+        check("An entry that fits current page exports intact", fitting.downloads === 1 && !fitting.errors.length && fitting.report?.pageEntries.flat().filter(entry => entry.id === "ny-eats").length === 1, fitting);
+
+        const mediumCaption = "A bright day. ".repeat(70);
+        await loadSeed([
+          submission("ny-eats", 0, "First short entry."),
+          submission("subway-romance", 1, mediumCaption),
+          submission("golden-hour", 2, "This complete entry must move intact to a fresh page.")
+        ]);
+        const moved = await exportThroughButton();
+        const movedPages = moved.report?.pageEntries || [];
+        const mediumPage = movedPages.findIndex(page => page.some(entry => entry.id === "subway-romance"));
+        const nextPage = movedPages.findIndex(page => page.some(entry => entry.id === "golden-hour"));
+        check("An entry that does not fit remaining space moves intact to a fresh page", moved.downloads === 1 && !moved.errors.length && mediumPage >= 0 && nextPage > mediumPage && movedPages[mediumPage].filter(entry => entry.id === "subway-romance").length === 1 && movedPages[nextPage].filter(entry => entry.id === "golden-hour").length === 1, moved);
+
+        const oversizedCaption = "A very long Journal reflection that must continue without losing any authored words. ".repeat(260);
+        await loadSeed([
+          submission("ny-eats", 0, oversizedCaption),
+          submission("subway-romance", 1, "Normal export behavior resumes after the continuation.")
+        ]);
+        const oversized = await exportThroughButton();
+        const oversizedPages = oversized.report?.pageEntries || [];
+        const nySegments = oversizedPages.flat().filter(entry => entry.id === "ny-eats");
+        const followingPage = oversizedPages.findIndex(page => page.some(entry => entry.id === "subway-romance"));
+        const lastOversizedPage = oversizedPages.reduce((last, page, index) => page.some(entry => entry.id === "ny-eats") ? index : last, -1);
+        check("A truly oversized entry exports with bounded continuation pages", oversized.downloads === 1 && !oversized.errors.length && nySegments.length > 1 && nySegments.some(entry => entry.continuation), oversized);
+        check("Normal pagination resumes after an oversized continuation", followingPage > lastOversizedPage && oversizedPages[followingPage].filter(entry => entry.id === "subway-romance").length === 1, oversized);
+        check("Every rendered page remains footer-safe", [fitting, moved, oversized].every(run => run.downloads === 1 && !run.errors.length && run.report?.footerSafeBottom > run.report?.storyTop), { fitting, moved, oversized });
+      } catch (error) {
+        checks.push({ name: "Validation harness completed", passed: false, details: error.stack || String(error) });
+      } finally {
+        const passed = checks.every(check => check.passed);
+        result.textContent = `${passed ? "PASS" : "FAIL"}\n\n${checks.map(check => `${check.passed ? "✓" : "✗"} ${check.name}${check.details ? `\n  ${typeof check.details === "string" ? check.details : JSON.stringify(check.details)}` : ""}`).join("\n")}`;
+        document.body.dataset.status = passed ? "pass" : "fail";
+      }
+    })();
+  </script>
+</body>
+</html>

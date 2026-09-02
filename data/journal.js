@@ -1099,10 +1099,13 @@
       measureCtx.font='400 26px "Libre Baskerville"';
       const titleLines=wrapJournalText(measureCtx, entry.quest.title, textWForMeasure);
       textBottom+=titleLines.length*30+16;
+      const bodyStart=textBottom;
+      const bodyLineHeight=isCaption?JE_CAPTION_LINE_HEIGHT:24;
+      let bodyLines=[];
       if(body){
         measureCtx.font = isCaption? JE_CAPTION_FONT : '400 15px Montserrat';
-        const bodyLines=wrapJournalText(measureCtx, body, textWForMeasure);
-        textBottom+=bodyLines.length*(isCaption?JE_CAPTION_LINE_HEIGHT:24);
+        bodyLines=wrapJournalText(measureCtx, body, textWForMeasure);
+        textBottom+=bodyLines.length*bodyLineHeight;
       }
       const fCount = Math.max(0, Math.trunc(Number(entry.submission.friends)||0));
       if(fCount>0) textBottom+=14+17;
@@ -1111,6 +1114,9 @@
       return {
         layoutHeight,
         textBottom,
+        bodyStart,
+        bodyLines,
+        bodyLineHeight,
         polaroid,
         decoration:{
           top:Math.min(0,polaroid.top),
@@ -1152,6 +1158,44 @@
     function visualBottomAt(structuralTop, measure){
       return structuralTop + measure.layoutHeight + measure.decoration.bottom;
     }
+    function oversizedSegmentMeasure(baseMeasure, bodyLineCount, {firstSegment,lastSegment,hasFriends}){
+      const textBottom=(firstSegment ? baseMeasure.bodyStart : 42)+bodyLineCount*baseMeasure.bodyLineHeight+
+        (lastSegment && hasFriends ? 31 : 0);
+      const layoutHeight=firstSegment ? Math.max(textBottom,JE_POLAROID_H) : textBottom;
+      const decoration=firstSegment ? {
+        top:Math.min(0,baseMeasure.polaroid.top),
+        bottom:Math.max(0,baseMeasure.polaroid.bottom-layoutHeight),
+        left:baseMeasure.polaroid.left,
+        right:baseMeasure.polaroid.right
+      } : {top:0,bottom:0,left:0,right:0};
+      return {...baseMeasure, layoutHeight, textBottom, decoration};
+    }
+    function splitOversizedEntry(wrapped, startingPageIdx){
+      const remaining=[...wrapped.measure.bodyLines];
+      if(!remaining.length) throw new Error(`Quest Entry “${wrapped.entry.quest.title}” cannot fit a readable continuation page.`);
+      const segments=[];
+      let pageIdx=startingPageIdx;
+      let firstSegment=true;
+      const hasFriends=Math.max(0,Math.trunc(Number(wrapped.entry.submission.friends)||0))>0;
+      while(remaining.length){
+        const topInset=firstSegment ? continuationTopInset(wrapped.measure) : 0;
+        const cap=capFor(pageIdx)-topInset;
+        let lineCount=remaining.length;
+        let measure;
+        while(lineCount){
+          const lastSegment=lineCount===remaining.length;
+          measure=oversizedSegmentMeasure(wrapped.measure,lineCount,{firstSegment,lastSegment,hasFriends});
+          if(measure.layoutHeight+measure.decoration.bottom<=cap+.5) break;
+          lineCount--;
+        }
+        if(!lineCount) throw new Error(`Quest Entry “${wrapped.entry.quest.title}” cannot fit a readable continuation page.`);
+        const lastSegment=lineCount===remaining.length;
+        segments.push({...wrapped, measure, oversized:true, firstSegment, lastSegment, bodyLines:remaining.splice(0,lineCount)});
+        firstSegment=false;
+        pageIdx++;
+      }
+      return segments;
+    }
     const pages = [];
     const measures=entries.map((entry,idx)=>measureEntry(entry,idx));
     const firstMeasure=measures[0];
@@ -1170,12 +1214,29 @@
       const measure=measures[i];
       const cap = capFor(pageIdx);
       const wrapped={entry:entries[i], img:mediaImages[i], icon:iconImgs[i], idx:i, measure};
+      const freshTopInset=continuationTopInset(measure);
+      if(freshTopInset+measure.layoutHeight+measure.decoration.bottom>CONTENT_H_CONT+.5){
+        if(cur.length){
+          const gaps=cur.length-1, leftover=cap-used;
+          const extra=gaps ? Math.min(leftover/gaps,JE_GAP_MAX-JE_GAP_PREF) : 0;
+          pages.push({header:false, entries:cur, gap:JE_GAP_PREF+extra, entryGaps:curGaps.map(g=>g+extra), topInset:curTopInset});
+          pageIdx++;
+          cur=[]; curGaps=[]; used=0; curTopInset=0;
+        }
+        const segments=splitOversizedEntry(wrapped,pageIdx);
+        segments.forEach((segment,segmentIndex)=>pages.push({
+          header:false, entries:[segment], gap:0,
+          topInset:segmentIndex===0 ? freshTopInset : 0
+        }));
+        pageIdx+=segments.length;
+        continue;
+      }
       const topInset=cur.length ? 0 : continuationTopInset(measure);
       const gap=cur.length ? transformedClearance(cur[cur.length-1],wrapped) : 0;
       const need=gap+topInset+measure.layoutHeight;
       if(used+need+measure.decoration.bottom <= cap + 0.5){ if(cur.length){ used+=gap; curGaps.push(gap); } else { used+=topInset; curTopInset=topInset; } cur.push(wrapped); used+=measure.layoutHeight; }
       else {
-        if(!cur.length) throw new Error(`Quest Entry “${entries[i].quest.title}” is too tall to fit on one Letter page.`);
+        if(!cur.length) throw new Error(`Quest Entry “${entries[i].quest.title}” could not be assigned to a Journal page.`);
         const gaps=cur.length-1, leftover=cap-used;
         const extra=gaps ? Math.min(leftover/gaps,JE_GAP_MAX-JE_GAP_PREF) : 0;
         pages.push({header:false, entries:cur, gap:JE_GAP_PREF+extra, entryGaps:curGaps.map(g=>g+extra), topInset:curTopInset});
@@ -1192,7 +1253,22 @@
       const extra=gaps ? Math.min(leftover/gaps,JE_GAP_MAX-JE_GAP_PREF) : 0;
       pages.push({header:false, entries:cur, gap:JE_GAP_PREF+extra, entryGaps:curGaps.map(g=>g+extra), topInset:curTopInset});
     }
-    console.log('[Journal Export] pagination', {headerH, storyTop:JE_STORY_TOP, footerSafeBottom:CONTENT_BOTTOM, contentHeight:CONTENT_H, continuationHeight:CONTENT_H_CONT, firstFitsOnCover, entryHeights:measures.map(m=>Math.round(m.layoutHeight*10)/10), longestEntryHeight:Math.round(Math.max(0,...measures.map(m=>m.layoutHeight))*10)/10, entriesPerPage:pages.map(page=>page.entries.length)});
+    console.log('[Journal Export] pagination', {
+      headerH,
+      storyTop:JE_STORY_TOP,
+      footerSafeBottom:CONTENT_BOTTOM,
+      contentHeight:CONTENT_H,
+      continuationHeight:CONTENT_H_CONT,
+      firstFitsOnCover,
+      entryHeights:measures.map(m=>Math.round(m.layoutHeight*10)/10),
+      longestEntryHeight:Math.round(Math.max(0,...measures.map(m=>m.layoutHeight))*10)/10,
+      entriesPerPage:pages.map(page=>page.entries.length),
+      pageEntries:pages.map(page=>(page.entries||[]).map(segment=>({
+        id:segment.entry.quest.id,
+        continuation:Boolean(segment.oversized && !segment.firstSegment),
+        oversized:Boolean(segment.oversized)
+      })))
+    });
     // Ending dedicated
     pages.push({ending:true, boardQuests, boardMedia, boardIcons, totals, rank, friendsJoined});
 
@@ -1242,8 +1318,9 @@
       // draw entries
       const ents = page.entries || [];
       for(let ei=0; ei<ents.length; ei++){
-        const {entry, img, icon, idx} = ents[ei];
-        if(visualBottomAt(y,ents[ei].measure)>CONTENT_BOTTOM+.5) throw new Error(`Quest Entry “${entry.quest.title}” would enter the Journal footer clearance zone.`);
+        const segment=ents[ei];
+        const {entry, img, icon, idx} = segment;
+        if(visualBottomAt(y,segment.measure)>CONTENT_BOTTOM+.5) throw new Error(`Quest Entry “${entry.quest.title}” would enter the Journal footer clearance zone.`);
         const isRev = idx%2===1;
         const polaroidW=JE_POLAROID_W, polaroidH=JE_POLAROID_H, photo=188;
         const tilt = JE_TILTS[idx%JE_TILTS.length];
@@ -1252,30 +1329,35 @@
         const entryGap=journalTextGap(entry,idx);
         const textX = isRev ? 0.90*96 : 0.90*96+polaroidW+entryGap;
         const textW = canvas.width-1.8*96 - polaroidW-entryGap;
-        // polaroid backing
-        ctx.save(); ctx.translate(colX+polaroidW/2, y+polaroidH/2); ctx.rotate((isRev?-2.2:2.2)*Math.PI/180); ctx.fillStyle = ['#fff4d2','#d5e8e3','#f9d7d4','#f8e7bd'][idx%4]; ctx.fillRect(-polaroidW/2+8, -polaroidH/2+10, polaroidW, polaroidH); ctx.restore();
-        // polaroid frame
-        ctx.save(); ctx.translate(colX+polaroidW/2, y+ polaroidW/2); ctx.rotate(tilt*Math.PI/180);
-        ctx.fillStyle='#fff'; ctx.strokeStyle='rgba(39,37,34,.07)'; ctx.lineWidth=1;
-        ctx.fillRect(-polaroidW/2, -polaroidW/2, polaroidW, polaroidW+28); ctx.strokeRect(-polaroidW/2, -polaroidW/2, polaroidW, polaroidW+28);
-        const imgX=-photo/2, imgY=-polaroidW/2+9;
-        if(img){ ctx.save(); ctx.beginPath(); ctx.rect(imgX, imgY, photo, photo); ctx.clip(); const scale=Math.max(photo/img.width, photo/img.height); const sw=photo/scale, sh=photo/scale, sx=(img.width-sw)/2, sy=(img.height-sh)/2; ctx.drawImage(img,sx,sy,sw,sh,imgX,imgY,photo,photo); ctx.restore(); } else if(icon){ ctx.drawImage(icon, imgX+photo*0.2, imgY+photo*0.2, photo*0.6, photo*0.6); }
-        ctx.fillStyle='#4f4a44'; ctx.font=JE_LOCATION_FONT; ctx.textAlign='center'; const loc=String(entry.submission.location||'').trim(); if(loc) ctx.fillText(loc,0, polaroidW/2+14); ctx.textAlign='left';
-        // stamp
-        const stampAnchor=journalStampAnchor(sSize,offX,offY);
-        ctx.save(); ctx.translate(stampAnchor.x, stampAnchor.y); ctx.rotate(sRot*Math.PI/180); if(stampImg) ctx.drawImage(stampImg, -sSize/2, -sSize/2, sSize, sSize); ctx.restore();
-        ctx.restore();
+        const isContinuation=segment.oversized && !segment.firstSegment;
+        if(!isContinuation){
+          // polaroid backing
+          ctx.save(); ctx.translate(colX+polaroidW/2, y+polaroidH/2); ctx.rotate((isRev?-2.2:2.2)*Math.PI/180); ctx.fillStyle = ['#fff4d2','#d5e8e3','#f9d7d4','#f8e7bd'][idx%4]; ctx.fillRect(-polaroidW/2+8, -polaroidH/2+10, polaroidW, polaroidH); ctx.restore();
+          // polaroid frame
+          ctx.save(); ctx.translate(colX+polaroidW/2, y+ polaroidW/2); ctx.rotate(tilt*Math.PI/180);
+          ctx.fillStyle='#fff'; ctx.strokeStyle='rgba(39,37,34,.07)'; ctx.lineWidth=1;
+          ctx.fillRect(-polaroidW/2, -polaroidW/2, polaroidW, polaroidW+28); ctx.strokeRect(-polaroidW/2, -polaroidW/2, polaroidW, polaroidW+28);
+          const imgX=-photo/2, imgY=-polaroidW/2+9;
+          if(img){ ctx.save(); ctx.beginPath(); ctx.rect(imgX, imgY, photo, photo); ctx.clip(); const scale=Math.max(photo/img.width, photo/img.height); const sw=photo/scale, sh=photo/scale, sx=(img.width-sw)/2, sy=(img.height-sh)/2; ctx.drawImage(img,sx,sy,sw,sh,imgX,imgY,photo,photo); ctx.restore(); } else if(icon){ ctx.drawImage(icon, imgX+photo*0.2, imgY+photo*0.2, photo*0.6, photo*0.6); }
+          ctx.fillStyle='#4f4a44'; ctx.font=JE_LOCATION_FONT; ctx.textAlign='center'; const loc=String(entry.submission.location||'').trim(); if(loc) ctx.fillText(loc,0, polaroidW/2+14); ctx.textAlign='left';
+          // stamp
+          const stampAnchor=journalStampAnchor(sSize,offX,offY);
+          ctx.save(); ctx.translate(stampAnchor.x, stampAnchor.y); ctx.rotate(sRot*Math.PI/180); if(stampImg) ctx.drawImage(stampImg, -sSize/2, -sSize/2, sSize, sSize); ctx.restore();
+          ctx.restore();
+        }
         // text
         let ty=y+6;
-        ctx.fillStyle='#f35f59'; ctx.font='600 12.8px Montserrat'; if(icon) ctx.drawImage(icon, textX, ty-14, 22,22);
-        ctx.fillText(formattedDate(entry.adventureDate).toUpperCase(), textX+30, ty); ty+=36;
-        ctx.fillStyle='#272522'; ctx.font='400 26px "Libre Baskerville"'; const titleLines=wrapJournalText(ctx,entry.quest.title,textW); titleLines.forEach((line,lineIndex)=>ctx.fillText(line,textX,ty+lineIndex*30)); ty+=titleLines.length*30+16;
+        ctx.fillStyle='#f35f59'; ctx.font='600 12.8px Montserrat';
+        if(isContinuation){ ctx.fillText(`CONTINUED · ${entry.quest.title}`.toUpperCase(),textX,ty); ty+=36; }
+        else { if(icon) ctx.drawImage(icon, textX, ty-14, 22,22); ctx.fillText(formattedDate(entry.adventureDate).toUpperCase(), textX+30, ty); ty+=36;
+          ctx.fillStyle='#272522'; ctx.font='400 26px "Libre Baskerville"'; const titleLines=wrapJournalText(ctx,entry.quest.title,textW); titleLines.forEach((line,lineIndex)=>ctx.fillText(line,textX,ty+lineIndex*30)); ty+=titleLines.length*30+16; }
         const {body,isCaption}=journalEntryBody(entry);
         ctx.fillStyle = isCaption? '#4f4a44':'#272522';
         ctx.font = isCaption? JE_CAPTION_FONT : '400 15px Montserrat';
-        if(body){ const bodyLines=wrapJournalText(ctx,body,textW); bodyLines.forEach((line,lineIndex)=>ctx.fillText(line,textX,ty+lineIndex*(isCaption?JE_CAPTION_LINE_HEIGHT:24))); ty+=bodyLines.length*(isCaption?JE_CAPTION_LINE_HEIGHT:24); }
+        const bodyLines=segment.oversized ? segment.bodyLines : body ? wrapJournalText(ctx,body,textW) : [];
+        if(bodyLines.length){ bodyLines.forEach((line,lineIndex)=>ctx.fillText(line,textX,ty+lineIndex*(isCaption?JE_CAPTION_LINE_HEIGHT:24))); ty+=bodyLines.length*(isCaption?JE_CAPTION_LINE_HEIGHT:24); }
         const fCount = Math.max(0, Math.trunc(Number(entry.submission.friends)||0));
-        if(fCount>0){
+        if(fCount>0 && (!segment.oversized || segment.lastSegment)){
           ty+=14;
           ctx.fillStyle='#6f6a63'; ctx.textBaseline='alphabetic';
           ctx.font='500 12.5px Montserrat'; const friendTextMetrics=ctx.measureText(`+${fCount} ${fCount===1?'friend':'friends'}`);

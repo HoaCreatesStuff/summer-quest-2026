@@ -200,16 +200,16 @@ Script Property `ANALYTICS_SECRET` should match the client secret. If that
 property is missing, the receiver falls back to the client-compatible constant
 so an incomplete deployment cannot disable all analytics. Optional properties
 are `ANALYTICS_SPREADSHEET_ID`, `ANALYTICS_SHEET_NAME`,
-`ANALYTICS_TEST_SHEET_NAME`, `ANALYTICS_QUEST_SHEET_NAME`, and
-`ANALYTICS_QUEST_TEST_SHEET_NAME`. `ANALYTICS_DIAGNOSTICS=true` enables detailed error
+and `ANALYTICS_QUEST_SHEET_NAME`. `ANALYTICS_DIAGNOSTICS=true` enables detailed error
 responses and should be used only during receiver development.
 
 Every JSON response includes `receiverVersion`, including readable errors, so a
 client can persist the exact deployed receiver version and response status for
 migration diagnostics.
 
-Only payloads with the boolean `is_test: true` go to `Analytics Testing` (or
-the configured test sheet). Every other payload goes to the single production
+Payloads with the boolean `is_test: true` are acknowledged as ignored: the
+testing sheets were retired, and these legacy developer-mode payloads must not
+fall through into production. Every normal payload goes to the single production
 sheet, `Events` (or the configured production sheet). The receiver preserves
 numeric build values with a matching zero-padded format so leading zeros are not
 lost, including both legacy and current build conventions. It requires the
@@ -225,11 +225,11 @@ event key.
 
 ## Schema Migration v12
 
-`doPost()` never changes sheet structure. Deploy receiver v12 before running
-the migration so the older receiver cannot append retired headers again. Then
-open the bound Apps Script project and run `previewAnalyticsSchemaMigrationToV12()`.
-It validates `Events`, `Analytics Testing`, `Quest Records`, and `Quest Records
-Testing`, reporting the exact retired columns it would remove. It stops without
+`doPost()` never changes analytics or quest-record sheet structure. Deploy the
+current receiver before running the migration so an older receiver cannot append
+retired headers again. Then open the bound Apps Script project and run
+`previewAnalyticsSchemaMigrationToV12()`. It validates `Events` and `Quest
+Records`, reporting the exact retired columns it would remove. It stops without
 changing anything if a sheet is missing, has no header row, has duplicate or
 blank headers, has a row-width mismatch, or does not reduce to the exact v12
 header set. A sheet with the complete known header set in a legacy order is a

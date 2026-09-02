@@ -41,10 +41,14 @@
       const result = document.querySelector("#result");
       const frame = document.querySelector("#appFrame");
       const storageKey = "nyc-summer-quest-mvp-v1";
+      const analyticsSharingKey = "summerQuestAnonymousSharingEnabled";
+      const initialAnalyticsSharingPreference = localStorage.getItem(analyticsSharingKey);
       const checks = [];
       const mediaIds = window.BOARD_ORDER.map(
         (_, index) => `finale-e2e-photo-${index + 1}`
       );
+      const postFinalQuestId = window.BOARD_ORDER[0];
+      const postFinalMediaId = "post-finale-e2e-photo";
 
       function check(name, condition, details = "") {
         checks.push({ name, passed: Boolean(condition), details });
@@ -129,6 +133,8 @@
       }
 
       try {
+        // This UI test uses the real app but must not submit fixture records to analytics.
+        localStorage.setItem(analyticsSharingKey, "false");
         await window.QuestMediaStore.clearDatabase();
         const blobs = await Promise.all(
           window.BOARD_ORDER.map((_, index) => imageBlob(index))
@@ -382,6 +388,149 @@
             refreshedDocument.querySelector("#sheetBackdrop").hidden
         );
 
+        // Party Time remains complete while a previously completed standard quest is
+        // made available again, modelling a player who finished the narrative finale
+        // before returning to an unfinished quest later.
+        const postFinalSeed = JSON.parse(localStorage.getItem(storageKey));
+        delete postFinalSeed.submissions[postFinalQuestId];
+        postFinalSeed.drafts[postFinalQuestId] = {
+          questId: postFinalQuestId,
+          mediaId: postFinalMediaId,
+          mediaType: "image/jpeg",
+          friends: 0,
+          adventureDate: "2026-08-20",
+          location: "Post-finale stop",
+          caption: "Draft saved after Party Time",
+          selectedBonusIds: []
+        };
+        localStorage.setItem(storageKey, JSON.stringify(postFinalSeed));
+        await window.QuestMediaStore.put(postFinalMediaId, await imageBlob(25));
+
+        const postFinalReload = waitForFrameLoad();
+        frame.contentWindow.location.reload();
+        await postFinalReload;
+        await waitFor(
+          () => frame.contentDocument?.querySelector('[data-quest-id="' + postFinalQuestId + '"]'),
+          "The post-finale board did not reload."
+        );
+        const postFinalDocument = frame.contentDocument;
+        const scoreBeforePostFinalSave = Number(
+          postFinalDocument.querySelector("#score")?.textContent || 0
+        );
+        postFinalDocument
+          .querySelector('[data-quest-id="' + postFinalQuestId + '"]')
+          .click();
+        await waitFor(
+          () => postFinalDocument.querySelector("#saveQuest")?.textContent.trim() === "Save Memory",
+          "A standard quest could not be opened after Party Time."
+        );
+        check(
+          "After Party Time, incomplete quests retain photo, caption, friend, and completion controls",
+          !postFinalDocument.querySelector("#friendsField").hidden &&
+            !postFinalDocument.querySelector("#captionInput").disabled &&
+            !postFinalDocument.querySelector("#incrementFriends").disabled &&
+            !postFinalDocument.querySelector("#saveQuest").disabled,
+          { postFinalQuestId }
+        );
+        const postFinalCaption = "A new memory after Party Time";
+        const postFinalCaptionInput = postFinalDocument.querySelector("#captionInput");
+        postFinalCaptionInput.value = postFinalCaption;
+        postFinalCaptionInput.dispatchEvent(new Event("input", { bubbles: true }));
+        postFinalDocument.querySelector("#incrementFriends").click();
+        postFinalDocument.querySelector("#incrementFriends").click();
+        postFinalDocument.querySelector("#saveQuest").click();
+        await waitFor(
+          () => {
+            const saved = JSON.parse(localStorage.getItem(storageKey));
+            return saved.submissions?.[postFinalQuestId]?.completed === true;
+          },
+          "The post-finale quest was not persisted locally."
+        );
+        const postFinalSaved = JSON.parse(localStorage.getItem(storageKey));
+        const scoreAfterPostFinalSave = Number(
+          postFinalDocument.querySelector("#score")?.textContent || 0
+        );
+        check(
+          "A post-finale completion persists and continues the live score",
+          postFinalSaved.submissions["party-time"]?.completed === true &&
+            postFinalSaved.submissions[postFinalQuestId]?.caption === postFinalCaption &&
+            postFinalSaved.submissions[postFinalQuestId]?.friends === 2 &&
+            postFinalSaved.submissions[postFinalQuestId]?.submissionVersion === 1 &&
+            scoreAfterPostFinalSave > scoreBeforePostFinalSave,
+          { scoreBeforePostFinalSave, scoreAfterPostFinalSave, postFinalSaved }
+        );
+        await waitFor(
+          () => postFinalDocument.querySelector(
+            '#story-' + postFinalQuestId + ' .story-caption'
+          )?.textContent.trim() === postFinalCaption,
+          "The post-finale quest did not appear in the Journal."
+        );
+        check(
+          "The Journal includes a quest completed after Party Time",
+          Boolean(postFinalDocument.querySelector('#story-' + postFinalQuestId)),
+          { postFinalQuestId }
+        );
+
+        postFinalDocument.querySelector("#saveBoardBtn").click();
+        await waitFor(
+          () => postFinalDocument.querySelector("#keepsakeArtworkScore")?.textContent.trim() ===
+            String(scoreAfterPostFinalSave) &&
+            postFinalDocument.querySelector("#keepsakeArtworkCompleted")?.textContent.trim() === "25/25",
+          "The Keepsake did not regenerate with the post-finale score."
+        );
+        check(
+          "The Keepsake regenerates from post-finale quest state",
+          postFinalDocument.querySelector("#keepsakeArtworkScore")?.textContent.trim() ===
+            String(scoreAfterPostFinalSave) &&
+            postFinalDocument.querySelector("#keepsakeArtworkCompleted")?.textContent.trim() === "25/25",
+          { scoreAfterPostFinalSave }
+        );
+
+        postFinalDocument.querySelector('[data-route="board"]').click();
+        await waitFor(
+          () => postFinalDocument.querySelector('[data-quest-id="' + postFinalQuestId + '"]'),
+          "The board could not be reopened after the Keepsake."
+        );
+        postFinalDocument.querySelector('[data-quest-id="' + postFinalQuestId + '"]').click();
+        await waitFor(
+          () => postFinalDocument.querySelector("#saveQuest")?.textContent.trim() === "View Summer Journal",
+          "A completed post-finale quest could not be edited."
+        );
+        postFinalDocument.querySelector("#incrementFriends").click();
+        await waitFor(
+          () => postFinalDocument.querySelector("#saveQuest")?.textContent.trim() === "Save Changes",
+          "A post-finale edit did not enable saving."
+        );
+        postFinalDocument.querySelector("#saveQuest").click();
+        await waitFor(
+          () => JSON.parse(localStorage.getItem(storageKey))
+            .submissions?.[postFinalQuestId]?.submissionVersion === 2,
+          "The post-finale quest edit was not persisted."
+        );
+        const postFinalEdited = JSON.parse(localStorage.getItem(storageKey));
+        check(
+          "Post-finale edits remain writable after returning from the Keepsake",
+          postFinalEdited.submissions[postFinalQuestId]?.friends === 3 &&
+            postFinalEdited.submissions[postFinalQuestId]?.submissionVersion === 2,
+          { postFinalEdited }
+        );
+
+        const postFinalPersistenceReload = waitForFrameLoad();
+        frame.contentWindow.location.reload();
+        await postFinalPersistenceReload;
+        await waitFor(
+          () => frame.contentDocument?.querySelector('[data-quest-id="' + postFinalQuestId + '"]'),
+          "The PWA-style reload after a post-finale edit did not finish."
+        );
+        const persistedPostFinalState = JSON.parse(localStorage.getItem(storageKey));
+        check(
+          "Post-finale completion and edit survive a PWA-style reload",
+          persistedPostFinalState.submissions["party-time"]?.completed === true &&
+            persistedPostFinalState.submissions[postFinalQuestId]?.friends === 3 &&
+            persistedPostFinalState.submissions[postFinalQuestId]?.submissionVersion === 2,
+          { persistedPostFinalState }
+        );
+
         const failed = checks.filter((item) => !item.passed);
         result.textContent = JSON.stringify({
           status: failed.length ? "FAIL" : "PASS",
@@ -398,6 +547,11 @@
         }, null, 2);
       } finally {
         localStorage.removeItem(storageKey);
+        if (initialAnalyticsSharingPreference === null) {
+          localStorage.removeItem(analyticsSharingKey);
+        } else {
+          localStorage.setItem(analyticsSharingKey, initialAnalyticsSharingPreference);
+        }
         await window.QuestMediaStore.clearDatabase().catch(() => {});
       }
     })();

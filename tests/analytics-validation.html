@@ -948,6 +948,61 @@
           { recurringPayloads, recurringSyncState }
         );
 
+        const postFinalStore = new Map([
+          ["summerQuestInstallationId", "SQ-POSTFINAL123"]
+        ]);
+        const postFinalState = {
+          submissions: {
+            final: {
+              ...finalSubmission,
+              completed: true,
+              completedAt: "2026-08-16T18:00:00.000Z",
+              updatedAt: "2026-08-16T18:00:00.000Z",
+              submissionVersion: 1
+            }
+          }
+        };
+        const postFinal = createHarness({
+          store: postFinalStore,
+          runTimers: true,
+          randomSeed: 155
+        });
+        postFinal.api.init(questContext(postFinalState));
+        await new Promise(resolve => window.setTimeout(resolve, 40));
+        postFinalState.submissions.first = {
+          ...privateSubmission,
+          friends: 2,
+          completedAt: "2026-08-20T18:00:00.000Z",
+          updatedAt: "2026-08-20T18:00:00.000Z",
+          submissionVersion: 1
+        };
+        postFinal.api.trackQuestSaved({
+          questId: "first",
+          submission: postFinalState.submissions.first,
+          previousCompletedCount: 1,
+          wasCompletedBefore: false
+        });
+        await new Promise(resolve => window.setTimeout(resolve, 40));
+        const postFinalPayloads = await postFinal.payloads();
+        const postFinalReconciliation = postFinalPayloads.find(payload =>
+          payload.requestType === "quest_reconciliation" &&
+            payload.records.some(record =>
+              record.recordKey === "SQ-POSTFINAL123:first" &&
+                record.completionStatus === "completed" &&
+                record.friendsCount === 2 &&
+                record.submissionVersion === 1
+            )
+        );
+        check(
+          "A non-finale quest saved after Party Time still emits completion and reconciliation",
+          postFinalPayloads.some(payload =>
+            payload.eventName === "quest_completed" &&
+              payload.questId === "first"
+          ) &&
+            Boolean(postFinalReconciliation),
+          { postFinalPayloads, postFinalReconciliation }
+        );
+
         const recurringRestart = createHarness({
           store: recurringStore,
           runTimers: true,
@@ -1192,12 +1247,12 @@
         );
 
         const receiverApi = new Function(
-          `${receiverSource}\nreturn { version: RECEIVER_VERSION, headers: ANALYTICS_HEADERS, questHeaders: QUEST_RECORD_HEADERS, values: analyticsValues, readHeaders: readReceiverHeaders, inspectSchema: inspectAnalyticsSchemaSheet, migrateSchemaSheet: migrateAnalyticsSchemaSheet, reconcile: reconcileQuestRecords, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, questSheetName: questRecordSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields, missingReconciliationFields: analyticsMissingReconciliationFields };`
+          `${receiverSource}\nreturn { version: RECEIVER_VERSION, headers: ANALYTICS_HEADERS, questHeaders: QUEST_RECORD_HEADERS, surveyHeaders: SURVEY_RESPONSE_HEADERS, values: analyticsValues, readHeaders: readReceiverHeaders, inspectSchema: inspectAnalyticsSchemaSheet, migrateSchemaSheet: migrateAnalyticsSchemaSheet, reconcile: reconcileQuestRecords, writeRow: writeAnalyticsRow, isTest: analyticsPayloadIsTest, sheetName: analyticsSheetName, questSheetName: questRecordSheetName, expectedSecret: analyticsExpectedSecret, missingFields: analyticsMissingPayloadFields, missingReconciliationFields: analyticsMissingReconciliationFields };`
         )();
         const receiverValues = receiverApi.values(firstQuestPayload);
         check(
           "Apps Script receiver maps the complete v1.0 contract",
-          receiverApi.version === "12" &&
+          receiverApi.version === "14" &&
           receiverApi.headers[0] === "Event Timestamp" &&
           !["Received At", "Last Received At", "Completed At", "Timestamp Precision", "Has Reflection"].some(
             header => receiverApi.headers.includes(header) || receiverApi.questHeaders.includes(header)
@@ -1231,15 +1286,11 @@
           }
         });
         check(
-          "Receiver routes only explicit test payloads to the testing sheet",
+          "Receiver has no test-sheet route after testing cleanup",
           receiverApi.sheetName(
             { environment: "development", is_test: true },
             sheetProperties({})
-          ) === "Analytics Testing" &&
-            receiverApi.sheetName(
-              { environment: "development", is_test: true },
-              sheetProperties({ ANALYTICS_TEST_SHEET_NAME: "QA Events" })
-            ) === "QA Events" &&
+          ) === "Events" &&
             receiverApi.sheetName({}, sheetProperties({})) === "Events" &&
             receiverApi.isTest({ is_test: "true" }) === false
         );
@@ -1257,7 +1308,7 @@
             receiverApi.isTest({ environment: "development", is_test: false }) === false
         );
         check(
-          "Quest reconciliation uses dedicated production and explicit test sheets",
+          "Quest reconciliation has no testing-sheet route",
           receiverApi.questSheetName(
             { environment: "beta", is_test: false },
             sheetProperties({})
@@ -1265,11 +1316,18 @@
             receiverApi.questSheetName(
               { environment: "development", is_test: true },
               sheetProperties({})
-            ) === "Quest Records Testing" &&
+            ) === "Quest Records" &&
             receiverApi.questSheetName(
               { is_test: false },
               sheetProperties({ ANALYTICS_QUEST_SHEET_NAME: "Current Quests" })
             ) === "Current Quests"
+        );
+        check(
+          "Consolidated survey storage retains contact and submission lineage columns",
+          [
+            "Name / Contact Info", "Contact Submitted At", "Source Response IDs",
+            "Response Count", "Prior Submission Snapshots"
+          ].every(header => receiverApi.surveyHeaders.includes(header))
         );
         check(
           "Receiver inserts, updates, deletes, and no-ops one row per stable quest key",
